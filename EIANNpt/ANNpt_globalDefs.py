@@ -223,7 +223,8 @@ if(printAccuracyRunningAverage):
 
 useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
-	usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
+	if(not useAlgorithmEIANN and not useAlgorithmEIOR):
+		usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
 
 learningRate = 0.005	#0.005	#0.0001
 

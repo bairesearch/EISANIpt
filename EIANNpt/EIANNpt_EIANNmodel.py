@@ -15,6 +15,10 @@ see ANNpt_main.py
 # Description:
 EIANNpt excitatory inhibitory artificial neural network model
 
+implementation note:
+- a relU function is applied to both E and I neurons (so their output will always be positive)
+- the weight matrices with inhibitory neuron input (ie Ei and Ii) are always set to negative
+
 """
 
 import torch as pt
@@ -41,7 +45,11 @@ class EIANNmodel(nn.Module):
 	def __init__(self, config):
 		super().__init__()
 		self.config = config
-
+		configE = config
+		configI = config
+		configE.hiddenLayerSize = hiddenLayerSizeE
+		configI.hiddenLayerSize = hiddenLayerSizeI
+		
 		layersLinearListEe = []
 		layersLinearListEi = []
 		layersLinearListIe = []
@@ -95,23 +103,23 @@ class EIANNmodel(nn.Module):
 			if(trainLastLayerOnly):
 				xE = xE.detach()
 				xI = xI.detach()
-			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], parallelStreams=False, sign=True)	#inhibitory neuron excitatory input
-			zIi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearIi[layerIndex], parallelStreams=False, sign=False)	#inhibitory neuron inhibitory input
+			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], sign=True)	#inhibitory neuron excitatory input
+			zIi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearIi[layerIndex], sign=False)	#inhibitory neuron inhibitory input
 			zI = zIe + zIi	#sum the positive/negative inputs of the inhibitory neurons
-			xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex], parallelStreams=False)	#relU
+			xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex])	#relU
 			if(firstHiddenLayerExcitatoryInputOnly):
-				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], parallelStreams=False, sign=True)	#excitatory neuron excitatory input
-				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearEi[layerIndex], parallelStreams=False, sign=False)	#excitatory neuron inhibitory input
+				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], sign=True)	#excitatory neuron excitatory input
+				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearEi[layerIndex], sign=False)	#excitatory neuron inhibitory input
 			else:
-				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], parallelStreams=False, sign=True)	#excitatory neuron excitatory input
-				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xI, self.layersLinearEi[layerIndex], parallelStreams=False, sign=False)	#excitatory neuron inhibitory input
+				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], sign=True)	#excitatory neuron excitatory input
+				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xI, self.layersLinearEi[layerIndex], sign=False)	#excitatory neuron inhibitory input
 			zE = zEe + zEi	#sum the positive/negative inputs of the excitatory neurons
-			xE = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zE, self.layersActivationE[layerIndex], parallelStreams=False)	#relU
+			xE = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zE, self.layersActivationE[layerIndex])	#relU
 			if(firstHiddenLayerExcitatoryInputOnly):
 				#normalise via top k (normalise activation sparsity) because there is no inhibitory input
-				k = self.hiddenLayerSize//2
+				k = self.hiddenLayerSizeE//2
 				xE = self.deactivateNonTopKneurons(xE, k)
-				
+						
 			if(debugSmallNetwork):
 				print("layerIndex = ", layerIndex)
 				print("xE after linear = ", xE)
@@ -139,6 +147,25 @@ class EIANNmodel(nn.Module):
 					hebbianMatrixEi = hebbianMatrixE
 					hebbianMatrixIe = hebbianMatrixI
 					hebbianMatrixIi = hebbianMatrixI
+				if(debugSanityChecks):
+					print("\n")
+					print("xPrevE = ", xPrevE)
+					print("xPrevI = ", xPrevI)
+					print("zI = ", zI)
+					print("zE = ", zE)
+					print("xI = ", xI)
+					print("xE = ", xE)
+					print("zEe = ", zEe)
+					print("zEi = ", zEi)
+					print("zIe = ", zIe)
+					print("zIi = ", zIi)
+					print("zEe = ", zEe)
+					print("zEi = ", zEi)
+					print("hebbianMatrixEe = ", hebbianMatrixEe)
+					print("hebbianMatrixEi = ", hebbianMatrixEi)
+					print("hebbianMatrixIe = ", hebbianMatrixIe)
+					print("hebbianMatrixIi = ", hebbianMatrixIi)
+
 				if(EIANNlocalLearningApplyError):
 					errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
 					errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
@@ -152,7 +179,7 @@ class EIANNmodel(nn.Module):
 				self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
 			if(debugSmallNetwork):
 				print("x after activation = ", x)
-		
+				
 		if(useLinearSublayers):
 			x = x.squeeze(dim=1)
 
@@ -220,11 +247,9 @@ class EIANNmodel(nn.Module):
 	def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):
 		#use local hebbian learning rule - CHECKTHIS
 		layerWeights = layerLinear.weight
-		#layerWeights = pt.reshape(layerWeights, (linearSublayersNumber, hiddenLayerSize, layerWeights.shape[1], layerWeights.shape[2]))	#useLinearSublayers only
 	
 		weightUpdate = hebbianMatrix*EIANNlocalLearningRate
 		layerWeights = layerWeights + weightUpdate
 			
-		#layerWeights = pt.reshape(layerWeights, (linearSublayersNumber*hiddenLayerSize, layerWeights.shape[2], layerWeights.shape[3]))	#useLinearSublayers only
 		layerLinear.weight = pt.nn.Parameter(layerWeights)
 

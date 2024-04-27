@@ -19,6 +19,7 @@ EIANNpt EIANN globalDefs
 
 debugUsePositiveWeightsVerify = False
 debugSmallNetwork = False
+debugSanityChecks = False
 
 activationFunctionType = "relu"
 
@@ -55,9 +56,12 @@ if(trainLastLayerOnly):
 	#override ANNpt_globalDefs default model parameters;
 	batchSize = 64
 	numberOfLayers = 4	#CHECKTHIS
-	hiddenLayerSize = 10	#CHECKTHIS
+	#hiddenLayerSize = 10	#not used
+	hiddenLayerSizeE = 10	
+	hiddenLayerSizeI = 7	#ensure E I layer sizes differ to prevent collapse (to same function)
 
-	normaliseActivationSparsity = True	#increases performance
+normaliseActivationSparsity = False
+useCustomBiasInitialisation = True	#required to set all biases to 0
 
 
 workingDrive = '/large/source/ANNpython/EIANNpt/'
