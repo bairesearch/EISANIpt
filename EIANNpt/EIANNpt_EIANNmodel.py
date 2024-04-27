@@ -128,23 +128,24 @@ class EIANNmodel(nn.Module):
 					x, xIndex = self.performTopK(x)
 			if(trainOrTest and EIANNlocalLearning):
 				if(hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix):
-					hebbianMatrixEe = self.calculateAssociationMatrix(layerIndex, zEe, xPrevE)	#all +ve
-					hebbianMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xI)	#all -ve
-					hebbianMatrixIe = self.calculateAssociationMatrix(layerIndex, zIe, xPrevE)	#all -ve
-					hebbianMatrixIi = self.calculateAssociationMatrix(layerIndex, zIi, xPrevI)	#all +ve
+					hebbianMatrixEe = self.calculateAssociationMatrix(layerIndex, zEe, xPrevE)	#all +ve	#shape: [batchSize,] o, i
+					hebbianMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xI)	#all -ve	#shape: [batchSize,] o, i
+					hebbianMatrixIe = self.calculateAssociationMatrix(layerIndex, zIe, xPrevE)	#all -ve	#shape: [batchSize,] o, i
+					hebbianMatrixIi = self.calculateAssociationMatrix(layerIndex, zIi, xPrevI)	#all +ve	#shape: [batchSize,] o, i
 				else:
-					hebbianMatrixE = self.calculateAssociationMatrix(layerIndex, zE, xPrevE)	#all +ve
-					hebbianMatrixI = self.calculateAssociationMatrix(layerIndex, zI, xPrevI)	#all -ve
+					hebbianMatrixE = self.calculateAssociationMatrix(layerIndex, zE, xPrevE)	#all +ve	#shape: [batchSize,] o, i
+					hebbianMatrixI = self.calculateAssociationMatrix(layerIndex, zI, xPrevI)	#all -ve	#shape: [batchSize,] o, i
 					hebbianMatrixEe = hebbianMatrixE
 					hebbianMatrixEi = hebbianMatrixE
 					hebbianMatrixIe = hebbianMatrixI
 					hebbianMatrixIi = hebbianMatrixI
 				if(EIANNlocalLearningApplyError):
-					error = self.calculateError(xE, xI)
-					hebbianMatrixEe = self.calculateHebbianMatrix(hebbianMatrixEe, error, False)	#if +ve error, want to decrease Ee (ie +ve) weights
-					hebbianMatrixEi = self.calculateHebbianMatrix(hebbianMatrixEi, error, True)	#if +ve error, want to increase Ei (ie -ve) weights
-					hebbianMatrixIe = self.calculateHebbianMatrix(hebbianMatrixIe, error, False)	#if +ve error, want to decrease Ie (ie +ve) weights
-					hebbianMatrixIi = self.calculateHebbianMatrix(hebbianMatrixIi, error, True)	#if +ve error, want to increase Ii (ie -ve) weights
+					errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
+					errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
+					hebbianMatrixEe = self.calculateHebbianMatrix(hebbianMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
+					hebbianMatrixEi = self.calculateHebbianMatrix(hebbianMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
+					hebbianMatrixIe = self.calculateHebbianMatrix(hebbianMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
+					hebbianMatrixIi = self.calculateHebbianMatrix(hebbianMatrixIi, errorI, True)	#if +ve error, want to increase Ii (ie -ve) weights
 				self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
 				self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
 				self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
@@ -178,23 +179,42 @@ class EIANNmodel(nn.Module):
 		if(useLinearSublayers):
 			x = pt.squeeze(x, dim=1)		#assume linearSublayersNumber=1
 			xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
-		associationMatrix = pt.matmul(pt.transpose(x, 0, 1), xPrev)
+		if(EIANNassociationMatrixBatched):
+			#retain batchSize dim in associationMatrix
+			x = x.unsqueeze(2)  # Shape will be (batchSize, x, 1)
+			xPrev = xPrev.unsqueeze(1)  # Shape will be (batchSize, 1, y)
+			associationMatrix = x * xPrev  # Resultant shape will be (batchSize, x, y)
+		else:
+			associationMatrix = pt.matmul(pt.transpose(x, 0, 1), xPrev)
 		return associationMatrix
+			
+	def calculateErrorSign(self, e, i):
+		error = calculateError(e, i)
+		errorSign = pt.sign(error).float()
+		return errorSign
 		
-	def calculateError(self, xE, xI):
-		error = xE + xI
+	def calculateError(self, e, i):
+		error = e + i	#e is +ve, i is -ve
 		return error
 
 	def calculateHebbianMatrix(self, associationMatrix, error, sign):
 		associationMatrix = pt.abs(associationMatrix)
 		#print("associationMatrix.shape = ", associationMatrix.shape)
 		#print("error.shape = ", error.shape)
-		error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
-		error = pt.unsqueeze(error, dim=1)
-		if(sign):
-			hebbianMatrix = associationMatrix*error*1
+		if(EIANNassociationMatrixBatched):
+			error = pt.unsqueeze(error, dim=2)
+			if(sign):
+				hebbianMatrix = associationMatrix*error*1
+			else:
+				hebbianMatrix = associationMatrix*error*-1	
+			hebbianMatrix = pt.mean(hebbianMatrix, dim=0) #average error over batchSize
 		else:
-			hebbianMatrix = associationMatrix*error*-1
+			error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
+			error = pt.unsqueeze(error, dim=1)
+			if(sign):
+				hebbianMatrix = associationMatrix*error*1
+			else:
+				hebbianMatrix = associationMatrix*error*-1
 		return hebbianMatrix
 	
 	def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):

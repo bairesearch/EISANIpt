@@ -17,11 +17,15 @@ EIANNpt EIANN globalDefs
 
 """
 
+debugUsePositiveWeightsVerify = False
 debugSmallNetwork = False
 
 activationFunctionType = "relu"
 
 EIANNlocalLearningApplyError = True
+EIANNassociationMatrixBatched = False
+if(EIANNlocalLearningApplyError):
+	EIANNassociationMatrixBatched = True
 
 firstHiddenLayerExcitatoryInputOnly = False	#True: network is more symmetrical but requires first hidden layer activation to be renormalised (e.g. with top k), False: treat inhibitory layers as intermediary (~interneuron) layers between excitatory layers
 	#!firstHiddenLayerExcitatoryInputOnly; consider adjust the learning algorithm hebbian matrix application (to prevent collapse of I/E neuron weights to same values)
