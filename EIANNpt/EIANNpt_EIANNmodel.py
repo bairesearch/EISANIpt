@@ -56,10 +56,10 @@ class EIANNmodel(nn.Module):
 					inFeaturesMatchHidden = True	#inhibitoryInterneuronFirstLayer	#CHECKTHIS: set first inhibitory layer size to input layer size (ensure zEi will be a same shape as zEe)
 				if(layerIndex == config.numberOfLayers-1):
 					inFeaturesMatchOutput = True	#inhibitoryInterneuronLastLayer	
-			linearEe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True)	#excitatory neuron excitatory input
-			linearEi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=False, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
-			linearIe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True)	#inhibitory neuron excitatory input
-			linearIi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=False)	#inhibitory neuron inhibitory input
+			linearEe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True)	#excitatory neuron excitatory input
+			linearEi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
+			linearIe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True)	#inhibitory neuron excitatory input
+			linearIi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False)	#inhibitory neuron inhibitory input
 			layersLinearListEe.append(linearEe)
 			layersLinearListEi.append(linearEi)
 			layersLinearListIe.append(linearIe)
@@ -84,8 +84,8 @@ class EIANNmodel(nn.Module):
 		ANNpt_linearSublayers.weightsSetPositiveModel(self)
 				
 	def forward(self, trainOrTest, x, y, optim=None, l=None):
-		#if(useLUANNonly):
-		x = x.unsqueeze(dim=1)	#require for ANNpt_linearSublayers only (not used) #x.unsqueeze(dim=1).repeat(1, self.config.linearSublayersNumber, 1)
+		if(useLinearSublayers):
+			x = x.unsqueeze(dim=1)
 		xE = x
 		xI = pt.zeros_like(x)	#there is no inhibitory input to first hidden layer in network
 		for layerIndex in range(self.config.numberOfLayers):
@@ -128,26 +128,32 @@ class EIANNmodel(nn.Module):
 					x, xIndex = self.performTopK(x)
 			if(trainOrTest and EIANNlocalLearning):
 				if(hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix):
-					hebbianMatrixEe = self.calculateHebbianMatrix(layerIndex, zEe, xPrevE)
-					hebbianMatrixEi = self.calculateHebbianMatrix(layerIndex, zEi, xI)
-					hebbianMatrixIe = self.calculateHebbianMatrix(layerIndex, zIe, xPrevE)
-					hebbianMatrixIi = self.calculateHebbianMatrix(layerIndex, zIi, xPrevI)
-					self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
+					hebbianMatrixEe = self.calculateAssociationMatrix(layerIndex, zEe, xPrevE)	#all +ve
+					hebbianMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xI)	#all -ve
+					hebbianMatrixIe = self.calculateAssociationMatrix(layerIndex, zIe, xPrevE)	#all -ve
+					hebbianMatrixIi = self.calculateAssociationMatrix(layerIndex, zIi, xPrevI)	#all +ve
 				else:
-					hebbianMatrixE = self.calculateHebbianMatrix(layerIndex, zE, xPrevE)
-					hebbianMatrixI = self.calculateHebbianMatrix(layerIndex, zI, xPrevI)
-					self.trainWeightsLayer(layerIndex, hebbianMatrixE, self.layersLinearEe[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixE, self.layersLinearEi[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixI, self.layersLinearIe[layerIndex])
-					self.trainWeightsLayer(layerIndex, hebbianMatrixI, self.layersLinearIi[layerIndex])
-
+					hebbianMatrixE = self.calculateAssociationMatrix(layerIndex, zE, xPrevE)	#all +ve
+					hebbianMatrixI = self.calculateAssociationMatrix(layerIndex, zI, xPrevI)	#all -ve
+					hebbianMatrixEe = hebbianMatrixE
+					hebbianMatrixEi = hebbianMatrixE
+					hebbianMatrixIe = hebbianMatrixI
+					hebbianMatrixIi = hebbianMatrixI
+				if(EIANNlocalLearningApplyError):
+					error = self.calculateError(xE, xI)
+					hebbianMatrixEe = self.calculateHebbianMatrix(hebbianMatrixEe, error, False)	#if +ve error, want to decrease Ee (ie +ve) weights
+					hebbianMatrixEi = self.calculateHebbianMatrix(hebbianMatrixEi, error, True)	#if +ve error, want to increase Ei (ie -ve) weights
+					hebbianMatrixIe = self.calculateHebbianMatrix(hebbianMatrixIe, error, False)	#if +ve error, want to decrease Ie (ie +ve) weights
+					hebbianMatrixIi = self.calculateHebbianMatrix(hebbianMatrixIi, error, True)	#if +ve error, want to increase Ii (ie -ve) weights
+				self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
+				self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
+				self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
+				self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
 			if(debugSmallNetwork):
 				print("x after activation = ", x)
-				 
-		x = x.squeeze(dim=1)	#require for ANNpt_linearSublayers only (not used) 
+		
+		if(useLinearSublayers):
+			x = x.squeeze(dim=1)
 
 		loss = self.lossFunction(x, y)
 		accuracy = self.accuracyFunction(x, y)
@@ -168,12 +174,29 @@ class EIANNmodel(nn.Module):
 		xIndex = xMax.indices
 		return x, xIndex
 	
-	def calculateHebbianMatrix(self, layerIndex, x, xPrev):
-		x = pt.squeeze(x, dim=1)		#assume linearSublayersNumber=1
-		xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
-		hebbianMatrix = pt.matmul(pt.transpose(x, 0, 1), xPrev)
+	def calculateAssociationMatrix(self, layerIndex, x, xPrev):
+		if(useLinearSublayers):
+			x = pt.squeeze(x, dim=1)		#assume linearSublayersNumber=1
+			xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
+		associationMatrix = pt.matmul(pt.transpose(x, 0, 1), xPrev)
+		return associationMatrix
+		
+	def calculateError(self, xE, xI):
+		error = xE + xI
+		return error
+
+	def calculateHebbianMatrix(self, associationMatrix, error, sign):
+		associationMatrix = pt.abs(associationMatrix)
+		#print("associationMatrix.shape = ", associationMatrix.shape)
+		#print("error.shape = ", error.shape)
+		error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
+		error = pt.unsqueeze(error, dim=1)
+		if(sign):
+			hebbianMatrix = associationMatrix*error*1
+		else:
+			hebbianMatrix = associationMatrix*error*-1
 		return hebbianMatrix
-			
+	
 	def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):
 		#use local hebbian learning rule - CHECKTHIS
 		layerWeights = layerLinear.weight
@@ -181,7 +204,7 @@ class EIANNmodel(nn.Module):
 	
 		weightUpdate = hebbianMatrix*EIANNlocalLearningRate
 		layerWeights = layerWeights + weightUpdate
-		
+			
 		#layerWeights = pt.reshape(layerWeights, (linearSublayersNumber*hiddenLayerSize, layerWeights.shape[2], layerWeights.shape[3]))	#useLinearSublayers only
 		layerLinear.weight = pt.nn.Parameter(layerWeights)
 
