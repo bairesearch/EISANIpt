@@ -1,7 +1,7 @@
 """ANNpt_main.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2023-2024 Baxter AI (baxterai.com)
 
 # License:
 MIT License

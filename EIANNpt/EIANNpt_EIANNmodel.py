@@ -98,11 +98,11 @@ class EIANNmodel(nn.Module):
 		xI = pt.zeros_like(x)	#there is no inhibitory input to first hidden layer in network
 		for layerIndex in range(self.config.numberOfLayers):
 			#print("layerIndex = ", layerIndex)
-			xPrevE = xE
-			xPrevI = xI
 			if(trainLastLayerOnly):
 				xE = xE.detach()
 				xI = xI.detach()
+			xPrevE = xE
+			xPrevI = xI
 			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], sign=True)	#inhibitory neuron excitatory input
 			zIi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearIi[layerIndex], sign=False)	#inhibitory neuron inhibitory input
 			zI = zIe + zIi	#sum the positive/negative inputs of the inhibitory neurons
@@ -149,34 +149,35 @@ class EIANNmodel(nn.Module):
 					hebbianMatrixIi = hebbianMatrixI
 				if(debugSanityChecks):
 					print("\n")
-					print("xPrevE = ", xPrevE)
 					print("xPrevI = ", xPrevI)
-					print("zI = ", zI)
-					print("zE = ", zE)
-					print("xI = ", xI)
-					print("xE = ", xE)
-					print("zEe = ", zEe)
-					print("zEi = ", zEi)
+					print("xPrevE = ", xPrevE)
 					print("zIe = ", zIe)
 					print("zIi = ", zIi)
 					print("zEe = ", zEe)
 					print("zEi = ", zEi)
-					print("hebbianMatrixEe = ", hebbianMatrixEe)
-					print("hebbianMatrixEi = ", hebbianMatrixEi)
+					print("zI = ", zI)
+					print("zE = ", zE)
+					print("xI = ", xI)
+					print("xE = ", xE)
 					print("hebbianMatrixIe = ", hebbianMatrixIe)
 					print("hebbianMatrixIi = ", hebbianMatrixIi)
+					print("hebbianMatrixEe = ", hebbianMatrixEe)
+					print("hebbianMatrixEi = ", hebbianMatrixEi)
 
-				if(EIANNlocalLearningApplyError):
-					errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
-					errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
-					hebbianMatrixEe = self.calculateHebbianMatrix(hebbianMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
-					hebbianMatrixEi = self.calculateHebbianMatrix(hebbianMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
-					hebbianMatrixIe = self.calculateHebbianMatrix(hebbianMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
-					hebbianMatrixIi = self.calculateHebbianMatrix(hebbianMatrixIi, errorI, True)	#if +ve error, want to increase Ii (ie -ve) weights
-				self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
-				self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
-				self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
-				self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
+				if(layerIndex < self.config.numberOfLayers-1):
+					if(EIANNlocalLearningApplyError):
+						errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
+						errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
+						hebbianMatrixEe = self.calculateHebbianMatrix(hebbianMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
+						hebbianMatrixEi = self.calculateHebbianMatrix(hebbianMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
+						hebbianMatrixIe = self.calculateHebbianMatrix(hebbianMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
+						hebbianMatrixIi = self.calculateHebbianMatrix(hebbianMatrixIi, errorI, True)	#if +ve error, want to increase Ii (ie -ve) weights
+					if(not firstHiddenLayerExcitatoryInputOnly or layerIndex > 0):
+						self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
+						self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
+						self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
+						if(firstHiddenLayerExcitatoryInputOnly or layerIndex > 0):
+							self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
 			if(debugSmallNetwork):
 				print("x after activation = ", x)
 				

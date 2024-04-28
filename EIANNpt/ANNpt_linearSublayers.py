@@ -1,7 +1,7 @@
 """ANNpt_linearSublayers.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2023-2024 Baxter AI (baxterai.com)
 
 # License:
 MIT License
@@ -194,10 +194,12 @@ def weightsSetSignLayer(self, layerIndex, linear, sign=True):
 	if(debugUsePositiveWeightsVerify):
 		if(getUseLinearSublayers(self, layerIndex)):
 			weights = linear.segregatedLinear.weight
-			print("weights = ", weights)
+			bias = linear.segregatedLinear.bias
 		else:
 			weights = linear.weight
-			print("weights = ", weights)		
+			bias = linear.bias
+		print("weights = ", weights)
+		print("bias = ", bias)
 		
 def weightsSetPositiveModel(self):
 	if(useSignedWeights):

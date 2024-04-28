@@ -1,7 +1,7 @@
 """ANNpt_globalDefs.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2023-2024 Baxter AI (baxterai.com)
 
 # License:
 MIT License
@@ -81,6 +81,10 @@ activationFunctionType = "relu"
 trainLastLayerOnly = False
 normaliseActivationSparsity = False
 debugUsePositiveWeightsVerify = False
+
+useInbuiltCrossEntropyLossFunction = True	#required
+if(useSignedWeights):
+	usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
 
 useTabularDataset = False
 useImageDataset = False
@@ -220,11 +224,6 @@ printAccuracyRunningAverage = True
 if(printAccuracyRunningAverage):
 	runningAverageBatches = 10
 
-
-useInbuiltCrossEntropyLossFunction = True	#required
-if(useSignedWeights):
-	if(not useAlgorithmEIANN and not useAlgorithmEIOR):
-		usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
 
 learningRate = 0.005	#0.005	#0.0001
 
