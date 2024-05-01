@@ -21,6 +21,15 @@ import torch as pt
 from torch import nn
 from ANNpt_globalDefs import *
 
+class ClippedReLU(nn.Module):
+	def __init__(self, min_val=0, max_val=float('inf')):
+		super(ClippedReLU, self).__init__()
+		self.min_val = min_val
+		self.max_val = max_val
+
+	def forward(self, x):
+		return pt.clamp(x, min=self.min_val, max=self.max_val)
+		
 class LinearSegregated(nn.Module):
 	def __init__(self, in_features, out_features, number_sublayers):
 		super().__init__()
@@ -84,6 +93,9 @@ def generateLinearLayer2(self, layerIndex, in_features, out_features, linearSubl
 
 	return linear
 
+def generateActivationLayer(self, layerIndex, config):
+	return generateActivationFunction()
+
 def generateActivationFunction():
 	if(activationFunctionType=="softmax"):
 		if(thresholdActivations):
@@ -95,13 +107,15 @@ def generateActivationFunction():
 			activation = OffsetReLU(thresholdActivationsMin)
 		else:
 			activation = nn.ReLU()
+	elif(activationFunctionType=="clippedRelu"):
+		activation = ClippedReLU(min_val=0, max_val=clippedReluMaxValue)
 	elif(activationFunctionType=="none"):
 		activation = None
 	return activation
 
-def generateActivationLayer(self, layerIndex, config):
-	return generateActivationFunction()
-
+def clippedRelu(x, min_val=0, max_val=float('inf')):
+    return torch.clamp(x, min=min_val, max=max_val)
+	
 def executeLinearLayer(self, layerIndex, x, linear, parallelStreams=False, sign=True):
 	if(useSignedWeights):
 		weightsFixLayer(self, layerIndex, linear, sign)	#otherwise need to constrain backprop weight update function to never set weights below 0

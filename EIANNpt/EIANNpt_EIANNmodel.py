@@ -72,6 +72,7 @@ class EIANNmodel(nn.Module):
 			layersLinearListEi.append(linearEi)
 			layersLinearListIe.append(linearIe)
 			layersLinearListIi.append(linearIi)
+			
 			activationE = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)
 			activationI = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)
 			layersActivationListE.append(activationE)
@@ -134,6 +135,7 @@ class EIANNmodel(nn.Module):
 				if(useInbuiltCrossEntropyLossFunction):
 					x = zE
 				else:
+					#NOT SUPPORTED with activationFunction=="positiveMid"
 					#xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex], parallelStreams=False)	#there is no final/output inhibitory layer
 					xE = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zE, self.layersActivationE[layerIndex], parallelStreams=False)
 					x = torch.log(x)
@@ -236,7 +238,10 @@ class EIANNmodel(nn.Module):
 		return errorSign
 		
 	def calculateError(self, e, i):
-		error = e + i	#e is +ve, i is -ve
+		if(trainThreshold=="positive"):
+			error = e + i - trainThresholdPositiveValue
+		elif(trainThreshold=="zero"):
+			error = e + i	#e is +ve, i is -ve
 		return error
 
 	def calculateHebbianMatrix(self, associationMatrix, error, sign):
