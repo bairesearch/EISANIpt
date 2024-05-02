@@ -175,6 +175,11 @@ class EIANNmodel(nn.Module):
 					print("associationMatrixEi = ", associationMatrixEi)
 
 				if(layerIndex < self.config.numberOfLayers-1):
+					if(not trainInactiveNeurons):
+						associationMatrixEe = associationMatrixEe*self.calculateActive(xE)
+						associationMatrixEi = associationMatrixEi*self.calculateActive(xE)
+						associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
+						associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
 					if(EIANNlocalLearningApplyError):
 						errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
 						errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
@@ -187,6 +192,7 @@ class EIANNmodel(nn.Module):
 						hebbianMatrixEi = associationMatrixEi
 						hebbianMatrixIe = associationMatrixIe
 						hebbianMatrixIi = associationMatrixIi
+							
 					if(inhibitoryNeuronInitialisationMethod!="firstHiddenLayerExcitatoryInputOnly" or layerIndex > 0):
 						self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
 						self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
@@ -205,6 +211,14 @@ class EIANNmodel(nn.Module):
 		
 		return loss, accuracy
 
+	def calculateActive(self, x):
+		xActive = (x>0).float()
+		if(EIANNassociationMatrixBatched):
+			xActive = xActive.unsqueeze(2)
+		else:
+			xActive = xActive.unsqueeze(1)
+		return xActive
+		
 	def deactivateNonTopKneurons(self, activations, k):
 		#print("activations.shape = ", activations.shape)
 		topk_values, topk_indices = pt.topk(activations, k=k, dim=1)
@@ -219,17 +233,30 @@ class EIANNmodel(nn.Module):
 		xIndex = xMax.indices
 		return x, xIndex
 	
-	def calculateAssociationMatrix(self, layerIndex, x, xPrev):
+	def calculateAssociationMatrix(self, layerIndex, z, xPrev):
 		if(useLinearSublayers):
-			x = pt.squeeze(x, dim=1)		#assume linearSublayersNumber=1
+			z = pt.squeeze(z, dim=1)		#assume linearSublayersNumber=1
 			xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
-		if(EIANNassociationMatrixBatched):
-			#retain batchSize dim in associationMatrix
-			x = x.unsqueeze(2)  # Shape will be (batchSize, x, 1)
-			xPrev = xPrev.unsqueeze(1)  # Shape will be (batchSize, 1, y)
-			associationMatrix = x * xPrev  # Resultant shape will be (batchSize, x, y)
-		else:
-			associationMatrix = pt.matmul(pt.transpose(x, 0, 1), xPrev)
+				
+		if(associationMatrixMethod=="useInputsAndOutputs"):
+			if(EIANNassociationMatrixBatched):
+				#retain batchSize dim in associationMatrix
+				z = z.unsqueeze(2)  # Shape will be (batchSize, z, 1)
+				xPrev = xPrev.unsqueeze(1)  # Shape will be (batchSize, 1, xPrev)
+				associationMatrix = z * xPrev  # Resultant shape will be (batchSize, z, xPrev)
+			else:
+				associationMatrix = pt.matmul(pt.transpose(z, 0, 1), xPrev)
+		elif(associationMatrixMethod=="useInputsAndWeights"):
+			weights = self.layersLinearIi[layerIndex].weight
+			#print("weights.shape = ", weights.shape)
+			#print("xPrev.shape = ", xPrev.shape)
+			if(EIANNassociationMatrixBatched):
+				weights = weights.unsqueeze(0)	#Shape will be (1, z, xPrev)
+				xPrev = xPrev.unsqueeze(1)	 #Shape will be (batchSize, 1, xPrev)
+			else:
+				printe("calculateAssociationMatrix error: associationMatrixMethod=useInputsAndWeights currently requires EIANNassociationMatrixBatched")
+			associationMatrix = xPrev*weights	# Resultant shape will be (batchSize, z, xPrev)
+				
 		return associationMatrix
 			
 	def calculateErrorSign(self, e, i):

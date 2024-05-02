@@ -22,6 +22,11 @@ debugUsePositiveWeightsVerify = False
 debugSmallNetwork = False
 debugSanityChecks = False
 
+#association matrix parameters:
+trainInactiveNeurons = True
+#associationMatrixMethod="useInputsAndOutputs"
+associationMatrixMethod="useInputsAndWeights"
+	
 #activation function parameters:
 #trainThreshold="positive"
 trainThreshold="zero"	#orig	#treats neural network as a progressive input factorisation process
