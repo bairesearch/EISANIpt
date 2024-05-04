@@ -74,7 +74,7 @@ class EIANNmodel(nn.Module):
 			layersLinearListIi.append(linearIi)
 			
 			activationE = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)
-			activationI = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)
+			activationI = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)	#invertActivation=inhibitoryNeuronSwitchActivation
 			layersActivationListE.append(activationE)
 			layersActivationListI.append(activationI)
 		self.layersLinearEe = nn.ModuleList(layersLinearListEe)
@@ -97,7 +97,14 @@ class EIANNmodel(nn.Module):
 			x = x.unsqueeze(dim=1)
 		xE = x
 		if(inhibitoryNeuronInitialisationMethod=="useInputActivations"):
-			xI = x
+			if(inhibitoryNeuronSwitchActivation):
+				#assumes datasetNormaliseStdAvg;
+				xE = pt.where(x > 0, x, pt.tensor(0))
+				xI = pt.where(x < 0, -x, pt.tensor(0))
+				#print("xE = ", xE)
+				#print("xI = ", xI)
+			else:
+				xI = x
 		else:
 			xI = pt.zeros_like(x)	#there is no inhibitory input to first hidden layer in network
 		for layerIndex in range(self.config.numberOfLayers):
@@ -111,16 +118,19 @@ class EIANNmodel(nn.Module):
 			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], sign=True)	#inhibitory neuron excitatory input
 			zIi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearIi[layerIndex], sign=False)	#inhibitory neuron inhibitory input
 			zI = zIe + zIi	#sum the positive/negative inputs of the inhibitory neurons
-			xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex])	#relU
+			if(inhibitoryNeuronSwitchActivation):
+				xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, -zI, self.layersActivationI[layerIndex])	#relU
+			else:
+				xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex])	#relU
 			if(inhibitoryNeuronInitialisationMethod=="intermediaryInterneuron"):
 				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], sign=True)	#excitatory neuron excitatory input
 				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xI, self.layersLinearEi[layerIndex], sign=False)	#excitatory neuron inhibitory input
 			else:
 				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], sign=True)	#excitatory neuron excitatory input
 				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearEi[layerIndex], sign=False)	#excitatory neuron inhibitory input
-
 			zE = zEe + zEi	#sum the positive/negative inputs of the excitatory neurons
 			xE = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zE, self.layersActivationE[layerIndex])	#relU
+			
 			if(inhibitoryNeuronInitialisationMethod=="firstHiddenLayerExcitatoryInputOnly"):
 				if(layerIndex==0):
 					#normalise via top k (normalise activation sparsity) because there is no inhibitory input
@@ -181,8 +191,8 @@ class EIANNmodel(nn.Module):
 						associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
 						associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
 					if(EIANNlocalLearningApplyError):
-						errorE = self.calculateError(zEe, zEi)	#ie zE	#shape: batchSize, E
-						errorI = self.calculateError(zIe, zIi)	#ie zI	#shape: batchSize, I
+						errorE = self.calculateError(zEe, zEi, True)	#ie zE	#shape: batchSize, E
+						errorI = self.calculateError(zIe, zIi, False)	#ie zI	#shape: batchSize, I
 						hebbianMatrixEe = self.calculateHebbianMatrix(associationMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
 						hebbianMatrixEi = self.calculateHebbianMatrix(associationMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
 						hebbianMatrixIe = self.calculateHebbianMatrix(associationMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
@@ -264,9 +274,12 @@ class EIANNmodel(nn.Module):
 		errorSign = pt.sign(error).float()
 		return errorSign
 		
-	def calculateError(self, e, i):
+	def calculateError(self, e, i, isExcitatoryNeuron):		
 		if(trainThreshold=="positive"):
-			error = e + i - trainThresholdPositiveValue
+			if(inhibitoryNeuronSwitchActivation and not isExcitatoryNeuron):
+				error = e + i + trainThresholdPositiveValue
+			else:
+				error = e + i - trainThresholdPositiveValue
 		elif(trainThreshold=="zero"):
 			error = e + i	#e is +ve, i is -ve
 		return error

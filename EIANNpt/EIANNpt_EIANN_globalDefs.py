@@ -23,7 +23,7 @@ debugSmallNetwork = False
 debugSanityChecks = False
 
 #association matrix parameters:
-trainInactiveNeurons = True
+trainInactiveNeurons = False	#if False, e/i weights will continue to increase (but cancel each other out: resulting distribution remains normalised)
 #associationMatrixMethod="useInputsAndOutputs"
 associationMatrixMethod="useInputsAndWeights"
 	
@@ -42,6 +42,10 @@ elif(activationFunction=="positiveMid"):
 	clippedReluMaxValue = trainThresholdPositiveValue*2
 	
 #inhibitory layer parameters:
+inhibitoryNeuronSwitchActivation = True	#E predicts on antecedents, I predicts off antecedents
+if(inhibitoryNeuronSwitchActivation):
+	datasetNormaliseStdAvg = True	#normalise based on std and mean (~-1.0 to 1.0)
+	datasetNormaliseMinMax = False
 inhibitoryNeuronInitialisationMethod="useInputActivations" #sameAsExcitatoryNeurons	#network is symmetrical
 #inhibitoryNeuronInitialisationMethod="intermediaryInterneuron"	#treat inhibitory layers as intermediary (~interneuron) layers between excitatory layers
 #inhibitoryNeuronInitialisationMethod="firstHiddenLayerExcitatoryInputOnly"	#network is symmetrical but requires first hidden layer activation to be renormalised (e.g. with top k),

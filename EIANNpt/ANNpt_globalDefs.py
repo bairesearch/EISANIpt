@@ -81,7 +81,9 @@ activationFunctionType = "relu"
 trainLastLayerOnly = False
 normaliseActivationSparsity = False
 debugUsePositiveWeightsVerify = False
-
+datasetNormaliseMinMax = True	#normalise between 0.0 and 1.0
+datasetNormaliseStdAvg = False	#normalise based on std and mean (~-1.0 to 1.0)
+		
 useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
 	usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
@@ -212,10 +214,6 @@ if(useTabularDataset):
 		if(dataloaderRepeatSampler):
 			dataloaderRepeatSamplerCustom = False	#no tqdm visualisation
 		
-	if(datasetNormalise):
-		datasetNormaliseMinMax = True	#normalise between 0.0 and 1.0
-		datasetNormaliseStdAvg = False	#normalise based on std and mean (~-1.0 to 1.0)
-
 
 if(debugSmallBatchSize):
 	batchSize = 10

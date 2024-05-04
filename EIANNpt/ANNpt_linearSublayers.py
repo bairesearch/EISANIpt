@@ -22,14 +22,29 @@ from torch import nn
 from ANNpt_globalDefs import *
 
 class ClippedReLU(nn.Module):
-	def __init__(self, min_val=0, max_val=float('inf')):
+	def __init__(self, min_val=0, max_val=float('inf'), invertActivation=False):
 		super(ClippedReLU, self).__init__()
 		self.min_val = min_val
 		self.max_val = max_val
+		self.invertActivation = invertActivation	#not currently used (inversion is performed before activation function is applied)
 
 	def forward(self, x):
-		return pt.clamp(x, min=self.min_val, max=self.max_val)
-		
+		if(self.invertActivation):
+			x = -pt.sign(x) * pt.abs(x)
+		a = pt.clamp(x, min=self.min_val, max=self.max_val)
+		return a
+
+class Relu(nn.Module):	#not currently used
+	def __init__(self, invertActivation=False):
+		super(Relu, self).__init__()
+		self.invertActivation = invertActivation
+
+	def forward(self, x):
+		if(self.invertActivation):
+			x = -pt.sign(x) * pt.abs(x)
+		a = torch.nn.functional.relu(x)
+		return a
+				
 class LinearSegregated(nn.Module):
 	def __init__(self, in_features, out_features, number_sublayers):
 		super().__init__()
@@ -112,9 +127,6 @@ def generateActivationFunction():
 	elif(activationFunctionType=="none"):
 		activation = None
 	return activation
-
-def clippedRelu(x, min_val=0, max_val=float('inf')):
-    return torch.clamp(x, min=min_val, max=max_val)
 	
 def executeLinearLayer(self, layerIndex, x, linear, parallelStreams=False, sign=True):
 	if(useSignedWeights):
