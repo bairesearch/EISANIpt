@@ -42,17 +42,26 @@ elif(activationFunction=="positiveMid"):
 	clippedReluMaxValue = trainThresholdPositiveValue*2
 	
 #inhibitory layer parameters:
-inhibitoryNeuronSwitchActivation = True	#E predicts on antecedents, I predicts off antecedents
+inhibitoryNeuronOutputPositive = True	#orig: False	#I and E neurons detect presence and absence of stimuli, but both produce excitatory (ie positive) output
+if(inhibitoryNeuronOutputPositive):
+	inhibitoryNeuronSwitchActivation = True	#required
+else:
+	inhibitoryNeuronSwitchActivation = False	#optional	#orig: False	#E predicts on antecedents, I predicts off antecedents
 if(inhibitoryNeuronSwitchActivation):
 	datasetNormaliseStdAvg = True	#normalise based on std and mean (~-1.0 to 1.0)
 	datasetNormaliseMinMax = False
 inhibitoryNeuronInitialisationMethod="useInputActivations" #sameAsExcitatoryNeurons	#network is symmetrical
 #inhibitoryNeuronInitialisationMethod="intermediaryInterneuron"	#treat inhibitory layers as intermediary (~interneuron) layers between excitatory layers
 #inhibitoryNeuronInitialisationMethod="firstHiddenLayerExcitatoryInputOnly"	#network is symmetrical but requires first hidden layer activation to be renormalised (e.g. with top k),
-
+if(inhibitoryNeuronOutputPositive):
+	assert inhibitoryNeuronInitialisationMethod=="useInputActivations"
+	
 #EI layer paramters:
 #consider adjust the learning algorithm hebbian matrix application (to prevent collapse of I/E neuron weights to same values)
-useDifferentEIlayerSizes = True	#ensure E I layer sizes differ to prevent collapse (to same function)	#this is a necessary (but insufficient condition?) to prevent collapse
+if(inhibitoryNeuronOutputPositive):
+	useDifferentEIlayerSizes = False	#required
+else:
+	useDifferentEIlayerSizes = True	#ensure E I layer sizes differ to prevent collapse (to same function)	#this is a necessary (but insufficient condition?) to prevent collapse
 EIANNlocalLearningApplyError = True
 EIANNassociationMatrixBatched = False
 if(EIANNlocalLearningApplyError):
@@ -64,7 +73,10 @@ else:
 		hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix = True	#required as E/I layer sizes differ
 	else:
 		hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix = True	#optional
-useSignedWeights = True	#required
+if(inhibitoryNeuronOutputPositive):
+	useSignedWeights = False	#required
+else:
+	useSignedWeights = True	#required
 if(useSignedWeights):
 	usePositiveWeightsClampModel = False	#clamp entire model weights to be positive (rather than per layer)
 
@@ -97,6 +109,8 @@ if(trainLastLayerOnly):
 		hiddenLayerSize = 10	#not used
 		hiddenLayerSizeE = hiddenLayerSize
 		hiddenLayerSizeI = hiddenLayerSize
+		if(inhibitoryNeuronOutputPositive):
+			assert hiddenLayerSize%2 == 0
 		
 #initialisation parameters:
 normaliseActivationSparsity = False

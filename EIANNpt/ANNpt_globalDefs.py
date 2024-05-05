@@ -67,7 +67,8 @@ if(debugSmallNetwork):
 else:
 	batchSize = 64
 	numberOfLayers = 4
-	hiddenLayerSize = 10
+	hiddenLayerSize = 15	#5
+	#hiddenLayerSize = 10
 	trainNumberOfEpochs = 10
 
 #initialise (dependent vars);
@@ -200,7 +201,6 @@ if(useTabularDataset):
 		datasetNormaliseClassValues = True
 		trainNumberOfEpochs = 100
 		numberOfLayers = 4
-		hiddenLayerSize = 15	#5
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10

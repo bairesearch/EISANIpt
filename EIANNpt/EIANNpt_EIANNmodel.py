@@ -56,7 +56,11 @@ class EIANNmodel(nn.Module):
 		layersLinearListIi = []
 		layersActivationListE = []
 		layersActivationListI = []
-		for layerIndex in range(config.numberOfLayers):
+		for layerIndex in range(config.numberOfLayers):	
+			featuresFanIn = False
+			if(inhibitoryNeuronOutputPositive):
+				if(layerIndex > 0):	#and layerIndex < config.numberOfLayers-1
+					featuresFanIn = True
 			inFeaturesMatchHidden = False
 			inFeaturesMatchOutput = False
 			if(inhibitoryNeuronInitialisationMethod=="intermediaryInterneuron"):
@@ -64,10 +68,10 @@ class EIANNmodel(nn.Module):
 					inFeaturesMatchHidden = True	#inhibitoryInterneuronFirstLayer	#CHECKTHIS: set first inhibitory layer size to input layer size (ensure zEi will be a same shape as zEe)
 				if(layerIndex == config.numberOfLayers-1):
 					inFeaturesMatchOutput = True	#inhibitoryInterneuronLastLayer	
-			linearEe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True)	#excitatory neuron excitatory input
-			linearEi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
-			linearIe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True)	#inhibitory neuron excitatory input
-			linearIi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False)	#inhibitory neuron inhibitory input
+			linearEe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#excitatory neuron excitatory input
+			linearEi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
+			linearIe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#inhibitory neuron excitatory input
+			linearIi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn)	#inhibitory neuron inhibitory input
 			layersLinearListEe.append(linearEe)
 			layersLinearListEi.append(linearEi)
 			layersLinearListIe.append(linearIe)
@@ -97,14 +101,17 @@ class EIANNmodel(nn.Module):
 			x = x.unsqueeze(dim=1)
 		xE = x
 		if(inhibitoryNeuronInitialisationMethod=="useInputActivations"):
-			if(inhibitoryNeuronSwitchActivation):
-				#assumes datasetNormaliseStdAvg;
-				xE = pt.where(x > 0, x, pt.tensor(0))
-				xI = pt.where(x < 0, -x, pt.tensor(0))
-				#print("xE = ", xE)
-				#print("xI = ", xI)
+			if(inhibitoryNeuronOutputPositive):
+				xI = pt.zeros_like(x)	#there is no inhibitory input to first hidden layer in network
 			else:
-				xI = x
+				if(inhibitoryNeuronSwitchActivation):
+					#assumes datasetNormaliseStdAvg;
+					xE = pt.where(x > 0, x, pt.tensor(0))
+					xI = pt.where(x < 0, -x, pt.tensor(0))
+					#print("xE = ", xE)
+					#print("xI = ", xI)
+				else:
+					xI = x
 		else:
 			xI = pt.zeros_like(x)	#there is no inhibitory input to first hidden layer in network
 		for layerIndex in range(self.config.numberOfLayers):
@@ -117,7 +124,10 @@ class EIANNmodel(nn.Module):
 			xPrevI = xI
 			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], sign=True)	#inhibitory neuron excitatory input
 			zIi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearIi[layerIndex], sign=False)	#inhibitory neuron inhibitory input
-			zI = zIe + zIi	#sum the positive/negative inputs of the inhibitory neurons
+			if(inhibitoryNeuronOutputPositive):
+				zI = pt.cat((zIe, zIi), dim=1)
+			else:
+				zI = zIe + zIi	#sum the positive/negative inputs of the inhibitory neurons
 			if(inhibitoryNeuronSwitchActivation):
 				xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, -zI, self.layersActivationI[layerIndex])	#relU
 			else:
@@ -128,7 +138,10 @@ class EIANNmodel(nn.Module):
 			else:
 				zEe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearEe[layerIndex], sign=True)	#excitatory neuron excitatory input
 				zEi = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevI, self.layersLinearEi[layerIndex], sign=False)	#excitatory neuron inhibitory input
-			zE = zEe + zEi	#sum the positive/negative inputs of the excitatory neurons
+			if(inhibitoryNeuronOutputPositive):
+				zE = pt.cat((zEe, zEi), dim=1)
+			else:
+				zE = zEe + zEi	#sum the positive/negative inputs of the excitatory neurons
 			xE = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zE, self.layersActivationE[layerIndex])	#relU
 			
 			if(inhibitoryNeuronInitialisationMethod=="firstHiddenLayerExcitatoryInputOnly"):
@@ -143,7 +156,10 @@ class EIANNmodel(nn.Module):
 				print("xI after linear = ", xI)
 			if(layerIndex == self.config.numberOfLayers-1):
 				if(useInbuiltCrossEntropyLossFunction):
-					x = zE
+					if(inhibitoryNeuronOutputPositive):
+						x = zEe
+					else:
+						x = zE
 				else:
 					#NOT SUPPORTED with activationFunction=="positiveMid"
 					#xI = ANNpt_linearSublayers.executeActivationLayer(self, layerIndex, zI, self.layersActivationI[layerIndex], parallelStreams=False)	#there is no final/output inhibitory layer
@@ -186,10 +202,22 @@ class EIANNmodel(nn.Module):
 
 				if(layerIndex < self.config.numberOfLayers-1):
 					if(not trainInactiveNeurons):
-						associationMatrixEe = associationMatrixEe*self.calculateActive(xE)
-						associationMatrixEi = associationMatrixEi*self.calculateActive(xE)
-						associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
-						associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
+						if(inhibitoryNeuronOutputPositive):
+							xEe = xE[:, 0:hiddenLayerSize]
+							xEi = xE[:, hiddenLayerSize:]
+							xIe = xI[:, 0:hiddenLayerSize]
+							xIi = xI[:, hiddenLayerSize:]
+							#print("associationMatrixEe.shape = ", associationMatrixEe.shape)
+							#print("xEe.shape = ", xEe.shape)
+							associationMatrixEe = associationMatrixEe*self.calculateActive(xEe)
+							associationMatrixEi = associationMatrixEi*self.calculateActive(xEi)
+							associationMatrixIe = associationMatrixIe*self.calculateActive(xIe)
+							associationMatrixIi = associationMatrixIi*self.calculateActive(xIi)
+						else:
+							associationMatrixEe = associationMatrixEe*self.calculateActive(xE)
+							associationMatrixEi = associationMatrixEi*self.calculateActive(xE)
+							associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
+							associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
 					if(EIANNlocalLearningApplyError):
 						errorE = self.calculateError(zEe, zEi, True)	#ie zE	#shape: batchSize, E
 						errorI = self.calculateError(zIe, zIi, False)	#ie zI	#shape: batchSize, I
@@ -256,6 +284,7 @@ class EIANNmodel(nn.Module):
 				associationMatrix = z * xPrev  # Resultant shape will be (batchSize, z, xPrev)
 			else:
 				associationMatrix = pt.matmul(pt.transpose(z, 0, 1), xPrev)
+			#print("associationMatrix.shape = ", associationMatrix.shape)
 		elif(associationMatrixMethod=="useInputsAndWeights"):
 			weights = self.layersLinearIi[layerIndex].weight
 			#print("weights.shape = ", weights.shape)
@@ -266,7 +295,8 @@ class EIANNmodel(nn.Module):
 			else:
 				printe("calculateAssociationMatrix error: associationMatrixMethod=useInputsAndWeights currently requires EIANNassociationMatrixBatched")
 			associationMatrix = xPrev*weights	# Resultant shape will be (batchSize, z, xPrev)
-				
+			#print("associationMatrix.shape = ", associationMatrix.shape)
+	
 		return associationMatrix
 			
 	def calculateErrorSign(self, e, i):
@@ -290,18 +320,24 @@ class EIANNmodel(nn.Module):
 		#print("error.shape = ", error.shape)
 		if(EIANNassociationMatrixBatched):
 			error = pt.unsqueeze(error, dim=2)
-			if(sign):
-				hebbianMatrix = associationMatrix*error*1
-			else:
+			if(inhibitoryNeuronOutputPositive):
 				hebbianMatrix = associationMatrix*error*-1	
+			else:
+				if(sign):
+					hebbianMatrix = associationMatrix*error*1
+				else:
+					hebbianMatrix = associationMatrix*error*-1	
 			hebbianMatrix = pt.mean(hebbianMatrix, dim=0) #average error over batchSize
 		else:
 			error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
 			error = pt.unsqueeze(error, dim=1)
-			if(sign):
-				hebbianMatrix = associationMatrix*error*1
-			else:
+			if(inhibitoryNeuronOutputPositive):
 				hebbianMatrix = associationMatrix*error*-1
+			else:
+				if(sign):
+					hebbianMatrix = associationMatrix*error*1
+				else:
+					hebbianMatrix = associationMatrix*error*-1
 		return hebbianMatrix
 	
 	def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):

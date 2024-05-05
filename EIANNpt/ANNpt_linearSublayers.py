@@ -68,7 +68,7 @@ class LinearSegregated(nn.Module):
 		#x.shape = batch_size, number_sublayers, out_features
 		return x
 
-def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True, inFeaturesMatchHidden=False, inFeaturesMatchOutput=False):
+def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True, featuresFanIn=False, inFeaturesMatchHidden=False, inFeaturesMatchOutput=False):
 	if(inFeaturesMatchHidden):
 		if(layerIndex == 0):
 			in_features = config.hiddenLayerSize
@@ -90,6 +90,8 @@ def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=Tr
 			out_features = config.outputLayerSize
 		else:
 			out_features = config.hiddenLayerSize
+	if(featuresFanIn):
+		in_features = in_features*2
 	linearSublayersNumber = config.linearSublayersNumber
 	return generateLinearLayer2(self, layerIndex, in_features, out_features, linearSublayersNumber, parallelStreams, sign)
 		
