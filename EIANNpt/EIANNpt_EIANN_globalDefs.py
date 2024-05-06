@@ -96,21 +96,22 @@ if(trainLastLayerOnly):
 		EIANNlocalLearningNeuronActiveThreshold = 0.0	#minimum activation level for neuron to be considered active	#CHECKTHIS
 		EIANNlocalLearningRate = 0.001	#0.01	#default: 0.001	#CHECKTHIS
 		EIANNlocalLearningBias = False	#bias learning towards most signficant weights
-
+else:
+	EIANNlocalLearning = False
+	
 #network hierarchy parameters: 
-if(trainLastLayerOnly):
-	#override ANNpt_globalDefs default model parameters;
-	batchSize = 64
-	numberOfLayers = 4	#CHECKTHIS
-	if(useDifferentEIlayerSizes):
-		hiddenLayerSizeE = 10	
-		hiddenLayerSizeI = 7
-	else:
-		hiddenLayerSize = 10	#not used
-		hiddenLayerSizeE = hiddenLayerSize
-		hiddenLayerSizeI = hiddenLayerSize
-		if(inhibitoryNeuronOutputPositive):
-			assert hiddenLayerSize%2 == 0
+#override ANNpt_globalDefs default model parameters;
+batchSize = 64
+numberOfLayers = 4	#CHECKTHIS
+if(useDifferentEIlayerSizes):
+	hiddenLayerSizeE = 10	
+	hiddenLayerSizeI = 7
+else:
+	hiddenLayerSize = 10	#not used
+	hiddenLayerSizeE = hiddenLayerSize
+	hiddenLayerSizeI = hiddenLayerSize
+	if(inhibitoryNeuronOutputPositive):
+		assert hiddenLayerSize%2 == 0
 		
 #initialisation parameters:
 normaliseActivationSparsity = False
