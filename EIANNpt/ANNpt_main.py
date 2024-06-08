@@ -71,24 +71,32 @@ def createOptimizer():
 	else:
 		optim = torch.optim.SGD(model.parameters(), lr=learningRate)
 	return optim
-	
-def processDataset(trainOrTest, dataset, model):
 
-	if(trainOrTest):
-		if(trainLocal):
-			if(trainIndividialSamples):
-				optim = [[None for layerIndex in range(model.config.numberOfLayers) ] for sampleIndex in range(batchSize)]
-				for sampleIndex in range(batchSize):
-					for layerIndex in range(model.config.numberOfLayers):
-						optimSampleLayer = torch.optim.Adam(model.parameters(), lr=learningRate)
-						optim[sampleIndex][layerIndex] = optimSampleLayer
-			else:
-				optim = [None]*model.config.numberOfLayers
+def createOptimiser(model):
+	if(trainLocal):
+		if(trainIndividialSamples):
+			optim = [[None for layerIndex in range(model.config.numberOfLayers) ] for sampleIndex in range(batchSize)]
+			for sampleIndex in range(batchSize):
 				for layerIndex in range(model.config.numberOfLayers):
-					optimLayer = torch.optim.Adam(model.parameters(), lr=learningRate)
-					optim[layerIndex] = optimLayer
+					optimSampleLayer = torch.optim.Adam(model.parameters(), lr=learningRate)
+					optim[sampleIndex][layerIndex] = optimSampleLayer
 		else:
-			optim = torch.optim.Adam(model.parameters(), lr=learningRate)
+			optim = [None]*model.config.numberOfLayers
+			for layerIndex in range(model.config.numberOfLayers):
+				optimLayer = torch.optim.Adam(model.parameters(), lr=learningRate)
+				optim[layerIndex] = optimLayer
+	else:
+		optim = torch.optim.Adam(model.parameters(), lr=learningRate)
+	return optim
+
+def processDataset(trainOrTest, dataset, model):
+	if(trainOrTest):
+		if(useAlgorithmEIANN and trainLocal):
+			optim = []
+			optim += [createOptimiser(model)]
+			optim += [createOptimiser(model)]
+		else:
+			optim = createOptimiser()
 		model.to(device)
 		model.train()	
 		numberOfEpochs = trainNumberOfEpochs

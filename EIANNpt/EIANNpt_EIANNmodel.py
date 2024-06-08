@@ -174,8 +174,8 @@ class EIANNmodel(nn.Module):
 				if(layerIndex < self.config.numberOfLayers-1):
 					if(trainingUpdateImplementation == "backprop"):
 						#self.trainLayerBackprop(layerIndex, xE, xI, optim)
-						self.trainLayerBackprop(layerIndex, zEe, zEi, optim)
-						self.trainLayerBackprop(layerIndex, zIe, zIi, optim)
+						self.trainLayerBackprop(layerIndex, zEe, zEi, optim[0])
+						self.trainLayerBackprop(layerIndex, zIe, zIi, optim[1])
 					elif(trainingUpdateImplementation == "hebbian"):
 						self.trainLayerHebbian(layerIndex, xE, xI, zEe, zEi, zIe, zIi, xPrevE, xPrevI)
 					
@@ -187,7 +187,7 @@ class EIANNmodel(nn.Module):
 
 		loss = self.lossFunction(x, y)
 		if(trainLocal):
-			self.trainLayerLast(optim, loss)
+			self.trainLayerLast(optim[0], loss)
 		accuracy = self.accuracyFunction(x, y)
 		accuracy = accuracy.detach().cpu().numpy()
 		
