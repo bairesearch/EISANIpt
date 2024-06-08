@@ -26,7 +26,8 @@ from torch import nn
 from ANNpt_globalDefs import *
 from torchmetrics.classification import Accuracy
 import ANNpt_linearSublayers
-
+if(trainingUpdateImplementation == "backprop"):
+	import EIANNpt_VICRegANNloss
 
 class EIANNconfig():
 	def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, linearSublayersNumber, numberOfFeatures, numberOfClasses, datasetSize, numberOfClassSamples):
@@ -168,75 +169,16 @@ class EIANNmodel(nn.Module):
 			else:
 				if(simulatedDendriticBranches):
 					x, xIndex = self.performTopK(x)
+					
 			if(trainOrTest and EIANNlocalLearning):
-				if(hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix):
-					associationMatrixEe = self.calculateAssociationMatrix(layerIndex, zEe, xPrevE)	#all +ve	#shape: [batchSize,] o, i
-					if(inhibitoryNeuronInitialisationMethod=="intermediaryInterneuron"):
-						associationMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xI)	#all -ve	#shape: [batchSize,] o, i
-					else:
-						associationMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xPrevI)	#all -ve	#shape: [batchSize,] o, i
-					associationMatrixIe = self.calculateAssociationMatrix(layerIndex, zIe, xPrevE)	#all +ve	#shape: [batchSize,] o, i
-					associationMatrixIi = self.calculateAssociationMatrix(layerIndex, zIi, xPrevI)	#all -ve	#shape: [batchSize,] o, i
-				else:
-					associationMatrixE = self.calculateAssociationMatrix(layerIndex, zE, xPrevE)	#shape: [batchSize,] o, i
-					associationMatrixI = self.calculateAssociationMatrix(layerIndex, zI, xPrevI)	#shape: [batchSize,] o, i
-					associationMatrixEe = associationMatrixE
-					associationMatrixEi = associationMatrixE
-					associationMatrixIe = associationMatrixI
-					associationMatrixIi = associationMatrixI
-				if(debugSanityChecks):
-					print("xPrevI = ", xPrevI)
-					print("xPrevE = ", xPrevE)
-					print("zIe = ", zIe)
-					print("zIi = ", zIi)
-					print("zEe = ", zEe)
-					print("zEi = ", zEi)
-					print("zI = ", zI)
-					print("zE = ", zE)
-					print("xI = ", xI)
-					print("xE = ", xE)
-					print("associationMatrixIe = ", associationMatrixIe)
-					print("associationMatrixIi = ", associationMatrixIi)
-					print("associationMatrixEe = ", associationMatrixEe)
-					print("associationMatrixEi = ", associationMatrixEi)
-
 				if(layerIndex < self.config.numberOfLayers-1):
-					if(not trainInactiveNeurons):
-						if(inhibitoryNeuronOutputPositive):
-							xEe = xE[:, 0:hiddenLayerSize]
-							xEi = xE[:, hiddenLayerSize:]
-							xIe = xI[:, 0:hiddenLayerSize]
-							xIi = xI[:, hiddenLayerSize:]
-							#print("associationMatrixEe.shape = ", associationMatrixEe.shape)
-							#print("xEe.shape = ", xEe.shape)
-							associationMatrixEe = associationMatrixEe*self.calculateActive(xEe)
-							associationMatrixEi = associationMatrixEi*self.calculateActive(xEi)
-							associationMatrixIe = associationMatrixIe*self.calculateActive(xIe)
-							associationMatrixIi = associationMatrixIi*self.calculateActive(xIi)
-						else:
-							associationMatrixEe = associationMatrixEe*self.calculateActive(xE)
-							associationMatrixEi = associationMatrixEi*self.calculateActive(xE)
-							associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
-							associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
-					if(EIANNlocalLearningApplyError):
-						errorE = self.calculateError(zEe, zEi, True)	#ie zE	#shape: batchSize, E
-						errorI = self.calculateError(zIe, zIi, False)	#ie zI	#shape: batchSize, I
-						hebbianMatrixEe = self.calculateHebbianMatrix(associationMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
-						hebbianMatrixEi = self.calculateHebbianMatrix(associationMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
-						hebbianMatrixIe = self.calculateHebbianMatrix(associationMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
-						hebbianMatrixIi = self.calculateHebbianMatrix(associationMatrixIi, errorI, True)	#if +ve error, want to increase Ii (ie -ve) weights
-					else:
-						hebbianMatrixEe = associationMatrixEe
-						hebbianMatrixEi = associationMatrixEi
-						hebbianMatrixIe = associationMatrixIe
-						hebbianMatrixIi = associationMatrixIi
-							
-					if(inhibitoryNeuronInitialisationMethod!="firstHiddenLayerExcitatoryInputOnly" or layerIndex > 0):
-						self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
-						self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
-						self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
-						if(inhibitoryNeuronInitialisationMethod!="intermediaryInterneuron" or layerIndex > 0):
-							self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
+					if(trainingUpdateImplementation == "backprop"):
+						#self.trainLayerBackprop(layerIndex, xE, xI, optim)
+						self.trainLayerBackprop(layerIndex, zEe, zEi, optim)
+						self.trainLayerBackprop(layerIndex, zIe, zIi, optim)
+					elif(trainingUpdateImplementation == "hebbian"):
+						self.trainLayerHebbian(layerIndex, xE, xI, zEe, zEi, zIe, zIi, xPrevE, xPrevI)
+					
 			if(debugSmallNetwork):
 				print("x after activation = ", x)
 				
@@ -244,6 +186,8 @@ class EIANNmodel(nn.Module):
 			x = x.squeeze(dim=1)
 
 		loss = self.lossFunction(x, y)
+		if(trainLocal):
+			self.trainLayerLast(optim, loss)
 		accuracy = self.accuracyFunction(x, y)
 		accuracy = accuracy.detach().cpu().numpy()
 		
@@ -270,82 +214,177 @@ class EIANNmodel(nn.Module):
 		x = xMax.values
 		xIndex = xMax.indices
 		return x, xIndex
-	
-	def calculateAssociationMatrix(self, layerIndex, z, xPrev):
-		if(useLinearSublayers):
-			z = pt.squeeze(z, dim=1)		#assume linearSublayersNumber=1
-			xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
-				
-		if(associationMatrixMethod=="useInputsAndOutputs"):
-			if(EIANNassociationMatrixBatched):
-				#retain batchSize dim in associationMatrix
-				z = z.unsqueeze(2)  # Shape will be (batchSize, z, 1)
-				xPrev = xPrev.unsqueeze(1)  # Shape will be (batchSize, 1, xPrev)
-				associationMatrix = z * xPrev  # Resultant shape will be (batchSize, z, xPrev)
-			else:
-				associationMatrix = pt.matmul(pt.transpose(z, 0, 1), xPrev)
-			#print("associationMatrix.shape = ", associationMatrix.shape)
-		elif(associationMatrixMethod=="useInputsAndWeights"):
-			weights = self.layersLinearIi[layerIndex].weight
-			#print("weights.shape = ", weights.shape)
-			#print("xPrev.shape = ", xPrev.shape)
-			if(EIANNassociationMatrixBatched):
-				weights = weights.unsqueeze(0)	#Shape will be (1, z, xPrev)
-				xPrev = xPrev.unsqueeze(1)	 #Shape will be (batchSize, 1, xPrev)
-			else:
-				printe("calculateAssociationMatrix error: associationMatrixMethod=useInputsAndWeights currently requires EIANNassociationMatrixBatched")
-			associationMatrix = xPrev*weights	# Resultant shape will be (batchSize, z, xPrev)
-			#print("associationMatrix.shape = ", associationMatrix.shape)
-	
-		return associationMatrix
-			
-	def calculateErrorSign(self, e, i):
-		error = calculateError(e, i)
-		errorSign = pt.sign(error).float()
-		return errorSign
-		
-	def calculateError(self, e, i, isExcitatoryNeuron):		
-		if(trainThreshold=="positive"):
-			if(inhibitoryNeuronSwitchActivation and not isExcitatoryNeuron):
-				error = e + i + trainThresholdPositiveValue
-			else:
-				error = e + i - trainThresholdPositiveValue
-		elif(trainThreshold=="zero"):
-			error = e + i	#e is +ve, i is -ve
-		return error
 
-	def calculateHebbianMatrix(self, associationMatrix, error, sign):
-		associationMatrix = pt.abs(associationMatrix)
-		#print("associationMatrix.shape = ", associationMatrix.shape)
-		#print("error.shape = ", error.shape)
-		if(EIANNassociationMatrixBatched):
-			error = pt.unsqueeze(error, dim=2)
-			if(inhibitoryNeuronOutputPositive):
-				hebbianMatrix = associationMatrix*error*-1	
-			else:
-				if(sign):
-					hebbianMatrix = associationMatrix*error*1
-				else:
-					hebbianMatrix = associationMatrix*error*-1	
-			hebbianMatrix = pt.mean(hebbianMatrix, dim=0) #average error over batchSize
-		else:
-			error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
-			error = pt.unsqueeze(error, dim=1)
-			if(inhibitoryNeuronOutputPositive):
-				hebbianMatrix = associationMatrix*error*-1
-			else:
-				if(sign):
-					hebbianMatrix = associationMatrix*error*1
-				else:
-					hebbianMatrix = associationMatrix*error*-1
-		return hebbianMatrix
-	
-	def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):
-		#use local hebbian learning rule - CHECKTHIS
-		layerWeights = layerLinear.weight
-	
-		weightUpdate = hebbianMatrix*EIANNlocalLearningRate
-		layerWeights = layerWeights + weightUpdate
+	if(trainingUpdateImplementation == "backprop"):
+		
+		#derived from VICRegANNpt_VICRegANNloss;
+		
+		def trainLayerLast(self, optim, loss):
+			layerIndex = self.config.numberOfLayers-1
+			opt = optim[layerIndex]
+			opt.zero_grad()			
+			loss.backward()
+			opt.step()
+
+		def trainLayerBackprop(self, layerIndex, xE, xI, optim):
+
+			loss = None
+			accuracy = 0.0
 			
-		layerLinear.weight = pt.nn.Parameter(layerWeights)
+			opt = optim[layerIndex]
+			opt.zero_grad()
+
+			loss = EIANNpt_VICRegANNloss.calculatePropagationLossVICRegANN(xE, xI)
+			
+			loss.backward()
+			opt.step()
+
+	elif(trainingUpdateImplementation == "hebbian"):	
+
+		def trainLayerHebbian(self, layerIndex, xE, xI, zEe, zEi, zIe, zIi, xPrevE, xPrevI):
+			if(hebbianWeightsUsingEIseparableInputsCorrespondenceMatrix):
+				associationMatrixEe = self.calculateAssociationMatrix(layerIndex, zEe, xPrevE)	#all +ve	#shape: [batchSize,] o, i
+				if(inhibitoryNeuronInitialisationMethod=="intermediaryInterneuron"):
+					associationMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xI)	#all -ve	#shape: [batchSize,] o, i
+				else:
+					associationMatrixEi = self.calculateAssociationMatrix(layerIndex, zEi, xPrevI)	#all -ve	#shape: [batchSize,] o, i
+				associationMatrixIe = self.calculateAssociationMatrix(layerIndex, zIe, xPrevE)	#all +ve	#shape: [batchSize,] o, i
+				associationMatrixIi = self.calculateAssociationMatrix(layerIndex, zIi, xPrevI)	#all -ve	#shape: [batchSize,] o, i
+			else:
+				associationMatrixE = self.calculateAssociationMatrix(layerIndex, zE, xPrevE)	#shape: [batchSize,] o, i
+				associationMatrixI = self.calculateAssociationMatrix(layerIndex, zI, xPrevI)	#shape: [batchSize,] o, i
+				associationMatrixEe = associationMatrixE
+				associationMatrixEi = associationMatrixE
+				associationMatrixIe = associationMatrixI
+				associationMatrixIi = associationMatrixI
+			if(debugSanityChecks):
+				print("xPrevI = ", xPrevI)
+				print("xPrevE = ", xPrevE)
+				print("zIe = ", zIe)
+				print("zIi = ", zIi)
+				print("zEe = ", zEe)
+				print("zEi = ", zEi)
+				print("zI = ", zI)
+				print("zE = ", zE)
+				print("xI = ", xI)
+				print("xE = ", xE)
+				print("associationMatrixIe = ", associationMatrixIe)
+				print("associationMatrixIi = ", associationMatrixIi)
+				print("associationMatrixEe = ", associationMatrixEe)
+				print("associationMatrixEi = ", associationMatrixEi)
+
+			if(not trainInactiveNeurons):
+				if(inhibitoryNeuronOutputPositive):
+					xEe = xE[:, 0:hiddenLayerSize]
+					xEi = xE[:, hiddenLayerSize:]
+					xIe = xI[:, 0:hiddenLayerSize]
+					xIi = xI[:, hiddenLayerSize:]
+					#print("associationMatrixEe.shape = ", associationMatrixEe.shape)
+					#print("xEe.shape = ", xEe.shape)
+					associationMatrixEe = associationMatrixEe*self.calculateActive(xEe)
+					associationMatrixEi = associationMatrixEi*self.calculateActive(xEi)
+					associationMatrixIe = associationMatrixIe*self.calculateActive(xIe)
+					associationMatrixIi = associationMatrixIi*self.calculateActive(xIi)
+				else:
+					associationMatrixEe = associationMatrixEe*self.calculateActive(xE)
+					associationMatrixEi = associationMatrixEi*self.calculateActive(xE)
+					associationMatrixIe = associationMatrixIe*self.calculateActive(xI)
+					associationMatrixIi = associationMatrixIi*self.calculateActive(xI)
+			if(EIANNlocalLearningApplyError):
+				errorE = self.calculateError(zEe, zEi, True)	#ie zE	#shape: batchSize, E
+				errorI = self.calculateError(zIe, zIi, False)	#ie zI	#shape: batchSize, I
+				hebbianMatrixEe = self.calculateHebbianMatrix(associationMatrixEe, errorE, False)	#if +ve error, want to decrease Ee (ie +ve) weights
+				hebbianMatrixEi = self.calculateHebbianMatrix(associationMatrixEi, errorE, True)	#if +ve error, want to increase Ei (ie -ve) weights
+				hebbianMatrixIe = self.calculateHebbianMatrix(associationMatrixIe, errorI, False)	#if +ve error, want to decrease Ie (ie +ve) weights
+				hebbianMatrixIi = self.calculateHebbianMatrix(associationMatrixIi, errorI, True)	#if +ve error, want to increase Ii (ie -ve) weights
+			else:
+				hebbianMatrixEe = associationMatrixEe
+				hebbianMatrixEi = associationMatrixEi
+				hebbianMatrixIe = associationMatrixIe
+				hebbianMatrixIi = associationMatrixIi
+
+			if(inhibitoryNeuronInitialisationMethod!="firstHiddenLayerExcitatoryInputOnly" or layerIndex > 0):
+				self.trainWeightsLayer(layerIndex, hebbianMatrixEe, self.layersLinearEe[layerIndex])
+				self.trainWeightsLayer(layerIndex, hebbianMatrixEi, self.layersLinearEi[layerIndex])
+				self.trainWeightsLayer(layerIndex, hebbianMatrixIe, self.layersLinearIe[layerIndex])
+				if(inhibitoryNeuronInitialisationMethod!="intermediaryInterneuron" or layerIndex > 0):
+					self.trainWeightsLayer(layerIndex, hebbianMatrixIi, self.layersLinearIi[layerIndex])
+
+		def calculateAssociationMatrix(self, layerIndex, z, xPrev):
+			if(useLinearSublayers):
+				z = pt.squeeze(z, dim=1)		#assume linearSublayersNumber=1
+				xPrev = pt.squeeze(xPrev, dim=1)	#assume linearSublayersNumber=1
+
+			if(associationMatrixMethod=="useInputsAndOutputs"):
+				if(EIANNassociationMatrixBatched):
+					#retain batchSize dim in associationMatrix
+					z = z.unsqueeze(2)  # Shape will be (batchSize, z, 1)
+					xPrev = xPrev.unsqueeze(1)  # Shape will be (batchSize, 1, xPrev)
+					associationMatrix = z * xPrev  # Resultant shape will be (batchSize, z, xPrev)
+				else:
+					associationMatrix = pt.matmul(pt.transpose(z, 0, 1), xPrev)
+				#print("associationMatrix.shape = ", associationMatrix.shape)
+			elif(associationMatrixMethod=="useInputsAndWeights"):
+				weights = self.layersLinearIi[layerIndex].weight
+				#print("weights.shape = ", weights.shape)
+				#print("xPrev.shape = ", xPrev.shape)
+				if(EIANNassociationMatrixBatched):
+					weights = weights.unsqueeze(0)	#Shape will be (1, z, xPrev)
+					xPrev = xPrev.unsqueeze(1)	 #Shape will be (batchSize, 1, xPrev)
+				else:
+					printe("calculateAssociationMatrix error: associationMatrixMethod=useInputsAndWeights currently requires EIANNassociationMatrixBatched")
+				associationMatrix = xPrev*weights	# Resultant shape will be (batchSize, z, xPrev)
+				#print("associationMatrix.shape = ", associationMatrix.shape)
+
+			return associationMatrix
+
+		def calculateErrorSign(self, e, i):
+			error = calculateError(e, i)
+			errorSign = pt.sign(error).float()
+			return errorSign
+
+		def calculateError(self, e, i, isExcitatoryNeuron):		
+			if(trainThreshold=="positive"):
+				if(inhibitoryNeuronSwitchActivation and not isExcitatoryNeuron):
+					error = e + i + trainThresholdPositiveValue
+				else:
+					error = e + i - trainThresholdPositiveValue
+			elif(trainThreshold=="zero"):
+				error = e + i	#e is +ve, i is -ve
+			return error
+
+		def calculateHebbianMatrix(self, associationMatrix, error, sign):
+			associationMatrix = pt.abs(associationMatrix)
+			#print("associationMatrix.shape = ", associationMatrix.shape)
+			#print("error.shape = ", error.shape)
+			if(EIANNassociationMatrixBatched):
+				error = pt.unsqueeze(error, dim=2)
+				if(inhibitoryNeuronOutputPositive):
+					hebbianMatrix = associationMatrix*error*-1	
+				else:
+					if(sign):
+						hebbianMatrix = associationMatrix*error*1
+					else:
+						hebbianMatrix = associationMatrix*error*-1	
+				hebbianMatrix = pt.mean(hebbianMatrix, dim=0) #average error over batchSize
+			else:
+				error = pt.mean(error, dim=0) #average error over batchSize	#associationMatrix has already been averaged over batchSize
+				error = pt.unsqueeze(error, dim=1)
+				if(inhibitoryNeuronOutputPositive):
+					hebbianMatrix = associationMatrix*error*-1
+				else:
+					if(sign):
+						hebbianMatrix = associationMatrix*error*1
+					else:
+						hebbianMatrix = associationMatrix*error*-1
+			return hebbianMatrix
+
+		def trainWeightsLayer(self, layerIndex, hebbianMatrix, layerLinear):
+			#use local hebbian learning rule - CHECKTHIS
+			layerWeights = layerLinear.weight
+
+			weightUpdate = hebbianMatrix*EIANNlocalLearningRate
+			layerWeights = layerWeights + weightUpdate
+
+			layerLinear.weight = pt.nn.Parameter(layerWeights)
 

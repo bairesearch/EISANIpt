@@ -22,6 +22,36 @@ debugUsePositiveWeightsVerify = False
 debugSmallNetwork = False
 debugSanityChecks = False
 
+
+#training update implementation parameters:
+trainingUpdateImplementation = "backprop"	#single layer backprop
+#trainingUpdateImplementation = "hebbian"	#orig	#custom approximation of single layer backprop
+
+#optimisation function parameters:
+if(trainingUpdateImplementation=="backprop"): 
+	optimisationFunctionType = "vicreg"	#vicreg function for i/e inputs	#currently requires trainingUpdateImplementation = "backprop"
+	#optimisationFunctionType = "similarity"	#orig #simple similarity function for i/e inputs
+else:
+	optimisationFunctionType = "similarity"	#orig #simple similarity function for i/e inputs
+if(trainingUpdateImplementation == "backprop"):
+	if(optimisationFunctionType=="similarity"):
+		vicregSimilarityLossOnly = True
+	elif(optimisationFunctionType=="vicreg"):
+		vicregSimilarityLossOnly = False
+	debugVICRegLoss = False
+	partiallyAlignLayer = False
+	trainMostAlignedNeurons = False
+	if(optimisationFunctionType == "vicreg"):
+		usePairedDataset = False	#formal vicreg algorithm uses paired dataset, EIANN does not
+		lambdaHyperparameter = 1.0 #invariance coefficient	#base condition > 1
+		muHyperparameter = 1.0	#invariance coefficient	#base condition > 1
+		nuHyperparameter = 1.0 #covariance loss coefficient	#set to 1
+	elif(optimisationFunctionType == "similarity"):
+		lambdaHyperparameter = 1.0 #invariance coefficient	#base condition > 1
+	trainLocal = True	#local learning rule	#required
+else:
+	trainLocal = False	#optional	#orig=False
+
 #association matrix parameters:
 trainInactiveNeurons = False	#if False, e/i weights will continue to increase (but cancel each other out: resulting distribution remains normalised)
 #associationMatrixMethod="useInputsAndOutputs"
@@ -115,7 +145,8 @@ else:
 		
 #initialisation parameters:
 normaliseActivationSparsity = False
-useCustomBiasInitialisation = True	#required to set all biases to 0
+#useCustomWeightInitialisation = True	#CHECKTHIS
+useCustomBiasInitialisation = True	#required to set all biases to 0	#initialise biases to zero
 
 
 workingDrive = '/large/source/ANNpython/EIANNpt/'
