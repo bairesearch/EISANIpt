@@ -58,6 +58,7 @@ trainInactiveNeurons = False	#if False, e/i weights will continue to increase (b
 associationMatrixMethod="useInputsAndWeights"
 	
 #activation function parameters:
+invertActivationFunctionForEIneurons = True	#E and I neurons are activated by inputs being above and below threshold (0) respectively
 #trainThreshold="positive"
 trainThreshold="zero"	#orig	#treats neural network as a progressive input factorisation process
 if(trainThreshold=="positive"):
@@ -118,16 +119,12 @@ simulatedDendriticBranches = False	#optional	#performTopK selection of neurons b
 useLinearSublayers = False
 
 #train paramters:
-trainLastLayerOnly = True	#required	#EIANN
-if(trainLastLayerOnly):
-	EIANNlocalLearning = True
-	#normaliseActivationSparsity = False
-	if(EIANNlocalLearning):
-		EIANNlocalLearningNeuronActiveThreshold = 0.0	#minimum activation level for neuron to be considered active	#CHECKTHIS
-		EIANNlocalLearningRate = 0.001	#0.01	#default: 0.001	#CHECKTHIS
-		EIANNlocalLearningBias = False	#bias learning towards most signficant weights
-else:
-	EIANNlocalLearning = False
+EIANNlocalLearning = True
+#normaliseActivationSparsity = False
+if(EIANNlocalLearning):
+	EIANNlocalLearningNeuronActiveThreshold = 0.0	#minimum activation level for neuron to be considered active	#CHECKTHIS
+	EIANNlocalLearningRate = 0.001	#0.01	#default: 0.001	#CHECKTHIS
+	EIANNlocalLearningBias = False	#bias learning towards most signficant weights
 	
 #network hierarchy parameters: 
 #override ANNpt_globalDefs default model parameters;

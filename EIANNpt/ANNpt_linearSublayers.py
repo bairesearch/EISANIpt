@@ -110,20 +110,30 @@ def generateLinearLayer2(self, layerIndex, in_features, out_features, linearSubl
 
 	return linear
 
-def generateActivationLayer(self, layerIndex, config):
+def generateActivationLayer(self, layerIndex, config, positive=True):
 	return generateActivationFunction()
 
-def generateActivationFunction():
+class NegReLUNeg(nn.Module):
+    def forward(self, x):
+        return -pt.relu(-x)
+		
+def generateActivationFunction(positive=True):
 	if(activationFunctionType=="softmax"):
 		if(thresholdActivations):
 			activation = OffsetSoftmax(thresholdActivationsMin)
 		else:
 			activation = nn.Softmax(dim=1)
 	elif(activationFunctionType=="relu"):
-		if(thresholdActivations):
-			activation = OffsetReLU(thresholdActivationsMin)
+		if(positive):
+			if(thresholdActivations):
+				activation = OffsetReLU(thresholdActivationsMin)
+			else:
+				activation = nn.ReLU()
 		else:
-			activation = nn.ReLU()
+			if(thresholdActivations):
+				printe("trainThreshold==positive:activationFunctionType==relu generateActivationFunction error: !positive+thresholdActivations not yet coded")
+			else:
+				activation = NegReLUNeg()	#sets positive values to zero, and converts negative values to positive
 	elif(activationFunctionType=="clippedRelu"):
 		activation = ClippedReLU(min_val=0, max_val=clippedReluMaxValue)
 	elif(activationFunctionType=="none"):

@@ -78,8 +78,8 @@ class EIANNmodel(nn.Module):
 			layersLinearListIe.append(linearIe)
 			layersLinearListIi.append(linearIi)
 			
-			activationE = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)
-			activationI = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config)	#invertActivation=inhibitoryNeuronSwitchActivation
+			activationE = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config, positive=True)
+			activationI = ANNpt_linearSublayers.generateActivationLayer(self, layerIndex, config, positive=(not invertActivationFunctionForEIneurons))
 			layersActivationListE.append(activationE)
 			layersActivationListI.append(activationI)
 		self.layersLinearEe = nn.ModuleList(layersLinearListEe)
@@ -118,9 +118,10 @@ class EIANNmodel(nn.Module):
 		for layerIndex in range(self.config.numberOfLayers):
 			if(debugSanityChecks):
 				print("\nlayerIndex = ", layerIndex)
-			if(trainLastLayerOnly):
+			if(EIANNlocalLearning):
 				xE = xE.detach()
 				xI = xI.detach()
+	
 			xPrevE = xE
 			xPrevI = xI
 			zIe = ANNpt_linearSublayers.executeLinearLayer(self, layerIndex, xPrevE, self.layersLinearIe[layerIndex], sign=True)	#inhibitory neuron excitatory input
