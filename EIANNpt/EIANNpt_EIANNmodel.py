@@ -175,6 +175,11 @@ class EIANNmodel(nn.Module):
 				if(layerIndex < self.config.numberOfLayers-1):
 					if(trainingUpdateImplementation == "backprop"):
 						#self.trainLayerBackprop(layerIndex, xE, xI, optim)
+						if(debugEIinputs):
+							print("zEe = ", zEe)
+							print("zEi = ", zEi)
+							print("zIe = ", zIe)
+							print("zIi = ", zIi)
 						self.trainLayerBackprop(layerIndex, zEe, zEi, optim[0])
 						self.trainLayerBackprop(layerIndex, zIe, zIi, optim[1])
 					elif(trainingUpdateImplementation == "hebbian"):

@@ -42,6 +42,7 @@ optimiserAdam = True
 #initialise (dependent vars);
 useCustomWeightInitialisation = False
 useCustomBiasInitialisation = False
+useCustomBiasNoTrain = False
 useSignedWeights = False
 usePositiveWeightsClampModel = False
 

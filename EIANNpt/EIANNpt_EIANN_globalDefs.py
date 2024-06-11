@@ -21,6 +21,7 @@ EIANNpt EIANN globalDefs
 debugUsePositiveWeightsVerify = False
 debugSmallNetwork = False
 debugSanityChecks = False
+debugEIinputs = False
 
 
 #training update implementation parameters:
@@ -73,7 +74,7 @@ elif(activationFunction=="positiveMid"):
 	clippedReluMaxValue = trainThresholdPositiveValue*2
 	
 #inhibitory layer parameters:
-inhibitoryNeuronOutputPositive = True	#orig: False	#I and E neurons detect presence and absence of stimuli, but both produce excitatory (ie positive) output
+inhibitoryNeuronOutputPositive = False	#orig: False	#I and E neurons detect presence and absence of stimuli, but both produce excitatory (ie positive) output
 if(inhibitoryNeuronOutputPositive):
 	inhibitoryNeuronSwitchActivation = True	#required
 else:
@@ -144,7 +145,9 @@ else:
 normaliseActivationSparsity = False
 #useCustomWeightInitialisation = True	#CHECKTHIS
 useCustomBiasInitialisation = True	#required to set all biases to 0	#initialise biases to zero
-
+if(useCustomBiasInitialisation):
+	if(trainingUpdateImplementation=="backprop"): 
+		useCustomBiasNoTrain = True
 
 workingDrive = '/large/source/ANNpython/EIANNpt/'
 dataDrive = workingDrive	#'/datasets/'

@@ -113,9 +113,9 @@ def generateLinearLayer2(self, layerIndex, in_features, out_features, linearSubl
 def generateActivationLayer(self, layerIndex, config, positive=True):
 	return generateActivationFunction()
 
-class NegReLUNeg(nn.Module):
+class ReLUNeg(nn.Module):
     def forward(self, x):
-        return -pt.relu(-x)
+        return pt.relu(-x)
 		
 def generateActivationFunction(positive=True):
 	if(activationFunctionType=="softmax"):
@@ -133,7 +133,7 @@ def generateActivationFunction(positive=True):
 			if(thresholdActivations):
 				printe("trainThreshold==positive:activationFunctionType==relu generateActivationFunction error: !positive+thresholdActivations not yet coded")
 			else:
-				activation = NegReLUNeg()	#sets positive values to zero, and converts negative values to positive
+				activation = ReLUNeg()	#sets positive values to zero, and converts negative values to positive
 	elif(activationFunctionType=="clippedRelu"):
 		activation = ClippedReLU(min_val=0, max_val=clippedReluMaxValue)
 	elif(activationFunctionType=="none"):
@@ -210,6 +210,8 @@ def weightsSetLayer(self, layerIndex, linear, sign=True):
 			nn.init.constant_(linear.segregatedLinear.bias, 0)
 		else:
 			nn.init.constant_(linear.bias, 0)
+		if(useCustomBiasNoTrain):
+			linear.bias.requires_grad = False
 
 def weightsFixLayer(self, layerIndex, linear, sign=True):
 	#if(not trainLastLayerOnly):
