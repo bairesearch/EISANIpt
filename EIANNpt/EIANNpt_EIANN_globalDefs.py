@@ -18,9 +18,9 @@ EIANNpt EIANN globalDefs
 """
 
 #debug parameters:
-debugUsePositiveWeightsVerify = False
+debugUsePositiveWeightsVerify = True
 debugSmallNetwork = False
-debugSanityChecks = False
+debugSanityChecks = True
 debugEIinputs = False
 
 

@@ -96,7 +96,7 @@ def processDataset(trainOrTest, dataset, model):
 			optim += [createOptimiser(model)]
 			optim += [createOptimiser(model)]
 		else:
-			optim = createOptimiser()
+			optim = createOptimiser(model)
 		model.to(device)
 		model.train()	
 		numberOfEpochs = trainNumberOfEpochs

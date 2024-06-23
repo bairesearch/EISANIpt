@@ -22,8 +22,6 @@ pip install torch
 pip install lovely-tensors
 pip install torchmetrics
 pip install torchvision	[required for OR]
-pip install chardet
-pip install cchardet
 ```
 
 ### Execution

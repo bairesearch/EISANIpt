@@ -20,6 +20,9 @@ ANNpt linear sublayers
 import torch as pt
 from torch import nn
 from ANNpt_globalDefs import *
+import numpy as np
+
+numpyVersion = 2
 
 class ClippedReLU(nn.Module):
 	def __init__(self, min_val=0, max_val=float('inf'), invertActivation=False):
@@ -46,12 +49,12 @@ class Relu(nn.Module):	#not currently used
 		return a
 				
 class LinearSegregated(nn.Module):
-	def __init__(self, in_features, out_features, number_sublayers):
+	def __init__(self, in_features, out_features, number_sublayers, bias=True):
 		super().__init__()
 		if(useCNNlayers):
-			self.segregatedLinear = nn.Conv2d(in_channels=in_features*number_sublayers, out_channels=out_features*number_sublayers, kernel_size=CNNkernelSize, stride=CNNstride, padding=CNNpadding, groups=number_sublayers)
+			self.segregatedLinear = nn.Conv2d(in_channels=in_features*number_sublayers, out_channels=out_features*number_sublayers, kernel_size=CNNkernelSize, stride=CNNstride, padding=CNNpadding, groups=number_sublayers, bias=bias)
 		else:	
-			self.segregatedLinear = nn.Conv1d(in_channels=in_features*number_sublayers, out_channels=out_features*number_sublayers, kernel_size=1, groups=number_sublayers)
+			self.segregatedLinear = nn.Conv1d(in_channels=in_features*number_sublayers, out_channels=out_features*number_sublayers, kernel_size=1, groups=number_sublayers, bias=bias)
 		self.number_sublayers = number_sublayers
 		
 	def forward(self, x):
@@ -68,8 +71,21 @@ class LinearSegregated(nn.Module):
 		#x.shape = batch_size, number_sublayers, out_features
 		return x
 
-def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True, featuresFanIn=False, inFeaturesMatchHidden=False, inFeaturesMatchOutput=False):
-	if(inFeaturesMatchHidden):
+def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=True, featuresFanIn=False, inFeaturesMatchHidden=False, inFeaturesMatchOutput=False, forward=True, bias=True, layerIndex2=None):
+	if(layerIndex2 is not None):
+		if(layerIndex == 0):
+			in_features = config.inputLayerSize
+		elif(layerIndex == config.numberOfLayers):
+			in_features = config.outputLayerSize
+		else:
+			in_features = config.hiddenLayerSize
+		if(layerIndex2 == 0):
+			out_features = config.inputLayerSize
+		elif(layerIndex2 == config.numberOfLayers):
+			out_features = config.outputLayerSize
+		else:
+			out_features = config.hiddenLayerSize
+	elif(inFeaturesMatchHidden):
 		if(layerIndex == 0):
 			in_features = config.hiddenLayerSize
 			out_features = config.hiddenLayerSize
@@ -90,34 +106,39 @@ def generateLinearLayer(self, layerIndex, config, parallelStreams=False, sign=Tr
 			out_features = config.outputLayerSize
 		else:
 			out_features = config.hiddenLayerSize
+	if(not forward):
+		#switch i/o layer features;
+		temp = in_features
+		in_features = out_features
+		out_features = temp
 	if(featuresFanIn):
 		in_features = in_features*2
 	linearSublayersNumber = config.linearSublayersNumber
-	return generateLinearLayer2(self, layerIndex, in_features, out_features, linearSublayersNumber, parallelStreams, sign)
+	return generateLinearLayer2(self, layerIndex, in_features, out_features, linearSublayersNumber, parallelStreams, sign, bias)
 		
-def generateLinearLayer2(self, layerIndex, in_features, out_features, linearSublayersNumber, parallelStreams=False, sign=True):
+def generateLinearLayer2(self, layerIndex, in_features, out_features, linearSublayersNumber, parallelStreams=False, sign=True, bias=True):
 	if(getUseLinearSublayers(self, layerIndex)):
-		linear = LinearSegregated(in_features=in_features, out_features=out_features, number_sublayers=linearSublayersNumber)
+		linear = LinearSegregated(in_features=in_features, out_features=out_features, number_sublayers=linearSublayersNumber, bias=bias)
 	else:
 		if(useCNNlayers):
-			linear = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=CNNkernelSize, stride=CNNstride, padding=CNNpadding)
+			linear = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=CNNkernelSize, stride=CNNstride, padding=CNNpadding, bias=bias)
 		else:
 			if(parallelStreams):
 				in_features = in_features*linearSublayersNumber
-			linear = nn.Linear(in_features=in_features, out_features=out_features)
+			linear = nn.Linear(in_features=in_features, out_features=out_features, bias=bias)
 
 	weightsSetLayer(self, layerIndex, linear, sign)
 
 	return linear
 
 def generateActivationLayer(self, layerIndex, config, positive=True):
-	return generateActivationFunction()
+	return generateActivationFunction(activationFunctionType, positive)
 
 class ReLUNeg(nn.Module):
     def forward(self, x):
         return pt.relu(-x)
 		
-def generateActivationFunction(positive=True):
+def generateActivationFunction(activationFunctionType, positive=True):
 	if(activationFunctionType=="softmax"):
 		if(thresholdActivations):
 			activation = OffsetSoftmax(thresholdActivationsMin)
@@ -136,6 +157,8 @@ def generateActivationFunction(positive=True):
 				activation = ReLUNeg()	#sets positive values to zero, and converts negative values to positive
 	elif(activationFunctionType=="clippedRelu"):
 		activation = ClippedReLU(min_val=0, max_val=clippedReluMaxValue)
+	elif(activationFunctionType=="sigmoid"):
+		activation = nn.Sigmoid()
 	elif(activationFunctionType=="none"):
 		activation = None
 	return activation
@@ -238,8 +261,23 @@ def weightsSetSignLayer(self, layerIndex, linear, sign=True):
 		else:
 			weights = linear.weight
 			bias = linear.bias
-		print("weights = ", weights)
-		print("bias = ", bias)
+		if(numpyVersion == 2):
+			printLayerWeights("weight", weights)
+			printLayerWeights("bias", bias)	
+		else:
+			print("weights = ", weights)
+			print("bias = ", bias)
+
+def printLayerWeights(name, weights):
+	if(numpyVersion == 2):
+		weights_numpy = weights.detach().cpu().numpy()
+		np.set_printoptions(formatter={'all': lambda x: custom_formatter(x)})
+		print(name, " = ", weights_numpy)
+	else:
+		print(name, " = ", weights)
+
+def custom_formatter(array):
+    return f"{array}"
 		
 def weightsSetPositiveModel(self):
 	if(useSignedWeights):
