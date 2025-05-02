@@ -2,7 +2,7 @@
 
 ### Author
 
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 ### Description
 
@@ -21,7 +21,9 @@ pip install datasets
 pip install torch
 pip install lovely-tensors
 pip install torchmetrics
-pip install torchvision	[required for OR]
+pip install torchvision
+pip install networkx
+pip install matplotlib
 ```
 
 ### Execution
