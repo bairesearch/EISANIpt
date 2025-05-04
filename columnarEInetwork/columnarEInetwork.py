@@ -41,57 +41,7 @@ Key features;
 - Three NetworkX-based visualisation utilities:
   (a) single-neuron detail; (b) whole-network neuron-level state;
   (c) full synapse-level state (very large - optional).
-
-# Specification (o3 prompt):
-please examine this biological neural network learning algorithm hypothesis;
-if a neuron (excitatory or inhibitory; E or I) accepts multiple independent sets of inputs (at each dendritic segment) then it must be trained to associate each independent set with the same output (either absolute class target or some intermediary class target).
-	how could an intermediary layer neuron class target be selected? the class target could be selected from a previous/different dataset.
-		would imply each neuron can only be associated. with a particular dataset and class target.
-	how would the class target reward signal be sent to the neuron? possibly via another neuron type eg glial cell
-each neuron accepts 1000+ independent sets of 10+ excitatory inputs at each segment (with inhibition mainly occurring at later stage in dendrite ie proximal to soma).
-	each neuron may only learn a subset of inputs (requiring many more neurons of the same class target in the layer to learn the rest).
-		if not fully connected however then there may be too many combinations of subsets (arbitrary selection of subsets).
-		if only 1 neuron per class target then not enough. neurons in layer for next layer to be trained.
-	each layer is sparsely activated (a neuron will learn to capture every possible combination of inputs at that layer for the class target in a dataset); imply number of neurons trained per layer >= number class targets.
-	perhaps closer dendritic segments learn most common sets of inputs (E or I) for class target and more distal dendrites learn most independent sets of inputs (E or I).
-	multiple ANN (artificial) layers could be encoded in same bio neuron.
-an inhibitory neuron being trained for a class target could learn different combinations of input that are never active for the class target (ie they are learning a "negative sample" or non-class target sample; see contrastive learning).
-	an inhibitory neuron for a given class could simply be trained by connecting all the neurons from previous layer of a different class target.
-require parallel processing (hardware accelerated) of layers.
-for now assume the lower (conv) layers of a CNN have been trained.
-each cortical column could be learning a different dataset (set of classes).
----
-This is my draft design plan for training:
-assign a set of neurons per layer for each class target being trained.
-	but how to connect their inputs? connect only same class active excitatory neurons. during inference however the network will select some out of class neurons, and some in class neurons.
-	[NO: in a particular context a neuron signals a class, and in another context it signals a different class; only dendritic segments (approx 20 inputs) pertain to the same class.]
-during train select some (or one) neurons to train and some (or one) segments to train (of same class).
-	but connect all active neurons in previous layer (of same class)? or only a subset of active neurons?
-if during inference more neurons of an incorrect class are active in first hidden layer than for the correct class, it relies on the second hidden layer to detect only common active combinations of first hidden layer (to discriminate correct class).
-first hidden layer is sensitive to all input layer neurons during train (not just of same class).
-cortical (mini) columns are used to train separate classes.
-	can overload columns for training of different classes in different datasets however.
-inputs to excitatory neurons occur within class column (detect and connect all active neurons within class column to excitatory neuron segment), but inputs to inhibitory neurons occur between columns (detect and connect all inactive neurons to inhibitory neuron segment).
----
-I would like a hardware accelerated pytorch implementation of my draft design plan for training without your modifications (eg "1 Clarify the objective for layer L");
-- every layer except for the input layer is split into a set of columns (for each target class in the dataset), each column is split into a set of excitatory (E) or inhibitory (I) neurons, each neuron is split into a set of "branches" (from close to soma to far from soma), each branch is split into a set of segments, and each segment is split into a set of synaptic inputs. The pytorch connection tensor (connectionMatrix) thus has the following dimensions: dim0: layer, dim1: column, dim2:  type, dim3: branch, dim4: segment, dim5: synapticInput.
-- Please create two implementations of connectionMatrix (depending on the value of bool useSparseMatrix);
-1. useSparseMatrix=False: all synaptic connections will use binary weights (connected/not connected to previous layer neuron), and are fully connected to all neurons on the previous layer.
-2. useSparseMatrix=True: the synaptic connections store a set of indices referring to their previous layer neurons.
-- The activation of dendritic branches can be added together (AND), where as the activation from dendritic segments are independently selected (OR). Each segment's synaptic inputs must reach a minimum activation threshold to send a dendritic NMDA spike to the soma (eg x out of 20 inputs must be activated).
-- Do not hardcode any variables (ie no magic numbers)
----
-The pytorch implementation must provide both training and inference code. Use my specification for training the excitatory and inhibitory neurons. 
--  For each training iteration (dataset sample), select trainN excitatory and inhibitory neurons to train per layer, trainB branches to train per neuron, trainS segments per branch, and trainI inputs per segment. Initialise trainN=1, trainB=1, trainS=1, trainI=numberInputsPerSegment. Assume equal numbers of excitatory and inhibitory neurons (and equal numbers being trained).
-- Always randomly select neurons (from each neuron type), branches, segments, and synaptic inputs to train.  For now (to simplify the implementation); if a segment is already trained, ignore this and select the next untrained segment (maintain a matrix indicating which segments are available to train).
----
-- Please use a real dataset from huggingface to train the network (for now select an image dataset with a large number of inputs; CIFAR-10). 
-- The final classification during inference occurs by selecting the final layer column with the most number of activated excitatory neurons.
-- provide a complete visualisation of the network using the networkx library to assist manual train/inference debugging, with;
-a) a bool option to visualise the excitation state (on/off) of every synaptic input, segment, branch in a select neuron in the network after a sample has been propagated during train/inference.
-b) a bool option to visualise the excitation state (on/off) of every neuron in the network after a sample has been propagated during train/inference. Network is drawn with segregated layers and segregated neuron types. The connectivity of every neuron to their previous layer neurons should be drawn (ie draw a line between them).
-c) a bool option to visualise the excitation state (on/off) of every synaptic input, segment, branch, and neuron in the network after a sample has been propagated during train/inference. Network is drawn with segregated layers and segregated neuron types. The connectivity of every synaptic input to their previous layer neurons should be drawn (ie draw a line between them).  This bool option (c) will produce a very large graph, and may be too large to display.
-
+  
 """
 
 from __future__ import annotations
