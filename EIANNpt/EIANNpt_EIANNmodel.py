@@ -1,7 +1,7 @@
 """EIANNpt_EIANNmodel.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 # License:
 MIT License
@@ -69,10 +69,10 @@ class EIANNmodel(nn.Module):
 					inFeaturesMatchHidden = True	#inhibitoryInterneuronFirstLayer	#CHECKTHIS: set first inhibitory layer size to input layer size (ensure zEi will be a same shape as zEe)
 				if(layerIndex == config.numberOfLayers-1):
 					inFeaturesMatchOutput = True	#inhibitoryInterneuronLastLayer	
-			linearEe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#excitatory neuron excitatory input
-			linearEi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
-			linearIe = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#inhibitory neuron excitatory input
-			linearIi = ANNpt_linearSublayers.generateLinearLayer(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn)	#inhibitory neuron inhibitory input
+			linearEe = ANNpt_linearSublayers.generateLinearLayerMatch(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#excitatory neuron excitatory input
+			linearEi = ANNpt_linearSublayers.generateLinearLayerMatch(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn, inFeaturesMatchHidden=inFeaturesMatchHidden, inFeaturesMatchOutput=inFeaturesMatchOutput)	#excitatory neuron inhibitory input
+			linearIe = ANNpt_linearSublayers.generateLinearLayerMatch(self, layerIndex, config, sign=True, featuresFanIn=featuresFanIn)	#inhibitory neuron excitatory input
+			linearIi = ANNpt_linearSublayers.generateLinearLayerMatch(self, layerIndex, config, sign=False, featuresFanIn=featuresFanIn)	#inhibitory neuron inhibitory input
 			layersLinearListEe.append(linearEe)
 			layersLinearListEi.append(linearEi)
 			layersLinearListIe.append(linearIe)

@@ -1,7 +1,7 @@
 """EIANNpt_VICRegANNloss.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2023 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 # License:
 MIT License

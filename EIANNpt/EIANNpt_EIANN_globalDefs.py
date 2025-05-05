@@ -1,7 +1,7 @@
 """EIANNpt_EIANN_globalDefs.py
 
 # Author:
-Richard Bruce Baxter - Copyright (c) 2024 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 # License:
 MIT License
@@ -57,7 +57,7 @@ else:
 trainInactiveNeurons = False	#if False, e/i weights will continue to increase (but cancel each other out: resulting distribution remains normalised)
 #associationMatrixMethod="useInputsAndOutputs"
 associationMatrixMethod="useInputsAndWeights"
-	
+
 #activation function parameters:
 invertActivationFunctionForEIneurons = True	#E and I neurons are activated by inputs being above and below threshold (0) respectively
 #trainThreshold="positive"
@@ -72,7 +72,7 @@ if(activationFunction=="positiveAll"):
 elif(activationFunction=="positiveMid"):
 	activationFunctionType = "clippedRelu"
 	clippedReluMaxValue = trainThresholdPositiveValue*2
-	
+
 #inhibitory layer parameters:
 inhibitoryNeuronOutputPositive = False	#orig: False	#I and E neurons detect presence and absence of stimuli, but both produce excitatory (ie positive) output
 if(inhibitoryNeuronOutputPositive):
@@ -87,7 +87,7 @@ inhibitoryNeuronInitialisationMethod="useInputActivations" #sameAsExcitatoryNeur
 #inhibitoryNeuronInitialisationMethod="firstHiddenLayerExcitatoryInputOnly"	#network is symmetrical but requires first hidden layer activation to be renormalised (e.g. with top k),
 if(inhibitoryNeuronOutputPositive):
 	assert inhibitoryNeuronInitialisationMethod=="useInputActivations"
-	
+
 #EI layer paramters:
 #consider adjust the learning algorithm hebbian matrix application (to prevent collapse of I/E neuron weights to same values)
 if(inhibitoryNeuronOutputPositive):
@@ -126,7 +126,7 @@ if(EIANNlocalLearning):
 	EIANNlocalLearningNeuronActiveThreshold = 0.0	#minimum activation level for neuron to be considered active	#CHECKTHIS
 	EIANNlocalLearningRate = 0.001	#0.01	#default: 0.001	#CHECKTHIS
 	EIANNlocalLearningBias = False	#bias learning towards most signficant weights
-	
+
 #network hierarchy parameters: 
 #override ANNpt_globalDefs default model parameters;
 batchSize = 64
@@ -140,7 +140,7 @@ else:
 	hiddenLayerSizeI = hiddenLayerSize
 	if(inhibitoryNeuronOutputPositive):
 		assert hiddenLayerSize%2 == 0
-		
+
 #initialisation parameters:
 normaliseActivationSparsity = False
 #useCustomWeightInitialisation = True	#CHECKTHIS

@@ -1,0 +1,74 @@
+//EI SANI Network Specification (o3 prompt):
+
+v1a:
+Please implement this specification for a custom pytorch binary neural network;
+- The pytorch model config init function is defined as follows; 	
+	class EISANIconfig():
+		def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment):
+			self.batchSize = batchSize
+			self.numberOfLayers = numberOfLayers
+			self.hiddenLayerSize = hiddenLayerSize
+			self.inputLayerSize = inputLayerSize
+			self.outputLayerSize = outputLayerSize
+			self.numberOfFeatures = numberOfFeatures
+			self.numberOfClasses = numberOfClasses
+			self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
+			self.numberOfHiddenLayers = numberOfLayers-1
+- Initialise the pytorch model;
+	- create a tensor of hidden connections for each layer;
+		- Create different implementations of hiddenConnectionMatrix depending on the value of bool useSparseMatrix;
+			- if useSparseMatrix=False: each neuron (segment) is connected to all previous layer neurons (layer weight matrix of shape=[h_i, h_i-1]), but the weight values are set to 0 if the connections are (currently) off.
+			- if useSparseMatrix=True: each neuron (segment) synaptic connections are a set of indices referring to their previous layer neurons (and values corresponding to their weight). hiddenConnectionMatrix is a sparse pytorch tensor.
+		- Create different implementations of hiddenConnectionMatrix depending on the value of bool useEIneurons;
+			- if useEIneurons=False, create a set of hidden neurons for each hidden layer (hiddenConnectionMatrix). Network weights can either be positive (+1) or negative (-1.) 
+			- if useEIneurons=True, create a set of excitatory and inhibitory hidden neurons for each hidden layer (hiddenConnectionMatrixExcitatory and hiddenConnectionMatrixInhibitory). Inhibitory neuron activation function outpus -1 instead of +1. All network weights are positive (+1). There are equal numbers of excitatory and inhibitory connections.
+		- Create different implementations of hiddenConnectionMatrix depending on the value of bool useDynamicGeneratedHiddenConnections;
+			- if useDynamicGeneratedHiddenConnections=True;
+				- A bool tensor called neuronSegmentActivatedMask (shape=[numberOfHiddenLayers, hiddenLayerSize]) is maintained for every neuron in the network and initialised to all False.
+				- All connections in network are initialised as off/inactive (0). 
+				- During the processing of every train sample, for every new neuron (segment) assigned during train, its connections (of size numberOfSynapsesPerSegment) will be activated (with associated connection weight values).
+				- the specific train process is described below ("Create network hidden layer train code").
+			- if useDynamicGeneratedHiddenConnections=False; 
+				- randomly initialise the connections between each neuron and neurons in the previous layer (numberOfSynapsesPerSegment are assigned between each neuron and its previous layer neurons).
+	- create a tensor of output connections for each layer;	
+		- For every neuron in every hidden layer in the network a connection is made to every output (class) neuron;
+			- A tensor called outputConnectionMatrix (shape=[numberOfHiddenLayers, hiddenLayerSize, numberOfClasses]) is initialised all to 0.
+				- If useBinaryOuputConnections=True the outputConnectionMatrix is of type bool, else it is of type float.
+- Create forward pass code;
+	- The pytorch model forward function is given three arguments; 	
+		- bool trainOrTest
+		- pytorch tensor input x (shape=[batchSize, numberOfFeatures]), each normalised within range [continuousVarMin:continuousVarMax]
+		- optional pytorch tensor target y (shape=[batchSize]), each within the range [0:numberOfClasses]
+	- create a tensor of input nodes called inputLayer (shape=[numberOfFeatures*continuousVarEncodingNumBits]).
+	- create a tensor of output nodes called outputLayer (shape=[numberOfClasses]).
+	- the forward function immediately encodes the continuous variables (x) into binary code (inputLayer);
+		- If useGrayCode=True; apply graycode encoding of the input x with continuousVarEncodingNumBits (across range [continuousVarMin:continuousVarMax])
+		- If useGrayCode=False; apply thermometer encoding of the input x with continuousVarEncodingNumBits (across range [continuousVarMin:continuousVarMax])
+	- implement activation function code (activationFunction);
+		- A neuron fires if its total activation is >= segmentActivationThreshold.
+	- Create network hidden layer code;	
+		- if trainOrTest=True or False, the network propagates the input;
+			- For every sample in the batch;
+				- For every hidden layer in the network;
+					- The pre-activation (Z) values the hidden neurons are calculated in parallel based on its hiddenConnectionMatrix and previous layer neuron activation values.
+					- The activation (A) values are calculated in parallel using activationFunction.
+		- if trainOrTest=True, the network may train its hidden connections;
+			- if useDynamicGeneratedHiddenConnections=True; new hidden connections are created for every new neuron (segment) assigned in the network;
+				- For every sample in batch during train, and for every layer in the network;
+					- Calculate neuron activations at that hidden layer based on their existing connectivity.
+					- If the fraction of activated neurons in the hidden layer is below targetActivationSparsityFraction, then a new neuron (segment) is activated (neuronSegmentActivatedMask[i,j]=True) and its connections are activated;
+						- Its connections are assigned based on a random subset of presently activated/nonactivated neurons on the previous layer (numberOfSynapsesPerSegment).
+						- If the previous layer neuron being connected is on, then a weight of +1 is assigned to the new neuron (segment) connection.
+						- If the previous layer neuron being connected is off, then a weight of -1 is assigned to the new neuron (segment) connection.
+					- If there are no more neurons available to be used in the layer (neuronSegmentActivatedMask[h, :] is all True), then a warning is printed but no new connections are assigned.
+			- if useDynamicGeneratedHiddenConnections=False; no new hidden connections are created during train (use existing randomly assigned connections). 
+	- Create network output layer code;
+		- if trainOrTest=True; new output connections are created between active nodes and output (class target) neurons.
+			- For every hidden neuron activated, its associated outputConnectionMatrix connection to the current output (class) neuron is updated;
+				- If useBinaryOuputConnections=True; the connection weight is incremented (+1.0).
+				- If useBinaryOuputConnections=True; the connection weight is set to 1.
+		- if trainOrTest=False; the network detects the most activated class neuron.
+			- for every hidden neuron activated, its associated output (class) neuron value is updated (by adding its current connection weight value). 
+			- the predicted class is selected by selecting the output neuron with the highest activation value.
+- Do not hardcode any variables (ie no magic numbers).
+

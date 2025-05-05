@@ -1,4 +1,4 @@
-"""EIANNpt_EIANN.py
+"""EIANNpt_EISANI.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,12 +13,12 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EIANNpt_EIANN excitatory inhibitory artificial neural network 
+EIANNpt excitatory inhibitory (EI) sequentially activated neuronal input (SANI) network
 
 """
 
 from ANNpt_globalDefs import *
-import EIANNpt_EIANNmodel
+import EIANNpt_EISANImodel
 import ANNpt_data
 
 def createModel(dataset):
@@ -27,18 +27,16 @@ def createModel(dataset):
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	
 	print("creating new model")
-	config = EIANNpt_EIANNmodel.EIANNconfig(
+	config = EIANNpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,
 		hiddenLayerSize = hiddenLayerSize,
 		inputLayerSize = numberOfFeatures,
 		outputLayerSize = numberOfClasses,
-		linearSublayersNumber = linearSublayersNumber,
 		numberOfFeatures = numberOfFeatures,
 		numberOfClasses = numberOfClasses,
-		datasetSize = datasetSize,
-		numberOfClassSamples = numberOfClassSamples
+		numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
 	)
-	model = EIANNpt_EIANNmodel.EIANNmodel(config)
+	model = EIANNpt_EISANImodel.EISANImodel(config)
 	return model
 
