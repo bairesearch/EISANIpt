@@ -18,6 +18,7 @@ EIANNpt excitatory inhibitory (EI) sequentially activated neuronal input (SANI) 
 """
 
 from ANNpt_globalDefs import *
+from torchsummary import summary
 import EIANNpt_EISANImodel
 import ANNpt_data
 
@@ -38,5 +39,8 @@ def createModel(dataset):
 		numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
 	)
 	model = EIANNpt_EISANImodel.EISANImodel(config)
+	
+	print(model)
+
 	return model
 

@@ -22,16 +22,21 @@ debugEISANIoutput = True
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
-numberOfSynapsesPerSegment = 5	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
+numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 continuousVarEncodingNumBits = 8	#number of bits to encode a continuous variable to
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
-segmentActivationThreshold = numberOfSynapsesPerSegment//2	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
+if(numberOfSynapsesPerSegment > 5):
+	segmentActivationThreshold = numberOfSynapsesPerSegment//3
+else:
+	segmentActivationThreshold = numberOfSynapsesPerSegment//2	#default: numberOfSynapsesPerSegment//2	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
 	#_dynamic_hidden_growth syapse selection implementation 1b: segmentActivationThreshold = numberOfSynapsesPerSegment-2 (ie 3; allowing for 1 mismatch redundancy), or numberOfSynapsesPerSegment (ie 5; allowing for 0 mismatch redundancy)
 	#_dynamic_hidden_growth syapse selection implementation 1c: segmentActivationThreshold = numberOfSynapsesPerSegment//2 (ie 2; allowing for average 0.5 mismatch redundancy)
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
+useActiveBias = True	#bias positive (ceil) for odd k
+numberNeuronsGeneratedPerBatch = 1  	#default: 1	#exp: 5
 
 trainLocal = True	#local learning rule	#required
 

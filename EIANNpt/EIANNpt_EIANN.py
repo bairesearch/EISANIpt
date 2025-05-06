@@ -17,7 +17,8 @@ EIANNpt_EIANN excitatory inhibitory artificial neural network
 
 """
 
-from ANNpt_globalDefs import *
+from ANNpt_globalDefs import 
+from torchsummary import summary
 import EIANNpt_EIANNmodel
 import ANNpt_data
 
@@ -40,5 +41,8 @@ def createModel(dataset):
 		numberOfClassSamples = numberOfClassSamples
 	)
 	model = EIANNpt_EIANNmodel.EIANNmodel(config)
+	
+	print(model)
+
 	return model
 

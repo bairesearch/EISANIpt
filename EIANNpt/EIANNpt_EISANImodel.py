@@ -251,7 +251,8 @@ class EISANImodel(nn.Module):
 			# Dynamic hidden connection growth
 			# -------------------------
 			if (trainOrTest and self.useDynamicGeneratedHiddenConnections):
-				self._dynamic_hidden_growth(layerIdx, prevActivation, currentActivation, device)
+				for _ in range(numberNeuronsGeneratedPerBatch):
+					self._dynamic_hidden_growth(layerIdx, prevActivation, currentActivation, device)
 
 			prevActivation = currentActivation
 
@@ -386,57 +387,108 @@ class EISANImodel(nn.Module):
 			randIdx  = torch.cat([activeIdx, inactiveIdx[fill_idx]], dim=0)
 		"""
 
-		# -------------------------------------------------------
-		# implementation 1c: Sample synapses - 50% active, 50% inactive
-		# - 50% of synapses to be connected to randomly selected previous layer active neurons, and b) 50% of synapses to be connected to randomly selected previous layer inactive neurons (or if useEIneurons: randomly selected inactive previous layer inhibitory neurons).
-		# - midway between implementation 1a and implementation 1b
-		# -------------------------------------------------------
 		numSyn   = self.config.numberOfSynapsesPerSegment
 		#presyn   = prevActivation[0]						 # [prevSize] 0./1.	#orig
 		presyn   = (prevActivation > 0).any(dim=0).float()   # [prevSize] 0./1.
 		
-		activeIdx   = (presyn > 0).nonzero(as_tuple=True)[0]		  # on-bits
-
 		if self.useEIneurons:
-			half		= self.config.hiddenLayerSize // 2			# split E/I
-			inh_mask	= torch.arange(presyn.numel(), device=device) >= half
-			inactiveIdx = ((presyn == 0) & inh_mask).nonzero(as_tuple=True)[0]
+			# -------------------------------------------------------
+			# implementation 1d: Sample synapses - 50% active, 50% inactive
+			# For useEIneurons=True;
+			# - the excitatory neuron segment connections should be defined based on 50% active presynaptic layer excitatory neurons, and 50% inactive presynaptic layer inhibitory neurons.
+			# - the inhibitory neuron segment connections should be defined based on 50% inactive presynaptic layer excitatory neurons, and 50% active presynaptic layer inhibitory neurons.
+			# -------------------------------------------------------
+
+			# ---------- EI-specific pools ----------
+			halfPrev		= presyn.numel() // 2
+			isExcPresyn	 = torch.arange(presyn.numel(), device=device) < halfPrev
+			isInhPresyn	 = ~isExcPresyn
+
+			excActiveIdx	= (isExcPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
+			excInactiveIdx  = (isExcPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
+			inhActiveIdx	= (isInhPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
+			inhInactiveIdx  = (isInhPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
+
+			halfThis   = self.config.hiddenLayerSize // 2
+			isExcNeur  = newNeuronIdx < halfThis
+
+			if isExcNeur:
+				activePool   = excActiveIdx	  # active\u202fE
+				inactivePool = inhInactiveIdx	# inactive\u202fI
+			else:
+				activePool   = inhActiveIdx	  # active\u202fI
+				inactivePool = excInactiveIdx	# inactive\u202fE
+
+			# --- decide how many active / inactive synapses we need
+			if useActiveBias:
+				numActive   = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k	# allocate counts (ceil for odd k)
+			else:
+				numActive   = numSyn // 2	#orig
+			numInactive = numSyn - numActive
+
+			chooseA = torch.randperm(activePool.numel(),   device=device)[:numActive]
+			chooseI = torch.randperm(inactivePool.numel(), device=device)[:numInactive]
+
+			randIdx = torch.cat([activePool[chooseA], inactivePool[chooseI]], dim=0)
+			# make sure we have exactly `numSyn` indices
+			shortfall = numSyn - randIdx.numel()
+			if shortfall > 0:
+				# borrow from the other pool (wraps around if needed)
+				filler = inactivePool if activePool.numel() >= inactivePool.numel() else activePool
+				extra  = filler[torch.randperm(filler.numel(), device=device)[:shortfall]]
+				randIdx = torch.cat([randIdx, extra], dim=0)
+			randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]  #shuffle - permute so the order is still random
+
+			# EI mode -> all weights are +1
+			weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)
 		else:
+			# -------------------------------------------------------
+			# implementation 1c: Sample synapses - 50% active, 50% inactive
+			# For useEIneurons=False;
+			# - 50% of synapses to be connected to randomly selected previous layer active neurons
+			# - 50% of synapses to be connected to randomly selected previous layer inactive neurons
+			# - midway between implementation 1a and implementation 1b
+			# -------------------------------------------------------
+
+			activeIdx   = (presyn > 0).nonzero(as_tuple=True)[0]		  # on-bits
 			inactiveIdx = (presyn == 0).nonzero(as_tuple=True)[0]	 # off-bits
 
-		# --- decide how many active / inactive synapses we need
-		if useEIneurons:
-			numActive   = numSyn // 2	#orig
-		else:
-			numActive   = (numSyn + 1) // 2        # ceiling - bias positive
-		numInactive = numSyn - numActive
-
-		# guard against edge cases where pool size is smaller than desired
-		numActive   = min(numActive,   activeIdx.numel())
-		numInactive = min(numInactive, inactiveIdx.numel())
-		shortfall   = numSyn - (numActive + numInactive)
-
-		# if one pool is too small, take the remainder from the other
-		if shortfall > 0:
-			if activeIdx.numel() - numActive >= shortfall:
-				numActive += shortfall
+			# --- decide how many active / inactive synapses we need
+			if useActiveBias:
+				numActive   = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k
 			else:
-				numInactive += shortfall
+				numActive   = numSyn // 2	#orig
+			numInactive = numSyn - numActive
 
-		chooseA = torch.randperm(activeIdx.numel(),   device=device)[:numActive]
-		chooseI = torch.randperm(inactiveIdx.numel(), device=device)[:numInactive]
+			# guard against edge cases where pool size is smaller than desired
+			numActive   = min(numActive,   activeIdx.numel())
+			numInactive = min(numInactive, inactiveIdx.numel())
+			shortfall   = numSyn - (numActive + numInactive)
 
-		randIdx = torch.cat([activeIdx[chooseA], inactiveIdx[chooseI]], dim=0)
+			# if one pool is too small, take the remainder from the other
+			if shortfall > 0:
+				if activeIdx.numel() - numActive >= shortfall:
+					numActive += shortfall
+				else:
+					numInactive += shortfall
 
-		# permute so the order is still random
-		randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]
+			chooseA = torch.randperm(activeIdx.numel(),   device=device)[:numActive]
+			chooseI = torch.randperm(inactiveIdx.numel(), device=device)[:numInactive]
 
+			randIdx = torch.cat([activeIdx[chooseA], inactiveIdx[chooseI]], dim=0)
+			# make sure we have exactly `numSyn` indices
+			shortfall = numSyn - randIdx.numel()
+			if shortfall > 0:
+				# borrow from the other pool (wraps around if needed)
+				filler = inactivePool if activePool.numel() >= inactivePool.numel() else activePool
+				extra  = filler[torch.randperm(filler.numel(), device=device)[:shortfall]]
+				randIdx = torch.cat([randIdx, extra], dim=0)
+			randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]	#shuffle - permute so the order is still random
 
-
-		# weights: +1 if presynaptic *currently on*, else -1
-		prevActSample = presyn[randIdx]						# 0./1.
-		#weights = torch.where(prevActSample > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))	#orig
-		weights = torch.where(presyn[randIdx] > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))
+			# weights: +1 if presynaptic *currently on*, else -1
+			prevActSample = presyn[randIdx]						# 0./1.
+			#weights = torch.where(prevActSample > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))	#orig
+			weights = torch.where(presyn[randIdx] > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))
 
 		# Update hidden connection matrix
 		if self.useEIneurons:
@@ -457,7 +509,7 @@ class EISANImodel(nn.Module):
 			existing_indices = mat._indices()
 			existing_values = mat._values()
 
-			new_indices = torch.stack([torch.full((numSyn,), relativeIdx, device=device, dtype=torch.long), randIdx,])
+			new_indices = torch.stack([torch.full((randIdx.numel(),), relativeIdx, device=device, dtype=torch.long), randIdx,])
 			new_values = weights
 			
 			dev = existing_indices.device
