@@ -379,6 +379,9 @@ elif(useImageDataset):
 	dropout = False	#default: False
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 
+if(useAlgorithmEISANI):
+	trainNumberOfEpochs = 1
+	
 if(trainNumberOfEpochsHigh):
 	trainNumberOfEpochs = trainNumberOfEpochs*4
 	

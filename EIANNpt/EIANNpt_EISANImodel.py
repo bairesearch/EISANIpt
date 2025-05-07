@@ -130,7 +130,7 @@ class EISANImodel(nn.Module):
 			prevSize = config.hiddenLayerSize
 
 		if useDynamicGeneratedHiddenConnections:
-			self.register_buffer("neuronSegmentActivatedMask", torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool,),)
+			self.register_buffer("neuronSegmentAssignedMask", torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool,),)
 
 		# -----------------------------
 		# Output connection matrix
@@ -251,8 +251,14 @@ class EISANImodel(nn.Module):
 			# Dynamic hidden connection growth
 			# -------------------------
 			if (trainOrTest and self.useDynamicGeneratedHiddenConnections):
-				for _ in range(numberNeuronsGeneratedPerBatch):
-					self._dynamic_hidden_growth(layerIdx, prevActivation, currentActivation, device)
+				for _ in range(numberNeuronsGeneratedPerSample):
+					if(useDynamicGeneratedHiddenConnectionsVectorised):
+						self._dynamic_hidden_growth_vectorised(layerIdx, prevActivation, currentActivation, device)
+					else:
+						for s in range(prevActivation.size(0)):                # loop over batch
+							prevAct_b  = prevActivation[s : s + 1]             # keep 2- [1, prevSize]
+							currAct_b  = currentActivation[s : s + 1]          # keep 2- [1, layerSize]
+							self._dynamic_hidden_growth(layerIdx, prevAct_b, currAct_b, device)
 
 			prevActivation = currentActivation
 
@@ -345,13 +351,13 @@ class EISANImodel(nn.Module):
 			return  # sparsity satisfied
 
 		# Need to activate a new neuron (one per call)
-		available = (~self.neuronSegmentActivatedMask[layerIdx]).nonzero(as_tuple=True)[0]
+		available = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
 		if available.numel() == 0:
 			if self.training:
 				print(f"Warning: no more available neurons in hidden layer {layerIdx}")
 			return
 		newNeuronIdx = available[0].item()
-		self.neuronSegmentActivatedMask[layerIdx, newNeuronIdx] = True
+		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx] = True
 
 
 		"""
@@ -413,11 +419,11 @@ class EISANImodel(nn.Module):
 			isExcNeur  = newNeuronIdx < halfThis
 
 			if isExcNeur:
-				activePool   = excActiveIdx	  # active\u202fE
-				inactivePool = inhInactiveIdx	# inactive\u202fI
+				activePool   = excActiveIdx	  # active E
+				inactivePool = inhInactiveIdx	# inactive I
 			else:
-				activePool   = inhActiveIdx	  # active\u202fI
-				inactivePool = excInactiveIdx	# inactive\u202fE
+				activePool   = inhActiveIdx	  # active I
+				inactivePool = excInactiveIdx	# inactive E
 
 			# --- decide how many active / inactive synapses we need
 			if useActiveBias:
@@ -517,16 +523,150 @@ class EISANImodel(nn.Module):
 			new_values  = new_values.to(dev)
 			
 			matNew = torch.sparse_coo_tensor(torch.cat([existing_indices, new_indices], dim=1), torch.cat([existing_values, new_values]), mat.size(), device=dev,)
-			if self.useEIneurons and newNeuronIdx >= half:
-				self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew
-			elif self.useEIneurons:
-				self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew
-			else:
-				self.hiddenConnectionMatrix[layerIdx] = matNew
 		else:
 			# structural update - do NOT track in autograd
 			with torch.no_grad():
 				mat[relativeIdx, randIdx] = weights
+			matNew = mat
+			
+		if self.useEIneurons and newNeuronIdx >= half:
+			self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew
+		elif self.useEIneurons:
+			self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew
+		else:
+			self.hiddenConnectionMatrix[layerIdx] = matNew
+
+	@torch.no_grad()
+	def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device,) -> None:
+		"""
+		Vectorised growth: handles an entire batch, but creates at most ONE new
+		neuron per *sample* that is below the sparsity target.  Exactly follows
+		the spec for both EI and non-EI modes.
+		
+		prevActivation/currActivation: [B, prevSize] float {0,1}
+		"""
+		cfg	= self.config
+		k	  = cfg.numberOfSynapsesPerSegment
+		B, P   = prevActivation.shape
+		Lsize  = currActivation.size(1)
+
+		# ---------- 1. which samples need a neuron? ------------------------------
+		fracAct = currActivation.float().mean(dim=1)				 # [B]
+		if(debugEISANIoutput):
+			print("fracAct = ", fracAct)
+		growMask = fracAct < self.targetActivationSparsityFraction   # bool [B]
+		if not growMask.any():
+			return
+
+		growSamples = growMask.nonzero(as_tuple=False).squeeze(1)	# [G] sample idx
+		G = growSamples.numel()
+
+		# ---------- 2. reserve G unused neuron slots -----------------------------
+		avail = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
+		if avail.numel() < G:
+			G = avail.numel()
+			growSamples = growSamples[:G]
+			if G == 0:
+				if self.training:
+					print(f"Warning: no free neurons in layer {layerIdx}")
+				return
+		newRows = avail[:G]										  # [G]
+		self.neuronSegmentAssignedMask[layerIdx, newRows] = True
+
+		# ---------- 3. vectorised synapse sampling -------------------------------
+		# presynBatch: [G, P] float {0,1}
+		presynBatch = prevActivation[growSamples]
+		onMask	  = presynBatch > 0								# bool
+		offMask	 = ~onMask
+
+		# -- helper to draw N unique indices from a row mask ----------------------
+		def draw_indices(mask: torch.Tensor, n: int) -> torch.Tensor:
+			"""
+			mask : [G, P]  bool
+			returns [G, n] long, allowing repeats if a row has < n True
+			"""
+			prob = mask.float() + 1e-6							   # avoid zero row
+			idx  = torch.multinomial(prob, n, replacement=True)	  # [G, n]
+			return idx
+
+		# decide counts
+		if getattr(self, "useActiveBias", True):
+			nA = (k + 1) // 2	# ceil(k/2)
+		else:
+			nA = k // 2
+		nI = k - nA
+
+		# EI-aware pools -----------------------------------------------------------
+		if self.useEIneurons:
+			halfPrev   = P // 2
+			isExcPre   = torch.arange(P, device=device) < halfPrev   # [P] bool
+			isInhPre   = ~isExcPre
+
+			# split masks
+			excOn   = onMask  &  isExcPre
+			excOff  = offMask &  isExcPre
+			inhOn   = onMask  &  isInhPre
+			inhOff  = offMask &  isInhPre
+
+			# neuron type for each new row
+			halfThis  = cfg.hiddenLayerSize // 2
+			isExcNeur = newRows < halfThis						   # [G] bool
+
+			# choose pools per neuron in vectorised form
+			activePool   = torch.where(isExcNeur.unsqueeze(1), excOn,  inhOn)
+			inactivePool = torch.where(isExcNeur.unsqueeze(1), inhOff, excOff)
+
+			actIdx  = draw_indices(activePool,   nA)				 # [G, nA]
+			inIdx   = draw_indices(inactivePool, nI)				 # [G, nI]
+			colIdx  = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
+			weights = torch.ones(G, k, device=device)				# all +1
+		else:
+			# non-EI: 50 / 50 active / inactive
+			actIdx  = draw_indices(onMask,  nA)					  # [G, nA]
+			inIdx   = draw_indices(offMask, nI)					  # [G, nI]
+			colIdx  = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
+
+			presynPicked = presynBatch.gather(1, colIdx)			 # 0./1., [G,k]
+			weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))	# ±1
+
+		# shuffle cols inside each row to keep random order
+		perm = torch.randperm(k, device=device)
+		colIdx = colIdx[:, perm]
+		weights = weights[:, perm]
+
+		# ---------- 4. flatten to COO lists --------------------------------------
+		flatRows = newRows.repeat_interleave(k)					  # [G*k]
+		flatCols = colIdx.reshape(-1)								# [G*k]
+		flatVals = weights.reshape(-1)							   # [G*k]
+
+		# ---------- 5. write to weight matrix (sparse or dense) ------------------
+		if self.useEIneurons:
+			half = cfg.hiddenLayerSize // 2
+			if (newRows[0] < half):
+				targetMats = self.hiddenConnectionMatrixExcitatory
+			else:
+				targetMats = self.hiddenConnectionMatrixInhibitory
+			mat = targetMats[layerIdx]
+		else:
+			mat = self.hiddenConnectionMatrix[layerIdx]
+
+		if mat.is_sparse:
+			idx_new = torch.stack([flatRows, flatCols], dim=0)	   # [2, G*k]
+			val_new = flatVals
+			mat_new = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
+		else:	# dense case
+			mat_new = mat.clone()
+			mat_new[flatRows, flatCols] = flatVals
+
+		# ---------- 6. store back -------------------------------------------------
+		if self.useEIneurons:
+			if newRows[0] < half:
+				self.hiddenConnectionMatrixExcitatory[layerIdx] = mat_new
+			else:
+				self.hiddenConnectionMatrixInhibitory[layerIdx] = mat_new
+		else:
+			self.hiddenConnectionMatrix[layerIdx] = mat_new
+
 
 	# ---------------------------------------------------------
 	# Output connection update helper

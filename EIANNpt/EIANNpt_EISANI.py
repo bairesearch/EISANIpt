@@ -31,7 +31,7 @@ def createModel(dataset):
 	config = EIANNpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,
-		hiddenLayerSize = hiddenLayerSize,
+		hiddenLayerSize = hiddenLayerSizeSANI,
 		inputLayerSize = numberOfFeatures,
 		outputLayerSize = numberOfClasses,
 		numberOfFeatures = numberOfFeatures,
