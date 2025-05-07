@@ -639,32 +639,66 @@ class EISANImodel(nn.Module):
 		flatCols = colIdx.reshape(-1)								# [G*k]
 		flatVals = weights.reshape(-1)							   # [G*k]
 
-		# ---------- 5. write to weight matrix (sparse or dense) ------------------
 		if self.useEIneurons:
+			# ---------- 5. write to weight matrix (sparse or dense) ------------------
 			half = cfg.hiddenLayerSize // 2
-			if (newRows[0] < half):
-				targetMats = self.hiddenConnectionMatrixExcitatory
-			else:
-				targetMats = self.hiddenConnectionMatrixInhibitory
-			mat = targetMats[layerIdx]
+			excMask = newRows < half						# [G] bool
+			inhMask = ~excMask
+
+			def merge_into(mat, rowsSel, colsSel, valsSel, isExc):
+				"""
+				rowsSel : flat (global) neuron indices
+				colsSel : flat presynapse indices
+				valsSel : flat weights
+				isExc   : True -> excitatory matrix, row shift = 0
+						  False -> inhibitory  matrix, row shift = -half
+				"""
+				if rowsSel.numel() == 0:
+					return mat
+				rowShift = 0 if isExc else -half
+				rowsRel  = rowsSel + rowShift
+
+				if mat.is_sparse:
+					idx_new = torch.stack([rowsRel, colsSel], dim=0)
+					val_new = valsSel
+					mat = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
+				else:
+					mat = mat.clone()
+					mat[rowsRel, colsSel] = valsSel
+				return mat
+
+			# split flattened arrays once for efficiency
+			isExcEntry = flatRows < half
+			flatRows_exc = flatRows[isExcEntry]
+			flatCols_exc = flatCols[isExcEntry]
+			flatVals_exc = flatVals[isExcEntry]
+
+			flatRows_inh = flatRows[~isExcEntry]
+			flatCols_inh = flatCols[~isExcEntry]
+			flatVals_inh = flatVals[~isExcEntry]
+
+			# merge into respective matrices
+			Emat = self.hiddenConnectionMatrixExcitatory[layerIdx]
+			Imat = self.hiddenConnectionMatrixInhibitory[layerIdx]
+
+			Emat = merge_into(Emat, flatRows_exc, flatCols_exc, flatVals_exc, True)
+			Imat = merge_into(Imat, flatRows_inh, flatCols_inh, flatVals_inh, False)
+
+			self.hiddenConnectionMatrixExcitatory[layerIdx] = Emat
+			self.hiddenConnectionMatrixInhibitory[layerIdx] = Imat
 		else:
+			# ---------- 5. write to weight matrix (sparse or dense) ------------------
 			mat = self.hiddenConnectionMatrix[layerIdx]
 
-		if mat.is_sparse:
-			idx_new = torch.stack([flatRows, flatCols], dim=0)	   # [2, G*k]
-			val_new = flatVals
-			mat_new = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
-		else:	# dense case
-			mat_new = mat.clone()
-			mat_new[flatRows, flatCols] = flatVals
+			if mat.is_sparse:
+				idx_new = torch.stack([flatRows, flatCols], dim=0)	   # [2, G*k]
+				val_new = flatVals
+				mat_new = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
+			else:	# dense case
+				mat_new = mat.clone()
+				mat_new[flatRows, flatCols] = flatVals
 
-		# ---------- 6. store back -------------------------------------------------
-		if self.useEIneurons:
-			if newRows[0] < half:
-				self.hiddenConnectionMatrixExcitatory[layerIdx] = mat_new
-			else:
-				self.hiddenConnectionMatrixInhibitory[layerIdx] = mat_new
-		else:
+			# ---------- 6. store back -------------------------------------------------
 			self.hiddenConnectionMatrix[layerIdx] = mat_new
 
 
