@@ -1,4 +1,4 @@
-# EIANNpt
+# EISANIpt/EIANNpt
 
 ### Author
 
@@ -22,6 +22,7 @@ pip install torch
 pip install lovely-tensors
 pip install torchmetrics
 pip install torchvision
+pip install torchsummary
 pip install networkx
 pip install matplotlib
 ```

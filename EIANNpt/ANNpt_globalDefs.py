@@ -179,7 +179,7 @@ if(useTabularDataset):
 	#datasetName = 'red-wine'	#expected test accuracy: ~58%
 	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%
 	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%
-	#datasetName = 'banking-marketing'	#expected test accuracy: ~85	#third party benchmark accuracy: ~79.1%
+	#datasetName = 'banking-marketing'	#expected test accuracy: ~85%	#third party benchmark accuracy: ~79.1%
 	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%
 	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%
 	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs
