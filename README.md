@@ -6,7 +6,7 @@ Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 ### Description
 
-Excitatory/Inhibitory neuron artificial neural network (EIANN) for PyTorch
+Excitatory/Inhibitory neuron sequentially activated neuronal input/artificial neural network (EISANI/EIANN) for PyTorch
 
 ### License
 
@@ -31,3 +31,7 @@ pip install matplotlib
 source activate pytorchsenv
 python ANNpt_main.py
 ```
+
+## EISANI vs Backprop performance
+
+![EISANIbackpropTestAccuracy-SMALL.png](https://github.com/bairesearch/EIANNpt/blob/master/graph/EISANIbackpropTestAccuracy-SMALL.png?raw=true)

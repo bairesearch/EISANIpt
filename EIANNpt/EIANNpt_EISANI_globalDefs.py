@@ -26,7 +26,7 @@ useEIneurons = False	#use separate excitatory and inhibitory neurons (else use e
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
 numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
-continuousVarEncodingNumBits = 8	#number of bits to encode a continuous variable to
+continuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
 segmentActivationThreshold = numberOfSynapsesPerSegment-2	#default: numberOfSynapsesPerSegment-2 (ie 3; allowing for 1 mismatch redundancy), or numberOfSynapsesPerSegment (ie 5; allowing for 0 mismatch redundancy)	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
@@ -34,7 +34,7 @@ segmentActivationThreshold = numberOfSynapsesPerSegment-2	#default: numberOfSyna
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 useActiveBias = True	#bias positive (ceil) for odd k
-hiddenLayerSizeSANI = 128000	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
+hiddenLayerSizeSANI = 1280000	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
 numberNeuronsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#orig: 1
 
 trainLocal = True	#local learning rule	#required

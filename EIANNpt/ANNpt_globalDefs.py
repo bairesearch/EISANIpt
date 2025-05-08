@@ -173,17 +173,17 @@ dataloaderRepeatSampler = False
 dataloaderRepeatLoop = False		#legacy (depreciate)
 
 if(useTabularDataset):
-	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~56%
-	#datasetName = 'blog-feedback'	#expected test accuracy: ~65%
-	datasetName = 'titanic'	#expected test accuracy: ~85%
-	#datasetName = 'red-wine'	#expected test accuracy: ~35%
-	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~33%
-	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~60%
-	#datasetName = 'banking-marketing'	#expected test accuracy: ~75%	#third party benchmark accuracy: ~79.1%
-	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~75% 	#third party benchmark accuracy: ~85.8%
-	#datasetName = 'covertype'	#expected test accuracy: ~%93 	#third party benchmark accuracy: ~97.1%
-	#datasetName = 'higgs'	#expected test accuracy: ~65%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs
-	#datasetName = 'new-thyroid'	#expected test accuracy: ~50%	https://archive.ics.uci.edu/dataset/102/thyroid+disease
+	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%
+	#datasetName = 'blog-feedback'	#expected test accuracy: ~70%
+	datasetName = 'titanic'	#expected test accuracy: ~90%
+	#datasetName = 'red-wine'	#expected test accuracy: ~58%
+	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%
+	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%
+	#datasetName = 'banking-marketing'	#expected test accuracy: ~85	#third party benchmark accuracy: ~79.1%
+	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%
+	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%
+	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs
+	#datasetName = 'new-thyroid'	#expected test accuracy: ~95%	https://archive.ics.uci.edu/dataset/102/thyroid+disease
 	if(datasetName == 'tabular-benchmark'):
 		datasetNameFull = 'inria-soda/tabular-benchmark'
 		classFieldName = 'class'
@@ -323,11 +323,11 @@ if(useTabularDataset):
 		datasetLocalFile = True	
 		datasetNormalise = True
 		datasetConvertClassValues = True
-		learningRate = 0.005	#default: 0.001	#orig: 0.005
+		learningRate = 0.005	#default: 0.005
 		numberOfLayers = 3	#default: 3	#orig: 2, 4
 		hiddenLayerSize = 16	#default: 16	#orig: 4, 10
 		#batchSize = 1
-		trainNumberOfEpochs = 1	#default: 1
+		trainNumberOfEpochs = 100	#default: 100
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 100	#for batchSize ~= 64
@@ -348,7 +348,7 @@ if(useTabularDataset):
 			dataloaderRepeatSamplerCustom = False	#no tqdm visualisation
 			assert not dataloaderShuffle	#dataloaderShuffle is not supported by dataloaderRepeatSampler
 elif(useImageDataset):
-	#currently assume CIFAR-10 dataset;
+	#currently assume CIFAR-10 dataset	#expected test accuracy: ~91%
 	warmupEpochs = 5 	#default: 5	#orig: 0
 	learningRate = 0.001	#default: 0.001 (or 0.01)	#orig: 0.005
 	momentum = 0.9     #default: 0.9	#orig: 0.0

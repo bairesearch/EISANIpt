@@ -174,13 +174,13 @@ def processDataset(trainOrTest, dataset, model):
 					else:
 						loss, accuracy = testBatch(batchIndex, batch, model, l)
 
-					if(printAccuracyRunningAverage):
-						(loss, accuracy) = (runningLoss, runningAccuracy) = (runningLoss/runningAverageBatches*(runningAverageBatches-1)+(loss/runningAverageBatches), runningAccuracy/runningAverageBatches*(runningAverageBatches-1)+(accuracy/runningAverageBatches))
-					
 					if(l == maxLayer-1):
 						if(not trainOrTest):
 							totalAccuracy = totalAccuracy + accuracy
 							totalAccuracyCount += 1
+							
+					if(printAccuracyRunningAverage):
+						(loss, accuracy) = (runningLoss, runningAccuracy) = (runningLoss/runningAverageBatches*(runningAverageBatches-1)+(loss/runningAverageBatches), runningAccuracy/runningAverageBatches*(runningAverageBatches-1)+(accuracy/runningAverageBatches))
 					
 					loop.set_description(f'Epoch {epoch}')
 					loop.set_postfix(batchIndex=batchIndex, loss=loss, accuracy=accuracy)
