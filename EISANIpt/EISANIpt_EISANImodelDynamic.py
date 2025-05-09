@@ -1,4 +1,4 @@
-"""EIANNpt_EISANImodelDynamic.py
+"""EISANIpt_EISANImodelDynamic.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,13 +13,13 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EIANNpt EISANI model dynamic neuron segment connection assignment
+EISANIpt model dynamic neuron segment connection assignment
 
 """
 
 import torch
 from ANNpt_globalDefs import *
-import EIANNpt_EISANImodelDynamic
+import EISANIpt_EISANImodelDynamic
 
 
 # ---------------------------------------------------------

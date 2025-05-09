@@ -1,4 +1,4 @@
-"""EIANNpt_EISANImodel.py
+"""EISANIpt_EISANImodel.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,9 +13,12 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EIANNpt excitatory inhibitory (EI) sequentially activated neuronal input (SANI) network model
+EISANIpt excitatory inhibitory (EI) summation activated neuronal input (SANI) network model
 
-The sequentially activated neuronal input requirement is not enforced for tabular input, but the algorithm is equivalent to SANI otherwise.
+The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways;
+a) tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
+b) both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
+The algorithm is equivalent to the original SANI specification otherwise (dynamic network generation etc).
 
 Implementation note:
 If useEIneurons=False: - a relU function is applied to every hidden neuron (so their output will always be 0 or +1), but connection weights to the next layer can either be positive (+1) or negative (-1).
@@ -26,9 +29,8 @@ If useEIneurons=True: - a relU function is applied to both E and I neurons (so t
 import torch
 from torch import nn
 from ANNpt_globalDefs import *
-#from torchmetrics.classification import Accuracy
 from typing import List, Optional, Tuple
-import EIANNpt_EISANImodelDynamic
+import EISANIpt_EISANImodelDynamic
 
 class EISANIconfig():
 	def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment):
@@ -142,13 +144,15 @@ class EISANImodel(nn.Module):
 		else:
 			self.register_buffer("outputConnectionMatrix", torch.zeros(outConnShape, dtype=torch.float),)
 
+		
 		# -----------------------------
 		# verify neuron uniqueness
 		# -----------------------------
-		self.hiddenNeuronSignatures = [dict() for _ in range(config.numberOfLayers)]
-		if self.useEIneurons:
-			self.hiddenNeuronSignaturesExc = [dict() for _ in range(config.numberOfLayers)]
-			self.hiddenNeuronSignaturesInh = [dict() for _ in range(config.numberOfLayers)]
+		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
+			self.hiddenNeuronSignatures = [dict() for _ in range(config.numberOfLayers)]
+			if self.useEIneurons:
+				self.hiddenNeuronSignaturesExc = [dict() for _ in range(config.numberOfLayers)]
+				self.hiddenNeuronSignaturesInh = [dict() for _ in range(config.numberOfLayers)]
 
 
 	# ---------------------------------------------------------
@@ -265,12 +269,12 @@ class EISANImodel(nn.Module):
 			if (trainOrTest and self.useDynamicGeneratedHiddenConnections):
 				for _ in range(numberNeuronsGeneratedPerSample):
 					if(useDynamicGeneratedHiddenConnectionsVectorised):
-						EIANNpt_EISANImodelDynamic._dynamic_hidden_growth_vectorised(self, layerIdx, prevActivation, currentActivation, device)
+						EISANIpt_EISANImodelDynamic._dynamic_hidden_growth_vectorised(self, layerIdx, prevActivation, currentActivation, device)
 					else:
 						for s in range(prevActivation.size(0)):                # loop over batch
 							prevAct_b  = prevActivation[s : s + 1]             # keep 2- [1, prevSize]
 							currAct_b  = currentActivation[s : s + 1]          # keep 2- [1, layerSize]
-							EIANNpt_EISANImodelDynamic._dynamic_hidden_growth(self, layerIdx, prevAct_b, currAct_b, device)
+							EISANIpt_EISANImodelDynamic._dynamic_hidden_growth(self, layerIdx, prevAct_b, currAct_b, device)
 
 			prevActivation = currentActivation
 

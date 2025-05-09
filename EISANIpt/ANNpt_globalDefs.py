@@ -24,9 +24,9 @@ useAlgorithmLIANN = False
 useAlgorithmLUANN = False
 useAlgorithmLUOR = False
 useAlgorithmSANIOR = False
-useAlgorithmEIANN = True
+useAlgorithmEIANN = False
 useAlgorithmEIOR = False
-useAlgorithmEISANI = False
+useAlgorithmEISANI = True
 useAlgorithmAEANN = False
 useAlgorithmFFANN = False
 

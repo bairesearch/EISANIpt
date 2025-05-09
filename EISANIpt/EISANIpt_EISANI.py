@@ -1,4 +1,4 @@
-"""EIANNpt_EISANI.py
+"""EISANIpt_EISANI.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,13 +13,13 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EIANNpt excitatory inhibitory (EI) sequentially activated neuronal input (SANI) network
+EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal input (SANI) network
 
 """
 
 from ANNpt_globalDefs import *
 from torchsummary import summary
-import EIANNpt_EISANImodel
+import EISANIpt_EISANImodel
 import ANNpt_data
 
 def createModel(dataset):
@@ -28,7 +28,7 @@ def createModel(dataset):
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	
 	print("creating new model")
-	config = EIANNpt_EISANImodel.EISANIconfig(
+	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,
 		hiddenLayerSize = hiddenLayerSizeSANI,
@@ -38,7 +38,7 @@ def createModel(dataset):
 		numberOfClasses = numberOfClasses,
 		numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
 	)
-	model = EIANNpt_EISANImodel.EISANImodel(config)
+	model = EISANIpt_EISANImodel.EISANImodel(config)
 	
 	print(model)
 

@@ -13,7 +13,7 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EIANNpt EIANN globalDefs
+EIANNpt globalDefs
 
 """
 
