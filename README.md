@@ -6,7 +6,7 @@ Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 ### Description
 
-Excitatory/Inhibitory neuron summation activated neuronal input/artificial neural network (EISANI/EIANN) for PyTorch
+Excitatory/Inhibitory summation activated neuronal input (EISANI) and Excitatory/Inhibitory neuron artificial neural network (EIANN) for PyTorch - experimental
 
 #### EISANI Algorithm
 

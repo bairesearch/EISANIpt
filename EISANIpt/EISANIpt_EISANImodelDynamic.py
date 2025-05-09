@@ -37,7 +37,7 @@ def _build_signature_vectorised(self, colsBatch: torch.Tensor, wBatch: torch.Ten
 	for cols, w in zip(colsBatch, wBatch):
 		sigs.append(_build_signature(self, cols, w))
 	return sigs
-	
+
 def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
 	unique = True
 	cfg	= self.config
@@ -73,7 +73,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 	
 	if self.useEIneurons:
 		half = cfg.hiddenLayerSize // 2
-		keep_mask = []
+		# keep_mask = [] # Original comment, assuming keep_list is used
 		for r, sig in zip(newRows.tolist(), batchSigs):
 			if r < half:
 				sigDict = self.hiddenNeuronSignaturesExc[layerIdx]
@@ -95,13 +95,14 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 				keep_list.append(True)
 				sigDict[sig] = True
 				
-	keep_mask = torch.tensor(keep_list, device=device, dtype=torch.bool)
+	keep_mask = torch.tensor(keep_list, device=newRows.device, dtype=torch.bool) # Changed device
 	return keep_mask, dup_found
 
 # ---------------------------------------------------------
 # Dynamic hidden growth helper
 # ---------------------------------------------------------
 
+@torch.no_grad()
 def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device,) -> None:
 	batchActiveMask = currentActivation != 0.0
 	fractionActive = batchActiveMask.float().mean().item()
@@ -208,7 +209,11 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]  #shuffle - permute so the order is still random
 
 		# EI mode -> all weights are +1
-		weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)
+		#weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)	#orig
+		if self.hiddenConnectionMatrixExcitatory[layerIdx].is_sparse: #assuming E/I matrices have same dtype
+			weights = torch.ones_like(randIdx, dtype=torch.bool, device=device)
+		else:
+			weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)
 	else:
 		# -------------------------------------------------------
 		# implementation 1c: Sample synapses - 50% active, 50% inactive
@@ -256,7 +261,11 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		# weights: +1 if presynaptic *currently on*, else -1
 		prevActSample = presyn[randIdx]						# 0./1.
 		#weights = torch.where(prevActSample > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))	#orig
-		weights = torch.where(presyn[randIdx] > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))
+		if self.hiddenConnectionMatrix[layerIdx].is_sparse:
+			weights = presyn[randIdx] > 0	#boolean
+		else:
+			weights = torch.where(presyn[randIdx] > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))
+
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
 		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
@@ -284,7 +293,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		existing_values = mat._values()
 
 		new_indices = torch.stack([torch.full((randIdx.numel(),), relativeIdx, device=device, dtype=torch.long), randIdx,])
-		new_values = weights
+		new_values = weights #dtype is bool or float32
 
 		dev = existing_indices.device
 		new_indices = new_indices.to(dev)
@@ -298,11 +307,11 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		matNew = mat
 
 	if self.useEIneurons and newNeuronIdx >= half:
-		self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew
+		self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew.to(device) #ensure device consistency
 	elif self.useEIneurons:
-		self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew
+		self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew.to(device) #ensure device consistency
 	else:
-		self.hiddenConnectionMatrix[layerIdx] = matNew
+		self.hiddenConnectionMatrix[layerIdx] = matNew.to(device) #ensure device consistency
 
 @torch.no_grad()
 def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device,) -> None:
@@ -389,7 +398,11 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		actIdx = draw_indices(activePool,   nA)				 # [G, nA]
 		inIdx = draw_indices(inactivePool, nI)				 # [G, nI]
 		colIdx = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
-		weights = torch.ones(G, k, device=device)				# all +1
+		#weights = torch.ones(G, k, device=device)				# all +1	#orig
+		if self.hiddenConnectionMatrixExcitatory[layerIdx].is_sparse: #assuming E/I matrices have same dtype
+			weights = torch.ones(G, k, device=device, dtype=torch.bool)
+		else:
+			weights = torch.ones(G, k, device=device, dtype=torch.float32)
 	else:
 		# non-EI: 50 / 50 active / inactive
 		actIdx = draw_indices(onMask,  nA)					  # [G, nA]
@@ -397,7 +410,11 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		colIdx = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
 
 		presynPicked = presynBatch.gather(1, colIdx)			 # 0./1., [G,k]
-		weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))	# ±1
+		#weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))	# 1	#orig
+		if self.hiddenConnectionMatrix[layerIdx].is_sparse:
+			weights = presynPicked > 0 #boolean
+		else:
+			weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))
 	
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
 		keep_mask, dup_found = perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows)
@@ -446,11 +463,29 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 			if mat.is_sparse:
 				idx_new = torch.stack([rowsRel, colsSel], dim=0)
-				val_new = valsSel
+				val_new = valsSel #dtype is bool or float32
 				mat = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
 			else:
 				mat = mat.clone()
-				mat[rowsRel, colsSel] = valsSel
+				# Ensure valsSel is compatible with int8 matrix
+				if mat.dtype == torch.int8:
+					# Assuming valsSel from sparse bool context is True/False, convert to 1/0 or 1/-1 for int8
+					if valsSel.dtype == torch.bool:
+						# Standard case: True -> 1, False -> -1 (if not EI)
+						# EI case: True -> 1 (False should not occur for EI weights)
+						# This logic should align with how weights are determined for int8 dense elsewhere
+						# For simplicity, assuming EI means valsSel are effectively 1 (True)
+						# and non-EI means valsSel could be True (1) or False (-1)
+						if self.useEIneurons: # context of merge_into being called
+							mat[rowsRel, colsSel] = valsSel.to(torch.int8) # True -> 1
+						else:
+							mat[rowsRel, colsSel] = torch.where(valsSel, 
+							                                    torch.tensor(1, device=device, dtype=torch.int8), 
+							                                    torch.tensor(-1, device=device, dtype=torch.int8))
+					else:
+						mat[rowsRel, colsSel] = valsSel.to(torch.int8) # direct cast if already numeric
+				else:
+					mat[rowsRel, colsSel] = valsSel
 			return mat
 
 		# split flattened arrays once for efficiency
@@ -478,12 +513,28 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 		if mat.is_sparse:
 			idx_new = torch.stack([flatRows, flatCols], dim=0)	   # [2, G*k]
-			val_new = flatVals
+			val_new = flatVals #dtype is bool or float32
 			mat_new = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
 		else:	# dense case
 			mat_new = mat.clone()
-			mat_new[flatRows, flatCols] = flatVals
+			# Ensure flatVals is compatible with int8 matrix
+			if mat_new.dtype == torch.int8:
+				# flatVals can be bool (from sparse logic) or float (potentially, though aiming for int8)
+				# This part handles the case where dense matrices are int8
+				if flatVals.dtype == torch.bool:
+					# Convert boolean flatVals to int8: True to 1, False to -1 (standard) or True to 1 (EI)
+					if self.useEIneurons: # Context of the broader function
+						# This assumes that for EI, weights are always 1. If flatVals can be False for EI, this needs adjustment.
+						mat_new[flatRows, flatCols] = flatVals.to(torch.int8) # True -> 1
+					else:
+						mat_new[flatRows, flatCols] = torch.where(flatVals, 
+						                                        torch.tensor(1, device=device, dtype=torch.int8), 
+						                                        torch.tensor(-1, device=device, dtype=torch.int8))
+				else:
+					mat_new[flatRows, flatCols] = flatVals.to(torch.int8) # direct cast if already numeric
+			else:
+				mat_new[flatRows, flatCols] = flatVals
 
 		# ---------- 6. store back -------------------------------------------------
-		self.hiddenConnectionMatrix[layerIdx] = mat_new
+		self.hiddenConnectionMatrix[layerIdx] = mat_new.to(device) #ensure device consistency
 

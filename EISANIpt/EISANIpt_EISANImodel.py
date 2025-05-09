@@ -120,29 +120,30 @@ class EISANImodel(nn.Module):
 		self.hiddenConnectionMatrixInhibitory: List[torch.Tensor] = []
 
 		for layerIdx in range(config.numberOfHiddenLayers):
-			if useEIneurons:
+			if self.useEIneurons: # Corrected: use self.useEIneurons
 				excitSize = config.hiddenLayerSize // 2
 				inhibSize = config.hiddenLayerSize - excitSize
-				excMat = self._initialise_layer_weights(excitSize, prevSize, useSparseMatrix)
-				inhMat = self._initialise_layer_weights(inhibSize, prevSize, useSparseMatrix)
+				excMat = self._initialise_layer_weights(excitSize, prevSize, layerIdx) # Corrected: added layerIdx
+				inhMat = self._initialise_layer_weights(inhibSize, prevSize, layerIdx) # Corrected: added layerIdx
 				self.hiddenConnectionMatrixExcitatory.append(excMat)
 				self.hiddenConnectionMatrixInhibitory.append(inhMat)
 			else:
-				mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, useSparseMatrix)
+				mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, layerIdx) # Corrected: added layerIdx
 				self.hiddenConnectionMatrix.append(mat)
 			prevSize = config.hiddenLayerSize
 
-		if useDynamicGeneratedHiddenConnections:
-			self.register_buffer("neuronSegmentAssignedMask", torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool,),)
+		if self.useDynamicGeneratedHiddenConnections:
+			# self.register_buffer('neuronSegmentAssignedMask', torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool, device=device)) # Reverted
+			self.neuronSegmentAssignedMask = torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device
 
 		# -----------------------------
 		# Output connection matrix
 		# -----------------------------
 		outConnShape = (config.numberOfHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,)
 		if useBinaryOutputConnections:
-			self.register_buffer("outputConnectionMatrix", torch.zeros(outConnShape, dtype=torch.bool),)
+			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.bool, device=device) # Added device=device
 		else:
-			self.register_buffer("outputConnectionMatrix", torch.zeros(outConnShape, dtype=torch.float),)
+			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.float, device=device) # Added device=device
 
 		
 		# -----------------------------
@@ -171,6 +172,8 @@ class EISANImodel(nn.Module):
 		Weight values:
 		  - EI-mode  ->  +1  (excitatory) or always-on +1 (inhibitory handled elsewhere)
 		  - Standard ->  1 with equal probability
+		  If sparse and bool: True for +1, False for -1 (non-EI) or True for +1 (EI)
+		  If dense and int8: +1, -1, or 0.
 		"""
 		cfg = self.config
 		dev = device  # ensures GPU/CPU consistency
@@ -178,10 +181,11 @@ class EISANImodel(nn.Module):
 
 		if self.useSparseMatrix:
 			# -------------------------------------------------- sparse initialisation
+			sparse_dtype = torch.bool
 			if self.useDynamicGeneratedHiddenConnections:
 				# start EMPTY
 				indices = torch.empty((2, 0), dtype=torch.long, device=dev)
-				values  = torch.empty((0,), dtype=torch.float32, device=dev)
+				values  = torch.empty((0,), dtype=sparse_dtype, device=dev)
 			else:
 				# start with k random synapses per neuron
 				row_idx = torch.arange(numNeurons, device=dev).repeat_interleave(k)
@@ -189,16 +193,16 @@ class EISANImodel(nn.Module):
 				indices = torch.stack([row_idx, col_idx])  # shape [2, nnz]
 
 				if self.useEIneurons:
-					values = torch.ones(indices.size(1), device=dev)
+					values = torch.ones(indices.size(1), device=dev, dtype=sparse_dtype) # All True
 				else:
-					# 1 with equal probability
-					values = torch.randint(0, 2, (indices.size(1),), device=dev, dtype=torch.float32) * 2 - 1
+					# True/False with equal probability
+					values = torch.randint(0, 2, (indices.size(1),), device=dev, dtype=sparse_dtype)
 
-			mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=dev, dtype=torch.float32,).coalesce()
+			mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=dev, dtype=sparse_dtype,).coalesce()
 			return mat
 		else:
 			# -------------------------------------------------- dense initialisation
-			weight = torch.zeros(numNeurons, prevSize, device=dev)
+			weight = torch.zeros(numNeurons, prevSize, device=dev, dtype=torch.int8) # Use torch.int8 for dense
 
 			if not self.useDynamicGeneratedHiddenConnections:
 				# randomly choose k unique presynaptic neurons per postsynaptic cell
@@ -206,9 +210,13 @@ class EISANImodel(nn.Module):
 					syn_idx = torch.randperm(prevSize, device=dev)[:k]
 
 					if self.useEIneurons:
-						weight[n, syn_idx] = 1.0
+						weight[n, syn_idx] = 1
 					else:
-						rand_signs = torch.randint(0, 2, (k,), device=dev, dtype=torch.float32) * 2 - 1
+						# Generate +1 or -1 with equal probability, as int8
+						rand_signs_bool = torch.randint(0, 2, (k,), device=dev, dtype=torch.bool)
+						rand_signs = torch.where(rand_signs_bool, 
+						                        torch.tensor(1, device=dev, dtype=torch.int8), 
+						                        torch.tensor(-1, device=dev, dtype=torch.int8))
 						weight[n, syn_idx] = rand_signs
 
 			# make it a learnable parameter for the dense case
@@ -219,6 +227,7 @@ class EISANImodel(nn.Module):
 	# Forward pass
 	# ---------------------------------------------------------
 
+	@torch.no_grad()
 	def forward(self, trainOrTest: bool, x: torch.Tensor, y: Optional[torch.Tensor] = None, optim=None, l=None) -> Tuple[torch.Tensor, torch.Tensor]:
 		"""Forward pass.
 		
@@ -242,12 +251,7 @@ class EISANImodel(nn.Module):
 		else:
 			encoded = thermometer_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax,)
 		# Flatten feature & bit dimensions -> (batch, encodedFeatureSize)
-		prevActivation = encoded.view(batchSize, -1)
-		
-		'''
-		if(debugEISANIoutput):
-			print("Input bits that are 1 :", int(prevActivation.sum().item()))
-		'''
+		prevActivation = encoded.view(batchSize, -1).to(torch.int8)
 		
 		# -----------------------------
 		# Pass through hidden layers
@@ -283,12 +287,13 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		outputActivations = torch.zeros(batchSize, self.config.numberOfClasses, device=device)
 
-		for layerIdx, act in enumerate(layerActivations):
+		for layerIdx, act in enumerate(layerActivations): # act is torch.int8
 			if self.useBinaryOutputConnections:
-				weights = self.outputConnectionMatrix[layerIdx].float()
+				weights = self.outputConnectionMatrix[layerIdx].to(torch.int8) # bool to int8 (0/1)
+				outputActivations += act.float() @ weights.float() # Cast to float for matmul
 			else:
-				weights = self.outputConnectionMatrix[layerIdx]
-			outputActivations += act @ weights
+				weights = self.outputConnectionMatrix[layerIdx] # float
+				outputActivations += act.float() @ weights # cast act to float for matmul
 
 			# Training: reinforce output connections
 			if trainOrTest and y is not None:
@@ -308,54 +313,61 @@ class EISANImodel(nn.Module):
 	# ---------------------------------------------------------
 
 	def _compute_layer_standard(self, layerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:
-		weight = self.hiddenConnectionMatrix[layerIdx]
+		# prevActivation is torch.int8 (0 or 1)
+		weight = self.hiddenConnectionMatrix[layerIdx].to(device)
 		
-		'''
-		if(debugEISANIoutput):
-			layer0 = self.hiddenConnectionMatrix[0]
-			if(useSparseMatrix):
-				print("Non-zero synapses in layer-0:", layer0._nnz())
-			else:
-				print("Non-zero synapses in layer-0:", layer0.count_nonzero())
-		'''
-		
-		# ensure our hidden-connection sparse tensor is on the same device as prevActivation
 		dev	= prevActivation.device
-		weight = self.hiddenConnectionMatrix[layerIdx].to(dev)
+		# weight = self.hiddenConnectionMatrix[layerIdx].to(dev) # Already done above
 
 		if weight.is_sparse:
-			z = torch.sparse.mm(weight, prevActivation.t()).t()
-		else:
-			z = prevActivation @ weight.t()
+			# Called only when self.useEIneurons is False.
+			# Sparse bool weights: True is +1, False is -1.
+			indices = weight.indices()
+			values = weight.values() # bool
+			numeric_values_float = torch.where(values,
+			                             torch.tensor(1.0, device=dev, dtype=torch.float32),
+			                             torch.tensor(-1.0, device=dev, dtype=torch.float32))
+			weight_eff_float = torch.sparse_coo_tensor(indices, numeric_values_float, weight.shape,
+			                                     device=dev, dtype=torch.float32).coalesce()
+			z_float = torch.sparse.mm(weight_eff_float, prevActivation.float().t()).t()
+		else: # dense
+			# Dense weights are int8: +1, -1, or 0.
+			z_float = prevActivation.float() @ weight.float().t() # Cast both to float for matmul
 		
-		'''
-		if(debugEISANIoutput):
-			#print("z = ", z)
-			# z is [batch, layerSize]
-			print("Layer-0 z stats: min", z.min().item(), "max", z.max().item(), "mean", z.float().mean().item())
-		'''
-		
-		activated = (z >= self.segmentActivationThreshold).float()
+		activated = (z_float >= self.segmentActivationThreshold).to(torch.int8) # bool to int8 (0 or 1)
 		return activated
 
 	def _compute_layer_EI(self, layerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> Tuple[torch.Tensor, torch.Tensor]:
+		# prevActivation is torch.int8 (0 or 1)
 		dev  = prevActivation.device
 		wExc = self.hiddenConnectionMatrixExcitatory[layerIdx].to(dev)
 		wInh = self.hiddenConnectionMatrixInhibitory[layerIdx].to(dev)
+		
 		# Excitatory
 		if wExc.is_sparse:
-			zExc = torch.sparse.mm(wExc, prevActivation.t()).t()
-		else:
-			zExc = prevActivation @ wExc.t()
-		aExc = (zExc >= self.segmentActivationThreshold).float()
+			# EI sparse weights are True for +1
+			numeric_values_exc_float = wExc.values().to(torch.float32) # True becomes 1.0
+			wExc_eff_float = torch.sparse_coo_tensor(wExc.indices(), numeric_values_exc_float, wExc.shape, 
+			                                   device=dev, dtype=torch.float32).coalesce()
+			zExc_float = torch.sparse.mm(wExc_eff_float, prevActivation.float().t()).t()
+		else: # dense
+			# Dense EI weights are 1 (int8). Convert to float for matmul.
+			zExc_float = prevActivation.float() @ wExc.float().t()
+		aExc = (zExc_float >= self.segmentActivationThreshold).to(torch.int8) # bool to int8 (0 or 1)
+		
 		# Inhibitory
 		if wInh.is_sparse:
-			zInh = torch.sparse.mm(wInh, prevActivation.t()).t()
-		else:
-			zInh = prevActivation @ wInh.t()
-		firesInh = zInh >= self.segmentActivationThreshold
-		aInh = torch.zeros_like(zInh)
-		aInh[firesInh] = -1.0
+			# EI sparse weights are True for +1
+			numeric_values_inh_float = wInh.values().to(torch.float32) # True becomes 1.0
+			wInh_eff_float = torch.sparse_coo_tensor(wInh.indices(), numeric_values_inh_float, wInh.shape,
+			                                   device=dev, dtype=torch.float32).coalesce()
+			zInh_float = torch.sparse.mm(wInh_eff_float, prevActivation.float().t()).t()
+		else: # dense
+			# Dense EI weights are 1 (int8). Convert to float for matmul.
+			zInh_float = prevActivation.float() @ wInh.float().t()
+		firesInh = zInh_float >= self.segmentActivationThreshold
+		aInh = torch.zeros_like(zInh_float, dtype=torch.int8, device=dev) # Initialize with correct shape, device and int8 type
+		aInh[firesInh] = -1
 		return aExc, aInh
 
 
