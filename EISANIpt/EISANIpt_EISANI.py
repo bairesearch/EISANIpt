@@ -26,7 +26,8 @@ def createModel(dataset):
 	datasetSize = ANNpt_data.getDatasetSize(dataset, printSize=True)
 	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
-	
+	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
+
 	print("creating new model")
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
@@ -37,10 +38,10 @@ def createModel(dataset):
 		numberOfFeatures = numberOfFeatures,
 		numberOfClasses = numberOfClasses,
 		numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
+		fieldTypeList = fieldTypeList,
 	)
 	model = EISANIpt_EISANImodel.EISANImodel(config)
 	
 	print(model)
 
 	return model
-

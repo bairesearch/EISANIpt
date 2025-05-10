@@ -13,7 +13,7 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt excitatory inhibitory (EI) summation activated neuronal input (SANI) network model
+EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal input (SANI) network model
 
 The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways;
 a) tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
@@ -33,7 +33,7 @@ from typing import List, Optional, Tuple
 import EISANIpt_EISANImodelDynamic
 
 class EISANIconfig():
-	def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment):
+	def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment, fieldTypeList):
 		self.batchSize = batchSize
 		self.numberOfLayers = numberOfLayers
 		self.hiddenLayerSize = hiddenLayerSize
@@ -43,6 +43,7 @@ class EISANIconfig():
 		self.numberOfClasses = numberOfClasses
 		self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
 		self.numberOfHiddenLayers = numberOfLayers - 1
+		self.fieldTypeList = fieldTypeList
 
 class Loss:
 	def __init__(self, value=0.0):
@@ -64,22 +65,51 @@ def _continuous_to_int(x: torch.Tensor, numBits: int, minVal: float, maxVal: flo
 	return scaled.round().to(torch.long)
 
 
-def gray_code_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: float,) -> torch.Tensor:
+def gray_code_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> torch.Tensor:
 	"""Vectorised Gray-code encoding (batch, features, bits)."""
-	intLevels = _continuous_to_int(x, numBits, minVal, maxVal)
-	grayLevels = intLevels ^ (intLevels >> 1)
-	bitPositions = torch.arange(numBits, device=x.device)
-	bits = ((grayLevels.unsqueeze(-1) >> bitPositions) & 1).float()
-	return bits  # (batch, features, bits)
+	batch_size, num_features = x.shape
+	encoded_bits_list = []
+	singleBits = 0
+	for i in range(num_features):
+		if supportFieldTypeList and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+			# Boolean field, encode as 1 bit
+			bit = x[:, i:i+1].float()	# Ensure float, shape (batch, 1)
+			#print("bit.shape = ", bit.shape)
+			encoded_bits_list.append(bit) 
+			singleBits = singleBits + 1
+		else:
+			# Continuous field, use Gray code
+			intLevels = _continuous_to_int(x[:, i:i+1], numBits, minVal, maxVal)
+			grayLevels = intLevels ^ (intLevels >> 1)
+			bitPositions = torch.arange(numBits, device=x.device)
+			bits = ((grayLevels >> bitPositions) & 1).float()
+			#print("bits.shape = ", bits.shape)
+			encoded_bits_list.append(bits)
 
+	code = torch.cat(encoded_bits_list, dim=1) # Concatenate along the feature/bit dimension
+	#print("code.shape = ", code.shape)
+	#print("singleBits = ", singleBits)
+	return code
 
-def thermometer_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: float,) -> torch.Tensor:
+def thermometer_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> torch.Tensor:
 	"""Vectorised thermometer encoding (batch, features, bits)."""
-	intLevels = _continuous_to_int(x, numBits, minVal, maxVal)
-	thresholds = torch.arange(numBits, device=x.device)
-	bits = (intLevels.unsqueeze(-1) >= thresholds).float()
-	return bits
+	batch_size, num_features = x.shape
+	encoded_bits_list = []
 
+	for i in range(num_features):
+		if supportFieldTypeList and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+			# Boolean field, encode as 1 bit
+			bit = x[:, i:i+1].float()	# Ensure float, shape (batch, 1)
+			encoded_bits_list.append(bit) 
+		else:
+			# Continuous field, use thermometer encoding
+			intLevels = _continuous_to_int(x[:, i:i+1], numBits, minVal, maxVal)
+			thresholds = torch.arange(numBits, device=x.device)
+			bits = (intLevels >= thresholds).float()
+			encoded_bits_list.append(bits)
+
+	code = torch.cat(encoded_bits_list, dim=1) # Concatenate along the feature/bit dimension
+	return code
 
 # -------------------------------------------------------------
 # Core network module
@@ -109,7 +139,17 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# Derived sizes
 		# -----------------------------
-		self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits
+		# self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits # Old
+		fieldTypeList = config.fieldTypeList
+		if supportFieldTypeList and fieldTypeList:
+			self.encodedFeatureSize = 0
+			for i in range(config.numberOfFeatures):
+				if i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+					self.encodedFeatureSize += 1
+				else:
+					self.encodedFeatureSize += continuousVarEncodingNumBits
+		else:
+			self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits
 		prevSize = self.encodedFeatureSize
 
 		# -----------------------------
@@ -228,7 +268,7 @@ class EISANImodel(nn.Module):
 	# ---------------------------------------------------------
 
 	@torch.no_grad()
-	def forward(self, trainOrTest: bool, x: torch.Tensor, y: Optional[torch.Tensor] = None, optim=None, l=None) -> Tuple[torch.Tensor, torch.Tensor]:
+	def forward(self, trainOrTest: bool, x: torch.Tensor, y: Optional[torch.Tensor] = None, optim=None, l=None, fieldTypeList=None) -> Tuple[torch.Tensor, torch.Tensor]:
 		"""Forward pass.
 		
 		Args:
@@ -247,9 +287,9 @@ class EISANImodel(nn.Module):
 		# Encode inputs
 		# -----------------------------
 		if self.useGrayCode:
-			encoded = gray_code_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax,)
+			encoded = gray_code_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
 		else:
-			encoded = thermometer_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax,)
+			encoded = thermometer_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
 		# Flatten feature & bit dimensions -> (batch, encodedFeatureSize)
 		prevActivation = encoded.view(batchSize, -1).to(torch.int8)
 		

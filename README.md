@@ -6,11 +6,11 @@ Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
 
 ### Description
 
-Excitatory/Inhibitory summation activated neuronal input (EISANI) and Excitatory/Inhibitory neuron artificial neural network (EIANN) for PyTorch - experimental
+Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) and Excitatory Inhibitory neuron Artificial Neural Network (EIANN) for PyTorch - experimental
 
 #### EISANI Algorithm
 
-The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways. The EISANI algorithm is equivalent to the original SANI specification otherwise (dynamic network generation etc);
+The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
 
 1. tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
 2. both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
@@ -23,11 +23,11 @@ EISANI algorithm advantages/biologically feasibility over classical ANN (artific
 - neural substrate can be reapplied to any dataset/task (only need to train new connections to target output neurons).
 - supports independent excitatory/inhibitory neurons.
 - low power requirements (binary processing could be embedded in FPGA like architecture).
-- online learning (unbatched).
+- online learning (unbatched, single epoch).
 
 Future:
 - test image dataset learning (reuse lower layers as convolutional kernels for different parts of an image).
-- test sequential/NLP dataset learning (and compare summation with original sequentially activated neuronal input SANI implementation).
+- test sequential/NLP dataset learning (and compare non-sequential summation with original sequentially activated neuronal input SANI implementation).
 
 ### License
 
@@ -62,7 +62,7 @@ Tests conducted with default settings;
 ```
 useDynamicGeneratedHiddenConnections = True
 useDynamicGeneratedHiddenConnectionsVectorised = True
-useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
+useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
 useEIneurons = False
 useSparseMatrix = True
 numberOfSynapsesPerSegment = 5

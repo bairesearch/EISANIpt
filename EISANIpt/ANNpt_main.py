@@ -134,6 +134,8 @@ def processDataset(trainOrTest, dataset, model):
 		numberOfEpochs = 1
 		totalAccuracy = 0.0
 		totalAccuracyCount = 0
+
+	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
 		
 	if(useAlgorithmLUOR):
 		ANNpt_algorithm.preprocessLUANNpermutations(dataset, model)
@@ -170,9 +172,9 @@ def processDataset(trainOrTest, dataset, model):
 				for batchIndex, batch in enumerate(loop):
 
 					if(trainOrTest):
-						loss, accuracy = trainBatch(batchIndex, batch, model, optim, l)
+						loss, accuracy = trainBatch(batchIndex, batch, model, optim, l, fieldTypeList)
 					else:
-						loss, accuracy = testBatch(batchIndex, batch, model, l)
+						loss, accuracy = testBatch(batchIndex, batch, model, l, fieldTypeList)
 
 					if(l == maxLayer-1):
 						if(not trainOrTest):
@@ -196,10 +198,10 @@ def processDataset(trainOrTest, dataset, model):
 		
 		saveModel(model)
 					
-def trainBatch(batchIndex, batch, model, optim, l=None):
+def trainBatch(batchIndex, batch, model, optim, l=None, fieldTypeList=None):
 	if(not trainLocal):
 		optim.zero_grad()
-	loss, accuracy = propagate(True, batchIndex, batch, model, optim, l)
+	loss, accuracy = propagate(True, batchIndex, batch, model, optim, l, fieldTypeList)
 	if(not trainLocal):
 		loss.backward()
 		optim.step()
@@ -214,9 +216,9 @@ def trainBatch(batchIndex, batch, model, optim, l=None):
 			
 	return loss, accuracy
 			
-def testBatch(batchIndex, batch, model, l=None):
+def testBatch(batchIndex, batch, model, l=None, fieldTypeList=None):
 
-	loss, accuracy = propagate(False, batchIndex, batch, model, l)
+	loss, accuracy = propagate(False, batchIndex, batch, model, None, l, fieldTypeList)
 
 	loss = loss.item()
 	#loss = loss.detach().cpu().numpy()
@@ -231,7 +233,7 @@ def loadModel():
 	model = torch.load(modelPathNameFull, weights_only=False)
 	return model
 		
-def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None):
+def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None, fieldTypeList=None):
 	(x, y) = batch
 	y = y.long()
 	x = x.to(device)
@@ -239,8 +241,11 @@ def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None):
 	if(debugDataNormalisation):
 		print("x = ", x)
 		print("y = ", y)
-		
-	loss, accuracy = model(trainOrTest, x, y, optim, l)
+	
+	if(supportFieldTypeList):
+		loss, accuracy = model(trainOrTest, x, y, optim, l, fieldTypeList)
+	else:
+		loss, accuracy = model(trainOrTest, x, y, optim, l)
 	return loss, accuracy
 				
 if(__name__ == '__main__'):

@@ -69,6 +69,11 @@ def loadDatasetTabular():
 		else:
 			dataset = load_dataset(datasetNameFull)
 
+	if(debugCullDatasetSamples):
+		dataset['train'] = dataset['train'].select(range(100))
+		if(datasetHasTestSplit):
+			dataset['test'] = dataset['test'].select(range(100))
+
 	if(debugSaveRawDatasetToCSV):
 		saveDatasetToCSV(dataset)
 		
@@ -135,6 +140,9 @@ def normaliseDataset(dataset):
 	for featureIndex, featureName in enumerate(list(dataset.features)):
 		#print("featureIndex = ", featureIndex)
 		if(featureName != classFieldName):
+			fieldType = dataset.features[featureName]
+			if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
+				continue #skip normalisation for boolean fields
 			if(datasetCorrectMissingValues):
 				featureDataList = []
 				for i in range(datasetSize):
@@ -185,8 +193,8 @@ def convertFeatureValues(dataset):
 		#print("convertFeatureValues: fieldName = ", fieldName)
 		if fieldType.dtype == 'string':
 			dataset = convertCategoricalFieldValues(dataset, fieldName)
-		elif fieldType.dtype == 'bool':
-			dataset = dataset.cast_column(fieldName, Value('float32'))
+		#elif fieldType.dtype == 'bool':
+		#	dataset = dataset.cast_column(fieldName, Value('float32'))
 	return dataset
 
 def bool_to_float(example):
@@ -208,23 +216,29 @@ def convertCategoricalFieldValues(dataset, fieldName, dataType=float):
 	datasetSize = getDatasetSize(dataset)
 	#print("datasetSize = ", datasetSize)
 	numberOfClasses = 0
+
 	for i in range(datasetSize):
 		row = dataset[i]
-		#print("i = ", i)
-		
 		targetString = row[fieldName]
-		if(targetString in fieldIndexDict):
-			target = fieldIndexDict[targetString]
-			if(dataType==float):
-				target = float(target)
-			fieldNew.append(target)
-		else:
-			target = fieldIndex
-			if(dataType==float):
-				target = float(target)
-			fieldNew.append(target)
+		if(targetString not in fieldIndexDict):
 			fieldIndexDict[targetString] = fieldIndex
-			fieldIndex = fieldIndex + 1
+			fieldIndex = fieldIndex + 1		
+	
+	booleanCategoryDetected = False
+	if(fieldIndex == 2):
+		booleanCategoryDetected = True
+		
+	for i in range(datasetSize):
+		row = dataset[i]
+		targetString = row[fieldName]
+		target = fieldIndexDict[targetString]
+		if(booleanCategoryDetected):
+			target = bool(target)
+		elif(dataType==float):
+			target = float(target)
+		elif(dataType==int):
+			target = int(target)	#keep as int (redundant)
+		fieldNew.append(target)
 		
 	dataset = dataset.remove_columns(fieldName)
 	dataset = dataset.add_column(fieldName, fieldNew)
@@ -486,3 +500,10 @@ def cutout(img, n_holes=1, length=16):
 	mask = pt.from_numpy(mask)
 	mask = mask.expand_as(img)
 	return img * mask
+
+def createFieldTypeList(dataset):
+	if(useTabularDataset):
+		fieldTypeList = [fieldType.dtype for fieldType in dataset.features.values() if hasattr(fieldType, 'dtype')]
+	else:
+		fieldTypeList = None
+	return fieldTypeList

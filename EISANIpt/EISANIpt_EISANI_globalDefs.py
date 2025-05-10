@@ -22,7 +22,7 @@ debugEISANIoutput = False
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
-	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
+	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
 numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
@@ -37,6 +37,7 @@ useBinaryOutputConnections = True	#use binary weighted connections from hidden n
 useActiveBias = True	#bias positive (ceil) for odd k
 hiddenLayerSizeSANI = 1280000	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
 numberNeuronsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
+supportFieldTypeList = True	#uses bool values
 
 trainLocal = True	#local learning rule	#required
 

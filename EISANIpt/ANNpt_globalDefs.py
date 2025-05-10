@@ -97,6 +97,7 @@ datasetNormaliseMinMax = True	#normalise between 0.0 and 1.0
 datasetNormaliseStdAvg = False	#normalise based on std and mean (~-1.0 to 1.0)
 supportSkipLayers = False
 supportSkipLayersResidual = False
+supportFieldTypeList = False
 
 useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
@@ -171,6 +172,8 @@ datasetCorrectMissingValues = False
 datasetConvertClassTargetColumnFloatToInt = False
 dataloaderRepeatSampler = False	
 dataloaderRepeatLoop = False		#legacy (depreciate)
+debugCullDatasetSamples = False
+
 
 if(useTabularDataset):
 	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%
