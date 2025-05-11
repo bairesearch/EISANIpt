@@ -71,7 +71,7 @@ def gray_code_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: float
 	encoded_bits_list = []
 	singleBits = 0
 	for i in range(num_features):
-		if supportFieldTypeList and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+		if encodeDatasetBoolValuesAs1Bit and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
 			# Boolean field, encode as 1 bit
 			bit = x[:, i:i+1].float()	# Ensure float, shape (batch, 1)
 			#print("bit.shape = ", bit.shape)
@@ -97,7 +97,7 @@ def thermometer_encode(x: torch.Tensor, numBits: int, minVal: float, maxVal: flo
 	encoded_bits_list = []
 
 	for i in range(num_features):
-		if supportFieldTypeList and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+		if encodeDatasetBoolValuesAs1Bit and i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
 			# Boolean field, encode as 1 bit
 			bit = x[:, i:i+1].float()	# Ensure float, shape (batch, 1)
 			encoded_bits_list.append(bit) 
@@ -141,16 +141,18 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits # Old
 		fieldTypeList = config.fieldTypeList
-		if supportFieldTypeList and fieldTypeList:
+		if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
 			self.encodedFeatureSize = 0
 			for i in range(config.numberOfFeatures):
 				if i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
 					self.encodedFeatureSize += 1
+					#print("bool detected")
 				else:
 					self.encodedFeatureSize += continuousVarEncodingNumBits
 		else:
 			self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits
 		prevSize = self.encodedFeatureSize
+		print("self.encodedFeatureSize = ", self.encodedFeatureSize)
 
 		# -----------------------------
 		# Hidden connection matrices

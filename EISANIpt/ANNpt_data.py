@@ -101,6 +101,10 @@ def loadDatasetTabular():
 	if(datasetNormalise):
 		dataset[datasetSplitNameTrain] = normaliseDataset(dataset[datasetSplitNameTrain])
 		dataset[datasetSplitNameTest] = normaliseDataset(dataset[datasetSplitNameTest])
+	if(datasetEqualiseClassSamples):
+		dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
+		if(datasetEqualiseClassSamplesTest):
+			dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
 	if(datasetRepeat):
 		dataset[datasetSplitNameTrain] = repeatDataset(dataset[datasetSplitNameTrain])
 		dataset[datasetSplitNameTest] = repeatDataset(dataset[datasetSplitNameTest])
@@ -118,6 +122,49 @@ def loadDatasetTabular():
 	if(debugSaveNormalisedDatasetToCSV):
 		saveDatasetToCSV(dataset)
 		
+	return dataset
+
+def equaliseClassSamples(dataset):
+	#Equalises the number of samples across each class by repeating class samples as necessary.
+
+	_, numberOfClassSamples = countNumberClasses(dataset) #dict: {class_label: count}
+	if not numberOfClassSamples: # Handles empty or single-class datasets gracefully
+		printe("No classes found in the dataset.")
+
+	max_samples = 0
+	if numberOfClassSamples: # Ensure there's at least one class to avoid error with max() on empty sequence
+		max_samples = max(numberOfClassSamples.values())
+	if max_samples == 0: # All classes have 0 samples or no classes
+		printe("No samples found in any class.")
+
+	class_specific_indices = {class_val: [] for class_val in numberOfClassSamples.keys()}
+	for i in range(getDatasetSize(dataset)):
+		row = dataset[i]
+		# Assuming classFieldName holds the key to the class label and it's convertible to int
+		# This part might need adjustment based on how class labels are stored/accessed
+		try:
+			target = int(row[classFieldName])
+			if target in class_specific_indices:
+				class_specific_indices[target].append(i)
+		except (KeyError, ValueError) as e:
+			print(f"Warning: Could not process class label for row {i}: {e}")
+			continue # Skip rows where class label is problematic
+
+	all_new_indices = []
+	for class_val, count in numberOfClassSamples.items():
+		current_indices = class_specific_indices.get(class_val, [])
+		all_new_indices.extend(current_indices) # Add existing samples
+
+		num_to_add = max_samples - count
+		if num_to_add > 0 and current_indices: # Check if samples need to be added and if source samples exist
+			repeated_indices = random.choices(current_indices, k=num_to_add)
+			all_new_indices.extend(repeated_indices)
+	
+	if all_new_indices:
+		# Shuffle to mix original and repeated samples, then select.
+		# random.shuffle(all_new_indices) # Optional: shuffle before select if desired, otherwise select preserves order then shuffleDataset handles it later
+		dataset = dataset.select(all_new_indices)
+	
 	return dataset
 
 def repositionClassFieldToLastColumn(dataset):
@@ -192,7 +239,7 @@ def convertFeatureValues(dataset):
 	for fieldName, fieldType in dataset.features.items():
 		#print("convertFeatureValues: fieldName = ", fieldName)
 		if fieldType.dtype == 'string':
-			dataset = convertCategoricalFieldValues(dataset, fieldName)
+			dataset = convertCategoricalFieldValues(dataset, fieldName, dataType=float)
 		#elif fieldType.dtype == 'bool':
 		#	dataset = dataset.cast_column(fieldName, Value('float32'))
 	return dataset
@@ -232,12 +279,12 @@ def convertCategoricalFieldValues(dataset, fieldName, dataType=float):
 		row = dataset[i]
 		targetString = row[fieldName]
 		target = fieldIndexDict[targetString]
-		if(booleanCategoryDetected):
+		if(dataType==int):	#always store class target as int (never bool)
+			target = int(target)	#keep as int (redundant)
+		elif(booleanCategoryDetected):
 			target = bool(target)
 		elif(dataType==float):
 			target = float(target)
-		elif(dataType==int):
-			target = int(target)	#keep as int (redundant)
 		fieldNew.append(target)
 		
 	dataset = dataset.remove_columns(fieldName)

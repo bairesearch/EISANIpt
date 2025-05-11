@@ -166,6 +166,8 @@ datasetLocalFile = False
 datasetSpecifyDataFiles = True	#specify data file names in dataset (else automatically selected by huggingface)
 datasetHasTestSplit = True
 datasetHasSubsetType = False
+datasetEqualiseClassSamples = False
+datasetEqualiseClassSamplesTest = False 
 
 datasetLocalFileOptimise = False
 datasetCorrectMissingValues = False	
@@ -329,7 +331,6 @@ if(useTabularDataset):
 		learningRate = 0.005	#default: 0.005
 		numberOfLayers = 3	#default: 3	#orig: 2, 4
 		hiddenLayerSize = 16	#default: 16	#orig: 4, 10
-		#batchSize = 1
 		trainNumberOfEpochs = 100	#default: 100
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
@@ -384,7 +385,14 @@ elif(useImageDataset):
 
 if(useAlgorithmEISANI):
 	trainNumberOfEpochs = 1
-	
+	datasetEqualiseClassSamples = True
+	datasetEqualiseClassSamplesTest = False
+	#datasetRepeat = False	#need to increase numberNeuronsGeneratedPerSample if disable datasetRepeat
+	'''
+	if(datasetName == 'new-thyroid'):
+		datasetRepeat = False
+		batchSize = 1
+	'''
 if(trainNumberOfEpochsHigh):
 	trainNumberOfEpochs = trainNumberOfEpochs*4
 	
