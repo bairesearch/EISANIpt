@@ -17,6 +17,7 @@ ANNpt globalDefs
 
 """
 
+
 #algorithm selection
 useAlgorithmVICRegANN = False
 useAlgorithmAUANN = False
@@ -29,6 +30,10 @@ useAlgorithmEIOR = False
 useAlgorithmEISANI = True
 useAlgorithmAEANN = False
 useAlgorithmFFANN = False
+
+#train/test vars;
+stateTrainDataset = True
+stateTestDataset = True
 
 #initialise (dependent vars);
 usePairedDataset = False
@@ -103,6 +108,27 @@ useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
 	usePositiveWeightsClampModel = True	#clamp entire model weights to be positive (rather than per layer); currently required
 
+
+#initialise (dependent vars);
+datasetReplaceNoneValues = False
+datasetConvertClassValues = False	#reformat class values from 0.. ; contiguous (will also convert string to int)
+datasetConvertFeatureValues = False	#reformat feature values from 0.. ; contiguous (will also convert string to int)
+datasetLocalFile = False
+datasetSpecifyDataFiles = True	#specify data file names in dataset (else automatically selected by huggingface)
+datasetHasTestSplit = True
+datasetHasSubsetType = False
+datasetEqualiseClassSamples = False
+datasetEqualiseClassSamplesTest = False 
+
+datasetLocalFileOptimise = False
+datasetCorrectMissingValues = False	
+datasetConvertClassTargetColumnFloatToInt = False
+dataloaderRepeatSampler = False	
+dataloaderRepeatLoop = False		#legacy (depreciate)
+debugCullDatasetSamples = False
+
+
+#import algorithm specific globalDefs;
 useTabularDataset = False
 useImageDataset = False
 if(useAlgorithmVICRegANN):
@@ -139,43 +165,10 @@ elif(useAlgorithmFFANN):
 	from AEANNpt_FFANN_globalDefs import *
 	useTabularDataset = True
 	
-import torch as pt
-
-useLovelyTensors = False
-if(useLovelyTensors):
-	import lovely_tensors as lt
-	lt.monkey_patch()
-else:
-	pt.set_printoptions(profile="full")
-	pt.set_printoptions(sci_mode=False)
-	
-#pt.autograd.set_detect_anomaly(True)
-
-stateTrainDataset = True
-stateTestDataset = True
 
 if(useCustomWeightInitialisation):
 	Wmean = 0.0
 	WstdDev = 0.05	#stddev of weight initialisations
-
-#initialise (dependent vars);
-datasetReplaceNoneValues = False
-datasetConvertClassValues = False	#reformat class values from 0.. ; contiguous (will also convert string to int)
-datasetConvertFeatureValues = False	#reformat feature values from 0.. ; contiguous (will also convert string to int)
-datasetLocalFile = False
-datasetSpecifyDataFiles = True	#specify data file names in dataset (else automatically selected by huggingface)
-datasetHasTestSplit = True
-datasetHasSubsetType = False
-datasetEqualiseClassSamples = False
-datasetEqualiseClassSamplesTest = False 
-
-datasetLocalFileOptimise = False
-datasetCorrectMissingValues = False	
-datasetConvertClassTargetColumnFloatToInt = False
-dataloaderRepeatSampler = False	
-dataloaderRepeatLoop = False		#legacy (depreciate)
-debugCullDatasetSamples = False
-
 
 if(useTabularDataset):
 	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%
@@ -383,16 +376,22 @@ elif(useImageDataset):
 	dropout = False	#default: False
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 
+if(not datasetHasTestSplit):
+	datasetTestSplitShuffle = True	#mandatory: True	#required for many datasets (without randomised class order)
+	datasetTestSplitShuffleDeterministic = False	#default: False	#can be enabled to always get the same test result
+	if(datasetTestSplitShuffleDeterministic):
+		datasetTestSplitSeed = 1234
+	else:
+		datasetTestSplitSeed = None
+
 if(useAlgorithmEISANI):
 	trainNumberOfEpochs = 1
-	datasetEqualiseClassSamples = True
-	datasetEqualiseClassSamplesTest = False
-	#datasetRepeat = False	#need to increase numberNeuronsGeneratedPerSample if disable datasetRepeat
-	'''
-	if(datasetName == 'new-thyroid'):
-		datasetRepeat = False
-		batchSize = 1
-	'''
+	if(useMultipleTrainEpochs):
+		if(not datasetRepeat):
+			trainNumberOfEpochs = 10
+			if(useInitDefaultParam):
+				hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
+
 if(trainNumberOfEpochsHigh):
 	trainNumberOfEpochs = trainNumberOfEpochs*4
 	
@@ -404,7 +403,7 @@ if(debugSmallNetwork):
 	hiddenLayerSize = 5	
 	trainNumberOfEpochs = 1
 	
-printAccuracyRunningAverage = True
+printAccuracyRunningAverage = False
 if(printAccuracyRunningAverage):
 	runningAverageBatches = 10
 
@@ -462,7 +461,18 @@ def printe(str):
 	print(str)
 	exit()
 
-device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
 
+import torch as pt
+useLovelyTensors = False
+if(useLovelyTensors):
+	import lovely_tensors as lt
+	lt.monkey_patch()
+else:
+	pt.set_printoptions(profile="full")
+	pt.set_printoptions(sci_mode=False)
+
+#pt.autograd.set_detect_anomaly(True)
+
+device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
 
 	

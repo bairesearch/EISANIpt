@@ -135,6 +135,7 @@ class EISANImodel(nn.Module):
 		self.continuousVarEncodingNumBits = continuousVarEncodingNumBits
 		self.segmentActivationThreshold = segmentActivationThreshold
 		self.targetActivationSparsityFraction = targetActivationSparsityFraction
+		self.useOutputConnectionsLastLayer = useOutputConnectionsLastLayer
 
 		# -----------------------------
 		# Derived sizes
@@ -181,7 +182,10 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# Output connection matrix
 		# -----------------------------
-		outConnShape = (config.numberOfHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,)
+		if self.useOutputConnectionsLastLayer:
+			outConnShape = (config.hiddenLayerSize, config.numberOfClasses,)
+		else:
+			outConnShape = (config.numberOfHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,)
 		if useBinaryOutputConnections:
 			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.bool, device=device) # Added device=device
 		else:
@@ -329,17 +333,31 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		outputActivations = torch.zeros(batchSize, self.config.numberOfClasses, device=device)
 
-		for layerIdx, act in enumerate(layerActivations): # act is torch.int8
+		if self.useOutputConnectionsLastLayer:
+			lastLayerActivation = layerActivations[-1] # Activations from the last hidden layer
 			if self.useBinaryOutputConnections:
-				weights = self.outputConnectionMatrix[layerIdx].to(torch.int8) # bool to int8 (0/1)
-				outputActivations += act.float() @ weights.float() # Cast to float for matmul
+				weights = self.outputConnectionMatrix.to(torch.int8) # bool to int8 (0/1)
+				outputActivations += lastLayerActivation.float() @ weights.float()
 			else:
-				weights = self.outputConnectionMatrix[layerIdx] # float
-				outputActivations += act.float() @ weights # cast act to float for matmul
-
-			# Training: reinforce output connections
+				weights = self.outputConnectionMatrix # float
+				outputActivations += lastLayerActivation.float() @ weights
+			
 			if trainOrTest and y is not None:
-				self._update_output_connections(layerIdx, act, y, device)
+				# For the last layer, layerIdx is effectively self.config.numberOfHiddenLayers - 1
+				# but since outputConnectionMatrix is 2D, we don't pass layerIdx or pass a dummy one if the function expects it
+				self._update_output_connections(self.config.numberOfHiddenLayers - 1, lastLayerActivation, y, device)
+		else:
+			for layerIdx, act in enumerate(layerActivations): # act is torch.int8
+				if self.useBinaryOutputConnections:
+					weights = self.outputConnectionMatrix[layerIdx].to(torch.int8) # bool to int8 (0/1)
+					outputActivations += act.float() @ weights.float() # Cast to float for matmul
+				else:
+					weights = self.outputConnectionMatrix[layerIdx] # float
+					outputActivations += act.float() @ weights # cast act to float for matmul
+
+				# Training: reinforce output connections
+				if trainOrTest and y is not None:
+					self._update_output_connections(layerIdx, act, y, device)
 
 		predictions = torch.argmax(outputActivations, dim=1)
 		
@@ -425,7 +443,13 @@ class EISANImodel(nn.Module):
 			activeNeurons = activeMask[sampleIdx].nonzero(as_tuple=True)[0]
 			if activeNeurons.numel() == 0:
 				continue
-			if self.useBinaryOutputConnections:
-				self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] = True
+			if self.useOutputConnectionsLastLayer:
+				if self.useBinaryOutputConnections:
+					self.outputConnectionMatrix[activeNeurons, targetClass] = True
+				else:
+					self.outputConnectionMatrix[activeNeurons, targetClass] += 1.0
 			else:
-				self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] += 1.0
+				if self.useBinaryOutputConnections:
+					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] = True
+				else:
+					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] += 1.0

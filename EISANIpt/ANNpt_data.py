@@ -90,21 +90,20 @@ def loadDatasetTabular():
 			dataset[datasetSplitNameTrain] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTrain])
 			if(datasetHasTestSplit):
 				dataset[datasetSplitNameTest] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTest])
-							
+
 	if(not datasetHasTestSplit):
-		dataset[datasetSplitNameTrain] = shuffleDataset(dataset[datasetSplitNameTrain])
-		dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize)
+		dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize, shuffle=datasetTestSplitShuffle, seed=datasetTestSplitSeed)
 
 	if(debugSaveSplitDatasetToCSV):
 		saveDatasetToCSV(dataset)
 		
+	if(datasetEqualiseClassSamples):
+		dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
+		if(datasetHasTestSplit and datasetEqualiseClassSamplesTest):
+			dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
 	if(datasetNormalise):
 		dataset[datasetSplitNameTrain] = normaliseDataset(dataset[datasetSplitNameTrain])
 		dataset[datasetSplitNameTest] = normaliseDataset(dataset[datasetSplitNameTest])
-	if(datasetEqualiseClassSamples):
-		dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
-		if(datasetEqualiseClassSamplesTest):
-			dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
 	if(datasetRepeat):
 		dataset[datasetSplitNameTrain] = repeatDataset(dataset[datasetSplitNameTrain])
 		dataset[datasetSplitNameTest] = repeatDataset(dataset[datasetSplitNameTest])

@@ -22,7 +22,7 @@ EISANI algorithm advantages/biologically feasibility over classical ANN (artific
 - training speed (can learn meaningful representations/discrimination even from a single example if overtrained).
 - neural substrate can be reapplied to any dataset/task (only need to train new connections to target output neurons).
 - supports independent excitatory/inhibitory neurons.
-- low power requirements (binary processing could be embedded in FPGA like architecture).
+- low power requirements (binary processing could be embedded in hardware/ASIC architecture).
 - online learning (unbatched, single epoch).
 
 Future:

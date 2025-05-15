@@ -19,11 +19,11 @@ EISANIpt globalDefs
 
 debugEISANIoutput = False
 useInitDefaultParam = True	#else use large network size
+useInitOrigParam = False
 
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
-	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
 numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
@@ -43,9 +43,25 @@ else:
 	continuousVarEncodingNumBits = 16
 	hiddenLayerSizeSANI = 1280000*2
 	numberNeuronsGeneratedPerSample = 50
-encodeDatasetBoolValuesAs1Bit = True
-if(encodeDatasetBoolValuesAs1Bit):
-	supportFieldTypeList = True	#encodes dataset bool values as 1 bit
+
+if(useInitOrigParam):
+	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
+	encodeDatasetBoolValuesAs1Bit = False
+	if(encodeDatasetBoolValuesAs1Bit):
+		supportFieldTypeList = True
+	useOutputConnectionsLastLayer = False	
+	datasetEqualiseClassSamples = False	
+	datasetEqualiseClassSamplesTest = False	
+	useMultipleTrainEpochs = False
+else:
+	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
+	encodeDatasetBoolValuesAs1Bit = True
+	if(encodeDatasetBoolValuesAs1Bit):
+		supportFieldTypeList = True
+	useOutputConnectionsLastLayer = False	#use output connections only from last hidden layer to output neurons
+	datasetEqualiseClassSamples = True	#default: True		#optional - advantage depends on dataset class distribution
+	datasetEqualiseClassSamplesTest = False	#default: False	
+	useMultipleTrainEpochs = True
 
 trainLocal = True	#local learning rule	#required
 
