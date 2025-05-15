@@ -196,6 +196,9 @@ def processDataset(trainOrTest, dataset, model):
 				for sch in schedulers:
 					sch.step()
 		
+		if(useAlgorithmEISANI):
+			model.executePostTrainPrune(trainOrTest)
+
 		saveModel(model)
 					
 def trainBatch(batchIndex, batch, model, optim, l=None, fieldTypeList=None):
@@ -213,11 +216,11 @@ def trainBatch(batchIndex, batch, model, optim, l=None, fieldTypeList=None):
 	if(batchIndex % modelSaveNumberOfBatches == 0):
 		saveModel(model)
 	loss = loss.item()
-			
+	
 	return loss, accuracy
 			
 def testBatch(batchIndex, batch, model, l=None, fieldTypeList=None):
-
+		
 	loss, accuracy = propagate(False, batchIndex, batch, model, None, l, fieldTypeList)
 
 	loss = loss.item()

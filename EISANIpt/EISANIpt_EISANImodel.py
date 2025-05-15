@@ -453,3 +453,26 @@ class EISANImodel(nn.Module):
 					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] = True
 				else:
 					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] += 1.0
+
+	# ---------------------------------------------------------
+	# Post prune helper
+	# ---------------------------------------------------------
+
+	def executePostTrainPrune(self, trainOrTest) -> None:
+		if(trainOrTest):
+	
+			if debugMeasureClassExclusiveNeuronRatio:
+				EISANIpt_EISANImodelDynamic.measure_class_exclusive_neuron_ratio(self)
+			if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
+				EISANIpt_EISANImodelDynamic.measure_ratio_of_hidden_neurons_with_output_connections(self)
+
+			if limitOutputConnectionsBasedOnPrevelanceAndExclusivity:
+				EISANIpt_EISANImodelDynamic.prune_output_connections_based_on_prevalence_and_exclusivity(self)
+				
+				if debugMeasureClassExclusiveNeuronRatio:
+					EISANIpt_EISANImodelDynamic.measure_class_exclusive_neuron_ratio(self)
+				if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
+					EISANIpt_EISANImodelDynamic.measure_ratio_of_hidden_neurons_with_output_connections(self)
+
+
+

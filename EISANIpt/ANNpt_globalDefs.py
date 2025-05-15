@@ -392,6 +392,11 @@ if(useAlgorithmEISANI):
 			if(useInitDefaultParam):
 				hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
 
+	if(debugEISANIfastTrain):
+		assert datasetRepeat == True and trainNumberOfEpochs == 1
+		datasetRepeat = False	#typically need to increase numberNeuronsGeneratedPerSample if disable datasetRepeat (but not during debug
+		batchSize = 1		#required for !datasetRepeat for small datasets (eg new-thyroid)
+
 if(trainNumberOfEpochsHigh):
 	trainNumberOfEpochs = trainNumberOfEpochs*4
 	

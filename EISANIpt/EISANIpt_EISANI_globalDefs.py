@@ -18,8 +18,12 @@ EISANIpt globalDefs
 """
 
 debugEISANIoutput = False
-useInitDefaultParam = True	#else use large network size
-useInitOrigParam = False
+debugEISANIfastTrain = False
+debugMeasureClassExclusiveNeuronRatio = True	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
+debugMeasureRatioOfHiddenNeuronsWithOutputConnections = True	#measure ratio of hidden neurons with output connections to those without output connections
+
+useInitDefaultParam = True	#default: True (use small network size)
+useInitOrigParam = False	#use original test parameters
 
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
@@ -53,6 +57,7 @@ if(useInitOrigParam):
 	datasetEqualiseClassSamples = False	
 	datasetEqualiseClassSamplesTest = False	
 	useMultipleTrainEpochs = False
+	limitOutputConnectionsBasedOnPrevelanceAndExclusivity = False
 else:
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
 	encodeDatasetBoolValuesAs1Bit = True
@@ -62,6 +67,11 @@ else:
 	datasetEqualiseClassSamples = True	#default: True		#optional - advantage depends on dataset class distribution
 	datasetEqualiseClassSamplesTest = False	#default: False	
 	useMultipleTrainEpochs = True
+	limitOutputConnectionsBasedOnPrevelanceAndExclusivity = False	#limit output connectivity to prevelant class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
+	if(limitOutputConnectionsBasedOnPrevelanceAndExclusivity):
+		limitOutputConnectionsPrevelanceMin = 5	#minimum connection weight to be retained after pruning
+		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
+		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
 
 trainLocal = True	#local learning rule	#required
 

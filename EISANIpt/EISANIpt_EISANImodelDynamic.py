@@ -538,3 +538,46 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		# ---------- 6. store back -------------------------------------------------
 		self.hiddenConnectionMatrix[layerIdx] = mat_new.to(device) #ensure device consistency
 
+
+def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
+	"""Compute ratio of hidden neurons having any output connection."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	mask = oc != 0
+	any_conn = mask.any(dim=1)
+	if any_conn.numel() == 0:
+		return 0.0
+	ratio = any_conn.sum().item() / any_conn.numel()
+	print("measure_ratio_of_hidden_neurons_with_output_connections = ", ratio)
+	return ratio
+
+def measure_class_exclusive_neuron_ratio(self) -> float:
+	"""Compute ratio of class-exclusive to non-class-exclusive hidden neurons."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	mask = oc != 0
+	counts = mask.sum(dim=1)
+	exclusive = (counts == 1).sum().item()
+	non_exclusive = (counts > 1).sum().item()
+	if non_exclusive == 0:
+		ratio = float('inf')
+	else:
+		ratio = exclusive / non_exclusive
+	print("measure_class_exclusive_neuron_ratio = ", ratio)
+	return ratio
+
+def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
+	"""Prune output connections not both prevalent and exclusive to one class."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	weights = oc
+	prevalent = weights > limitOutputConnectionsPrevelanceMin
+	exclusive = prevalent.sum(dim=1) == 1
+	keep = prevalent & exclusive.unsqueeze(1)
+	if useBinaryOutputConnectionsEffective:
+		oc[...] = keep
+	else:
+		oc[...] = oc * keep.float()
