@@ -10,10 +10,14 @@ Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) a
 
 #### EISANI Algorithm
 
+##### Comparison with SANI
+
 The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
 
 1. tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
 2. both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
+
+##### Advantages
 
 EISANI algorithm advantages/biologically feasibility over classical ANN (artificial neural network);
 
@@ -25,7 +29,20 @@ EISANI algorithm advantages/biologically feasibility over classical ANN (artific
 - low power requirements (binary processing could be embedded in hardware/ASIC architecture).
 - online learning (unbatched, single epoch).
 
-Future:
+##### Summary
+
+1. useDynamicGeneratedHiddenConnections=True: initialise a sparsely connected neural network as having no hidden layer neurons or connections (input layer and output layer class target neurons only). useDynamicGeneratedHiddenConnections=False: randomly initialise a sparsely connected neural network with input layer, hidden layer and output layer class target neurons.
+2. For each dataset sample propagate the input through layers of the sparsely connected multilayer network. 
+3. useDynamicGeneratedHiddenConnections=True: generate hidden neurons (segments) within the sparsely connected multilayer network, where the weights of the generated hidden neurons (segments) represent a subset of the previous layer distribution (activations).
+4. the network has binary excitatory and inhibitory weights or neurons.
+5. connect the activated hidden neurons to class target output neurons. Output connections can be weighted based on the number of times a hidden neuron is activated for a given class target.
+6. prediction is performed based on the most activated output class target neurons. 
+7. can subsequently prune the network to retain a) the most prevalent (highest weighted) and predictive (most exclusive) output connections and b) their respective hidden neurons.
+
+See [EISANIpt_EISANImodel.nlc](https://github.com/bairesearch/EIANNpt/blob/master/EISANIpt/EISANIpt_EISANImodel.nlc?raw=true) for detailed natural language code (specification).
+
+##### Future
+
 - test image dataset learning (reuse lower layers as convolutional kernels for different parts of an image).
 - test sequential/NLP dataset learning (and compare non-sequential summation with original sequentially activated neuronal input SANI implementation).
 
