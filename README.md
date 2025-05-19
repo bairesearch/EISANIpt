@@ -1,12 +1,12 @@
-# EISANIpt/EIANNpt
+# EISANIpt
 
 ### Author
 
-Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
+Richard Bruce Baxter - Copyright (c) 2025 Baxter AI (baxterai.com)
 
 ### Description
 
-Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) and Excitatory Inhibitory neuron Artificial Neural Network (EIANN) for PyTorch - experimental
+Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) network for PyTorch - experimental
 
 #### EISANI Algorithm
 
@@ -19,7 +19,7 @@ The EISANI algorithm differs from the original SANI (sequentially activated neur
 
 ##### Advantages
 
-EISANI algorithm advantages/biologically feasibility over classical ANN (artificial neural network);
+EISANI algorithm advantages/biological feasibility over classical ANN (artificial neural network);
 
 - no backpropagation.
 - supports continuous learning.

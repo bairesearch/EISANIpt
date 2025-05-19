@@ -22,7 +22,9 @@ debugEISANIfastTrain = False
 debugMeasureClassExclusiveNeuronRatio = True	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
 debugMeasureRatioOfHiddenNeuronsWithOutputConnections = True	#measure ratio of hidden neurons with output connections to those without output connections
 
-useInitDefaultParam = True	#default: True (use small network size)
+useDefaultNumNeuronsParam = True	#default: True (use low network width)
+useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
+useDefaultNumLayersParam = True	#default: True (use low num layers)
 useInitOrigParam = False	#use original test parameters
 
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
@@ -30,16 +32,13 @@ if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
-numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
-segmentActivationThreshold = numberOfSynapsesPerSegment-2	#default: numberOfSynapsesPerSegment-2 (ie 3; allowing for 1 mismatch redundancy), or numberOfSynapsesPerSegment (ie 5; allowing for 0 mismatch redundancy)	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
-	
+
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
-useActiveBias = True	#bias positive (ceil) for odd k
-if(useInitDefaultParam):
+if(useDefaultNumNeuronsParam):
 	continuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
 	hiddenLayerSizeSANI = 1280000	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
 	numberNeuronsGeneratedPerSample = 5	#50	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
@@ -47,6 +46,17 @@ else:
 	continuousVarEncodingNumBits = 16
 	hiddenLayerSizeSANI = 1280000*2
 	numberNeuronsGeneratedPerSample = 50
+
+if(useDefaultSegmentSizeParam):
+	numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
+	segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
+	useActiveBias = True	#bias positive (ceil) for odd k
+else:
+	numberOfSynapsesPerSegment = 3	#default: 3
+	segmentActivationThreshold = 2	#default: 2 #allowing for 1 non inhibited mismatch redundancy
+	useActiveBias = False
+	numberNeuronsGeneratedPerSample = numberNeuronsGeneratedPerSample*2
+	useDefaultNumLayersParam = False	#disable to increase number of layers
 
 if(useInitOrigParam):
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
