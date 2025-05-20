@@ -346,12 +346,13 @@ elif(useImageDataset):
 	learningRate = 0.001	#default: 0.001 (or 0.01)	#orig: 0.005
 	momentum = 0.9     #default: 0.9	#orig: 0.0
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
-	batchSize = 128	 #default: 128	#orig: 64
 	if(useAlgorithmEISANI):
+		batchSize = 1
 		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
 		numberOfLinearLayers = 3
 		numberOfLayers = numberOfConvlayers+numberOfLinearLayers
 	else:
+		batchSize = 128	 #default: 128	#orig: 64
 		numberOfConvlayers = 6	#rest will be linear	#orig: 2	#default: 2, 4, 6
 		numberOfLinearLayers = 3
 		numberOfLayers = numberOfConvlayers+numberOfLinearLayers	#counts hidden and output layers (not input layer)

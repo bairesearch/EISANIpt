@@ -34,8 +34,12 @@ if(useImageDataset):
 	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
 	CNNmaxPool = True
 	EISANICNNinputChannelThreshold = 0.5
-	EICNNoptimisationBlockwiseConv = True
-	EICNNoptimisationPackBinary = True
+	EICNNoptimisationSparseConv = False	#default: True
+	EICNNoptimisationBlockwiseConv = False	#default: False (old optimisation)
+	EICNNoptimisationPackBinary = False	#default: False (old optimisation)
+	EICNNoptimisationAssumeInt8 = False	#cnn operations are not currently implemented on CuDNN
+	if(EICNNoptimisationBlockwiseConv or EICNNoptimisationPackBinary):
+		EICNNoptimisationAssumeInt8 = True	#int8 is only used for specific CNN intermediate optimisations
 else:
 	useTabularDataset = True
 	
