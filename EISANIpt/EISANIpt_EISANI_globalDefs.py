@@ -27,6 +27,18 @@ useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num 
 useDefaultNumLayersParam = True	#default: True (use low num layers)
 useInitOrigParam = False	#use original test parameters
 
+useImageDataset = False
+if(useImageDataset):
+	CNNkernelSize = 3
+	CNNstride = 1
+	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
+	CNNmaxPool = True
+	EISANICNNinputChannelThreshold = 0.5
+	EICNNoptimisationBlockwiseConv = True
+	EICNNoptimisationPackBinary = True
+else:
+	useTabularDataset = True
+	
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
@@ -89,7 +101,7 @@ trainLocal = True	#local learning rule	#required
 simulatedDendriticBranches = False	#optional	#performTopK selection of neurons based on local inhibition - equivalent to multiple independent fully connected weights per neuron (SDBANN)
 useLinearSublayers = False
 
-workingDrive = '/large/source/ANNpython/EIANNpt/'
+workingDrive = '/large/source/ANNpython/EISANIpt/'
 dataDrive = workingDrive	#'/datasets/'
 
 modelName = 'modelEISANI'

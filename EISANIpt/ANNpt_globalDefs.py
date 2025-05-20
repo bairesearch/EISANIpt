@@ -26,7 +26,6 @@ useAlgorithmLUANN = False
 useAlgorithmLUOR = False
 useAlgorithmSANIOR = False
 useAlgorithmEIANN = False
-useAlgorithmEIOR = False
 useAlgorithmEISANI = True
 useAlgorithmAEANN = False
 useAlgorithmFFANN = False
@@ -152,12 +151,9 @@ elif(useAlgorithmSANIOR):
 elif(useAlgorithmEIANN):
 	from EIANNpt_EIANN_globalDefs import *
 	useTabularDataset = True
-elif(useAlgorithmEIOR):
-	from EIANNpt_EIOR_globalDefs import *
-	useImageDataset = True
 elif(useAlgorithmEISANI):
 	from EISANIpt_EISANI_globalDefs import *
-	useTabularDataset = True
+	#useTabularDataset/useImageDataset is defined by EISANIpt_EISANI_globalDefs
 elif(useAlgorithmAEANN):
 	from AEANNpt_AEANN_globalDefs import *
 	#useTabularDataset/useImageDataset is defined by AEANNpt_AEANN_globalDefs
@@ -351,12 +347,18 @@ elif(useImageDataset):
 	momentum = 0.9     #default: 0.9	#orig: 0.0
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
 	batchSize = 128	 #default: 128	#orig: 64
-	numberOfConvlayers = 6	#rest will be linear	#orig: 2	#default: 2, 4, 6
-	numberOfLayers = numberOfConvlayers+3	#counts hidden and output layers (not input layer)
-	#numberOfLayers = 2
-	#numberOfConvlayers = 0
-	numberInputImageChannels = 3
-	CNNhiddenLayerSize = 3*32*32 * 4	#default: CIFAR-10 image size = 3*32*32=3072
+	if(useAlgorithmEISANI):
+		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
+		numberOfLinearLayers = 3
+		numberOfLayers = numberOfConvlayers+numberOfLinearLayers
+	else:
+		numberOfConvlayers = 6	#rest will be linear	#orig: 2	#default: 2, 4, 6
+		numberOfLinearLayers = 3
+		numberOfLayers = numberOfConvlayers+numberOfLinearLayers	#counts hidden and output layers (not input layer)
+	numberInputImageChannels = 3	#default: CIFAR-10 channels
+	inputImageHeight = 32	#default: CIFAR-10 image size
+	inputImageWidth = 32	#default: CIFAR-10 image size
+	CNNhiddenLayerSize = numberInputImageChannels*inputImageHeight*inputImageWidth * 4	#default: CIFAR-10 image size = 3*32*32=3072
 	if(numberOfConvlayers >= 4):
 		CNNconvergeEveryEvenLayer = True	#default: True for numberOfConvlayers 4 or 6	#orig: False
 		assert numberOfConvlayers%2 == 0
@@ -388,7 +390,7 @@ if(useAlgorithmEISANI):
 	trainNumberOfEpochs = 1
 	if(useMultipleTrainEpochs):
 		if(not datasetRepeat):
-			trainNumberOfEpochs = 10
+			trainNumberOfEpochs = 10	#10	#default: 10
 			if(useDefaultNumNeuronsParam):
 				hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
 
@@ -481,5 +483,4 @@ else:
 #pt.autograd.set_detect_anomaly(True)
 
 device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
-
 	

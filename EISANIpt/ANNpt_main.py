@@ -49,8 +49,6 @@ elif(useAlgorithmSANIOR):
 	import LUANNpt_SANIOR as ANNpt_algorithm
 elif(useAlgorithmEIANN):
 	import EIANNpt_EIANN as ANNpt_algorithm
-elif(useAlgorithmEIOR):
-	import EIANNpt_EIOR as ANNpt_algorithm
 elif(useAlgorithmEISANI):
 	import EISANIpt_EISANI as ANNpt_algorithm
 elif(useAlgorithmAEANN):

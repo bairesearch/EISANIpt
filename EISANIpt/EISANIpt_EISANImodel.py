@@ -30,19 +30,28 @@ import torch
 from torch import nn
 from ANNpt_globalDefs import *
 from typing import List, Optional, Tuple
-import EISANIpt_EISANImodelDynamic
+if(useDynamicGeneratedHiddenConnections):
+	import EISANIpt_EISANImodelDynamic
+if(useImageDataset):
+	import EISANIpt_EISANImodelCNN
+
 
 class EISANIconfig():
-	def __init__(self, batchSize, numberOfLayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment, fieldTypeList):
+	def __init__(self, batchSize, numberOfLayers, numberOfConvlayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment, fieldTypeList):
 		self.batchSize = batchSize
 		self.numberOfLayers = numberOfLayers
+		self.numberOfConvlayers = numberOfConvlayers
 		self.hiddenLayerSize = hiddenLayerSize
 		self.inputLayerSize = inputLayerSize
 		self.outputLayerSize = outputLayerSize
 		self.numberOfFeatures = numberOfFeatures
 		self.numberOfClasses = numberOfClasses
 		self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
-		self.numberOfHiddenLayers = numberOfLayers - 1
+		if(useImageDataset):
+			numberOfLinearLayers = numberOfLayers - numberOfConvlayers
+			self.numberOfHiddenLayers = numberOfLinearLayers - 1
+		else:
+			self.numberOfHiddenLayers = numberOfLayers - 1
 		self.fieldTypeList = fieldTypeList
 
 class Loss:
@@ -140,19 +149,23 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# Derived sizes
 		# -----------------------------
-		# self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits # Old
-		fieldTypeList = config.fieldTypeList
-		if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
-			self.encodedFeatureSize = 0
-			for i in range(config.numberOfFeatures):
-				if i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
-					self.encodedFeatureSize += 1
-					#print("bool detected")
-				else:
-					self.encodedFeatureSize += continuousVarEncodingNumBits
+		if useImageDataset:
+			EISANIpt_EISANImodelCNN._init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
+			prevSize = self.encodedFeatureSize
 		else:
-			self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits
-		prevSize = self.encodedFeatureSize
+			# self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits # Old
+			fieldTypeList = config.fieldTypeList
+			if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
+				self.encodedFeatureSize = 0
+				for i in range(config.numberOfFeatures):
+					if i < len(fieldTypeList) and fieldTypeList[i] == 'bool':
+						self.encodedFeatureSize += 1
+						#print("bool detected")
+					else:
+						self.encodedFeatureSize += continuousVarEncodingNumBits
+			else:
+				self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits
+			prevSize = self.encodedFeatureSize
 		print("self.encodedFeatureSize = ", self.encodedFeatureSize)
 
 		# -----------------------------
@@ -196,10 +209,10 @@ class EISANImodel(nn.Module):
 		# verify neuron uniqueness
 		# -----------------------------
 		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
-			self.hiddenNeuronSignatures = [dict() for _ in range(config.numberOfLayers)]
+			self.hiddenNeuronSignatures = [dict() for _ in range(config.numberOfHiddenLayers+1)]
 			if self.useEIneurons:
-				self.hiddenNeuronSignaturesExc = [dict() for _ in range(config.numberOfLayers)]
-				self.hiddenNeuronSignaturesInh = [dict() for _ in range(config.numberOfLayers)]
+				self.hiddenNeuronSignaturesExc = [dict() for _ in range(config.numberOfHiddenLayers+1)]
+				self.hiddenNeuronSignaturesInh = [dict() for _ in range(config.numberOfHiddenLayers+1)]
 
 
 	# ---------------------------------------------------------
@@ -289,15 +302,21 @@ class EISANImodel(nn.Module):
 		assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
 
-		# -----------------------------
-		# Encode inputs
-		# -----------------------------
-		if self.useGrayCode:
-			encoded = gray_code_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
+		if useImageDataset:
+			# -----------------------------
+			# Convolve inputs
+			# -----------------------------
+			prevActivation = EISANIpt_EISANImodelCNN._propagate_conv_layers(self, x)	# (batch, encodedFeatureSize) int8
 		else:
-			encoded = thermometer_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
-		# Flatten feature & bit dimensions -> (batch, encodedFeatureSize)
-		prevActivation = encoded.view(batchSize, -1).to(torch.int8)
+			# -----------------------------
+			# Encode inputs
+			# -----------------------------
+			if self.useGrayCode:
+				encoded = gray_code_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
+			else:
+				encoded = thermometer_encode(x, self.continuousVarEncodingNumBits, self.continuousVarMin, self.continuousVarMax, fieldTypeList)
+			# Flatten feature & bit dimensions -> (batch, encodedFeatureSize)
+			prevActivation = encoded.view(batchSize, -1).to(torch.int8)
 		
 		# -----------------------------
 		# Pass through hidden layers
@@ -384,11 +403,8 @@ class EISANImodel(nn.Module):
 			# Sparse bool weights: True is +1, False is -1.
 			indices = weight.indices()
 			values = weight.values() # bool
-			numeric_values_float = torch.where(values,
-			                             torch.tensor(1.0, device=dev, dtype=torch.float32),
-			                             torch.tensor(-1.0, device=dev, dtype=torch.float32))
-			weight_eff_float = torch.sparse_coo_tensor(indices, numeric_values_float, weight.shape,
-			                                     device=dev, dtype=torch.float32).coalesce()
+			numeric_values_float = torch.where(values, torch.tensor(1.0, device=dev, dtype=torch.float32), torch.tensor(-1.0, device=dev, dtype=torch.float32))
+			weight_eff_float = torch.sparse_coo_tensor(indices, numeric_values_float, weight.shape, device=dev, dtype=torch.float32).coalesce()
 			z_float = torch.sparse.mm(weight_eff_float, prevActivation.float().t()).t()
 		else: # dense
 			# Dense weights are int8: +1, -1, or 0.
@@ -407,8 +423,7 @@ class EISANImodel(nn.Module):
 		if wExc.is_sparse:
 			# EI sparse weights are True for +1
 			numeric_values_exc_float = wExc.values().to(torch.float32) # True becomes 1.0
-			wExc_eff_float = torch.sparse_coo_tensor(wExc.indices(), numeric_values_exc_float, wExc.shape, 
-			                                   device=dev, dtype=torch.float32).coalesce()
+			wExc_eff_float = torch.sparse_coo_tensor(wExc.indices(), numeric_values_exc_float, wExc.shape, device=dev, dtype=torch.float32).coalesce()
 			zExc_float = torch.sparse.mm(wExc_eff_float, prevActivation.float().t()).t()
 		else: # dense
 			# Dense EI weights are 1 (int8). Convert to float for matmul.
@@ -419,8 +434,7 @@ class EISANImodel(nn.Module):
 		if wInh.is_sparse:
 			# EI sparse weights are True for +1
 			numeric_values_inh_float = wInh.values().to(torch.float32) # True becomes 1.0
-			wInh_eff_float = torch.sparse_coo_tensor(wInh.indices(), numeric_values_inh_float, wInh.shape,
-			                                   device=dev, dtype=torch.float32).coalesce()
+			wInh_eff_float = torch.sparse_coo_tensor(wInh.indices(), numeric_values_inh_float, wInh.shape, device=dev, dtype=torch.float32).coalesce()
 			zInh_float = torch.sparse.mm(wInh_eff_float, prevActivation.float().t()).t()
 		else: # dense
 			# Dense EI weights are 1 (int8). Convert to float for matmul.
@@ -473,6 +487,4 @@ class EISANImodel(nn.Module):
 					EISANIpt_EISANImodelDynamic.measure_class_exclusive_neuron_ratio(self)
 				if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
 					EISANIpt_EISANImodelDynamic.measure_ratio_of_hidden_neurons_with_output_connections(self)
-
-
 
