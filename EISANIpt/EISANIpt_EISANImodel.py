@@ -397,7 +397,7 @@ class EISANImodel(nn.Module):
 		
 		dev	= prevActivation.device
 		# weight = self.hiddenConnectionMatrix[layerIdx].to(dev) # Already done above
-
+		
 		if weight.is_sparse:
 			# Called only when self.useEIneurons is False.
 			# Sparse bool weights: True is +1, False is -1.

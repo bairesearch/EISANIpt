@@ -34,15 +34,18 @@ def _init_conv_layers(self) -> None:
 	Initialise binary kernel bank (3  3, 1) and compute flattened
 	output size after `numberOfConvlayers` (+ optional max-pooling).
 	Sets:
-	 self.convKernels	 (512,1,3,3) int8
+	 self.convKernels	 (511,1,3,3) binary +1/0 (stored as float for conv2d)
 	 self.encodedFeatureSize
 	"""
 	assert CNNkernelSize == 3 and CNNstride == 1, "Only 33 stride-1 kernels supported in this implementation"
 
-	# --- generate every possible 3  3 binary kernel (+1/-1)
-	all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize*CNNkernelSize)), dtype=torch.int8)
-	self.convKernels = all_patterns.view(512, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)
-
+	# --- generate every possible 3 × 3 BINARY mask (+1 / 0)
+	all_patterns = torch.tensor(list(itertools.product([0, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
+	all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
+	self.convKernels = all_patterns.view(-1, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)	# (2**9)-1=511 out-channel
+	self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
+	print("self.convKernels.shape = ", self.convKernels.shape)
+	
 	# --- compute flattened size after N conv (+max-pool) layers
 	H = inputImageHeight
 	W = inputImageWidth
@@ -52,9 +55,10 @@ def _init_conv_layers(self) -> None:
 		H = H - CNNkernelSize + 1			# stride 1 conv
 		W = W - CNNkernelSize + 1
 		if CNNmaxPool:
-			H //= 2
-			W //= 2
-		ch *= 512							# each conv multiplies channels by 512
+			# use *ceil* division (same as F.max_pool2d(..., ceil_mode=True))
+			H = (H + 1) // 2	#orig: H //= 2
+			W = (W + 1) // 2	#orig: W //= 2
+		ch *= (2**9)-1							# each conv multiplies channels by 511
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 	self.encodedFeatureSize = ch * H * W
 
@@ -78,7 +82,7 @@ def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 			if EICNNoptimisationBlockwiseConv:
 				z = conv_blockwise(z, self.convKernels, 128)
 			else:
-				z = _dense_conv(self, z)
+				z, B, C = _dense_conv(self, z)
 		if CNNmaxPool:
 			if EICNNoptimisationSparseConv and convLayerIndex > 0:
 				z = sparse_maxpool2d(z, kernel_size=2, stride=2)
@@ -90,10 +94,12 @@ def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 			z_packed, z_shape = pack_binary(z)
 			z = unpack_binary(z_packed, z_shape)
 	
-	if EICNNoptimisationSparseConv:
+	if EICNNoptimisationSparseConv and self.config.numberOfConvlayers>1:
 		#linearInput = dense_flat_to_sparse(z, b_idx, c_idx, B, C)
 		linearInput = dense_flat_to_dense(z, b_idx, c_idx, B, C)
-	linearInput = z.view(z.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
+	else:
+		linearInput = z
+	linearInput = linearInput.view(linearInput.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
 	return linearInput
 	
 def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
@@ -110,8 +116,9 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 		prevConvOutFlat = prevConvOut.view(B, C, -1)				# [B, C, W*H]	 #flatten width/height dim
 		prevConvOutActive = torch.any(prevConvOutFlat > 0, dim=2)	#calculate if any activation for each channel	#shape=[B, C]
 		b_idx, c_idx = torch.where(prevConvOutActive)				# both [N_active]
-		#xSubsetIndices = (b_idx, c_idx)				# tuple of two 1-D tensors
-
+		xSubsetIndices = (b_idx, c_idx)				# tuple of two 1-D tensors
+		#print("xSubsetIndices = ", xSubsetIndices)
+		
 		'''
 		1. extract from each active batch channel (c_idx) a tensor of channel CNN kernel inputs called activeBatchChannelKernelInputs of shape = [numberOfActiveChannels, kernelInputW, kernelInputH, kernelWidth, kernelHeight]). len(c_idx) = numberOfActiveChannels. Each kernel input is of size kernelWidth x kernelHeight (e.g. 3x3) and is extracted with stride=1, so kernelInputW/kernelInputH is identical to the original image W/H.
 		'''
@@ -123,56 +130,62 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 
 		# STEP 0 - gather only the active feature-maps
 		x_active = prevConvOut[b_idx, c_idx]			# [N_active, H, W]
-		x_active = x_active.unsqueeze(1)				# [N_active, 1, H, W]
+		#print("x_active.shape = ", x_active.shape)
 	else:
 		x_active = x	#shape 
-	
+	x_active = x_active.unsqueeze(1)				# [N_active, 1, H, W]
+	print("convLayerIndex = ", convLayerIndex, ", x_active.shape = ", x_active.shape)
+
 	'''
 	2. apply convOutChannels (eg 15) static binary (+1/-1) convolutional kernels (of shape = [convOutChannels, {1,} kernelInputH, kernelWidth]) to the activeBatchChannelKernelInputs. This can be done either by a) using some manual matrix operations of your choosing, or b) using a standard pytorch cnn kernel treating numberOfActiveChannels as the batch dimension and convInChannels=1 to a standard pytorch conv2d operation. Please implement at least method b (only implement method a if you think you have identified a faster way).
 	'''
-	# ------------------------------------------------------------------------------
-	# 1) extract every stride-1 kernel-sized patch
-	#	result shape - [N_active, H, W, kH, kW]  (same H/W as input, no loops)
-	# ------------------------------------------------------------------------------
 	kH, kW = self.convKernels.shape[-2:]
 	
-	if(EICNNoptimisationAssumeInt8):														# [N_active, kH*kW, H*W]
-		patches = unfold_int8_stride1(x_active, CNNkernelSize)	#F.unfold not implemented for int8 (char)
-	else:
-		patches = F.unfold(
-			x_active,												# [N_active, 1, H, W]
-			kernel_size=(kH, kW),
-			padding=(kH // 2, kW // 2),		# "same" so output H_out = H, W_out = W
-			stride=1
-		)
-	
-	# Method C (torch.conv2d optimised): 
-	# mask per position: True if any element of the 3x3 window > 0
-	mask_flat = patches.gt(0).any(dim=1)	# [N_active, H*W]
-	mask	 = mask_flat.view(x_active.shape[0], *x_active.shape[2:])	# [N_active, H, W]
-
 	# ---------------------------------------------------------------------------
-	# 2) fast path -- use torch.conv2d as before, then apply the mask
+	# 2) apply torch.conv2d
 	# ---------------------------------------------------------------------------
 	weight = self.convKernels	# [O, 1, 3, 3]
-
-	convOut = F.conv2d(
-		x_active,									# [N_active, 1, H, W]
-		weight,										# [O, 1, 3, 3]
-		stride=1,
-		padding=1									# kH // 2
-	)												# [N_active, O, H, W]
+	O = weight.size(0)
+	if(EICNNoptimisationAssumeInt8):
+		x_active = x_active.float()
+	#print("weight.shape = ", weight.shape)
+	print("x_active.sum() = ", x_active.sum())
 	
-	# zero-out positions that failed the "any>0" test
-	convOut *= mask.unsqueeze(1)					# broadcast to [N_active, O, H, W]
+	# ---------- overlap count (same as ordinary conv) ----------
+	overlap = F.conv2d(                                   # (N_active, O, H, W)
+    	x_active,                                 # [N_active, 1, H, W]  \u2013 0/1
+    	weight,                                          # [O, 1, 3, 3]         \u2013 0/1
+    	stride=1,
+    	padding=1                                        # 3//2
+	)
 
+	# ---------- number of ones in each mask ---------------
+	# pre-compute once and cache if you like
+	mask_sums = weight.view(O, -1).sum(dim=1)            # (O,)
+
+	# ---------- full-mask match ---------------------------
+	convOut = (overlap == mask_sums.view(1, O, 1, 1))
+	# convOut shape: [N_active, O, H, W], values {0,1}
+
+	if(EICNNoptimisationAssumeInt8):
+		convOut = convOut.to(torch.int8)
+	else:
+		convOut = convOut.float()
+	
+	print("convOut.sum() = ", convOut.sum())
+	
 	# ---------------------------------------------------------------------------
 	# 3) outputs
 	# ---------------------------------------------------------------------------
 	# convOut		: [N_active, O, H, W] final activations, 0 where needed
 	# mask		   : [N_active, H, W]	 True = "kernel was applied"
 	
-	x_active_new, b_idx_new, c_idx_new, C_new = postprocess_flat(convOut, b_idx, c_idx, C)
+	if(convLayerIndex == 0):
+		x_active_new, C_new = postprocess_dense(convOut, b_idx, c_idx, C)
+		b_idx_new = None
+		c_idx_new = None
+	else:
+		x_active_new, b_idx_new, c_idx_new, C_new = postprocess_flat(convOut, b_idx, c_idx, C)
 	
 	return x_active_new, b_idx_new, c_idx_new, B, C_new
 
@@ -201,8 +214,11 @@ def dense_flat_to_dense(x_active, b_idx, c_idx, B, C):
 	return dense_out
 
 
+# ------------------------------------------------------------------------------
+# 1)  postprocess_dense()  
 #converts directly back to original non-sparse image format (orig: not used as image channel data is stored as sparse during CNN phase for optimisation)
-def dense_old_to_dense_new(convOut, b_idx, c_idx, B, C):
+# ------------------------------------------------------------------------------
+def postprocess_dense(convOut, b_idx, c_idx, B, C):
 
 	H, W = convOut.shape[-2:]
 	O = self.convKernels.shape[0]					# # output channels per input map
@@ -218,7 +234,7 @@ def dense_old_to_dense_new(convOut, b_idx, c_idx, B, C):
 
 	C_new = C * O
 
-	return out
+	return out, C_new
 	
 # ------------------------------------------------------------------------------
 # 1)  postprocess_flat()   <<[N_active, O, H, W]  -  [N_active*O, H, W]>>
@@ -298,61 +314,88 @@ def sparse_maxpool2d(x, kernel_size=2, stride=2):
 
 	returns [N_active, H//stride, W//stride]
 	"""
-	return F.max_pool2d(x.unsqueeze(1), kernel_size, stride).squeeze(1)
+	return F.max_pool2d(x.unsqueeze(1).float(), kernel_size, stride).squeeze(1)
+
+
+
+def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
+	'''
+	Vectorised mask-match:
+	 - kernel bank shape ........ (K, 1, 3, 3)   (K = 511)
+	 - input  ................... (B, C, H, W)
+	 - output  .................. (B, C*K, H', W')
+	
+	A pixel fires (value 1) **iff** every 1 in the mask is present in the
+	33 patch of the *same* input channel.
+	'''
+	B, C, H, W = x.shape
+	device      = x.device
+	
+	#----- prepare kernel bank for grouped conv ---------------------------
+	# Repeat the 511 masks once for each input channel.
+	kernels = self.convKernels.to(device).repeat(C, 1, 1, 1)   # (C*K, 1, 3, 3)
+	
+	# Number of 1-bits in each mask (repeated per channel).
+	if not hasattr(self, "_mask_sums"):
+		self._mask_sums = self.convKernels.view(self.convKernels.size(0), -1).sum(1)  # (K,)
+	mask_sums = self._mask_sums.to(device).repeat(C)                                   # (C*K,)
+	
+	#----- grouped convolution -------------------------------------------
+	# groups=C -> each group uses its own slice of C_out=C*K channels
+	if(EICNNoptimisationAssumeInt8):
+		cInput = x.float()
+	else:
+		cInput = x
+	overlap = F.conv2d(cInput, kernels, stride=1, groups=C)        # (B, C*K, H', W')
+	
+	#----- full-mask match ------------------------------------------------
+	match = (overlap == mask_sums.view(1, -1, 1, 1))   # (B, C*K, H', W')
+	if(EICNNoptimisationAssumeInt8):
+		match = match.to(torch.int8)
+	else:
+		match = match.float()
+		
+	B, Cnew, *spatial = match.shape
+		
+	return match, B, Cnew
 
 
 '''
 def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	"""
-	Apply the pre-built 512-kernel bank to every channel separately,
-	then threshold with `CNNkernelThreshold`.
-	Returns new (batch, ch*512, H', W') tensor of int8 {0,1}.
+	Mask-match: output 1 only when **all** 1-positions in the mask are
+	present in the input patch.
 	"""
 	batch, inCh, H, W = x.shape
-	out_list = []
-	kernel_bank = self.convKernels
+	out = []
+	kernel_bank = self.convKernels.to(x.device)               # float32, 0/1
+	mask_sums   = kernel_bank.view(kernel_bank.size(0), -1).sum(dim=1)  # (511,)
+
 	for c in range(inCh):
+		# count how many 1s overlap between input and mask
 		cInput = x[:, c:c+1]
 		if(EICNNoptimisationAssumeInt8):
 			cInput = cInput.float()
-		conv_out = F.conv2d(x[:, c:c+1].float(), kernel_bank, stride=CNNstride)
-		conv_bin = (conv_out >= CNNkernelThreshold)
+		overlap = F.conv2d(cInput, kernel_bank, stride=1)   # (B,511,H',W')
+		# full match when overlap == number of 1s in that mask
+		match = (overlap == mask_sums.view(1, -1, 1, 1))
 		if(EICNNoptimisationAssumeInt8):
-			conv_bin = conv_bin.to(torch.int8)
+			match = match.to(torch.int8)
 		else:
-			conv_bin = conv_bin.float()
-		out_list.append(conv_bin)
-	return torch.cat(out_list, dim=1)	# new channels = inCh*512
-'''
+			match = match.float()
 
-def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
-	"""
-	Vectorized version: applies the same 512 kernels independently to each input channel
-	in one grouped convolution, then thresholds.
-	"""
-	B, inCh, H, W = x.shape
-	kH, kW = CNNkernelSize, CNNkernelSize		   # e.g. 3, 3
-	# assume self.convKernels is [512, 1, kH, kW]
-	bank = self.convKernels		 # [512,1,kH,kW]
-	# Tile that bank in the out-channel dimension:
-	#   \u2192 [inCh*512, 1, kH, kW]
-	bank_rep = bank.repeat(inCh, 1, 1, 1)
-	cInput = x
-	if(EICNNoptimisationAssumeInt8):
-		cInput = cInput.float()
-	conv_out = F.conv2d(
-		cInput,										 # [B, inCh, H, W]
-		weight=bank_rep,								   # [inCh*512, 1, kH, kW]
-		stride=CNNstride,
-		groups=inCh										# split both input & weight
-	)
-	# conv_out is now [B, inCh*512, H', W']
-	out = (conv_out >= CNNkernelThreshold)
-	if(EICNNoptimisationAssumeInt8):
-		out = out.to(torch.int8)
-	else:
-		out = out.float()
-	return out
+		out.append(match)
+
+
+	outAll = torch.cat(out, dim=1)    # (B, inCh*511, H', W')
+	
+	B, Cnew, *spatial = outAll.shape
+
+	return outAll, B, Cnew
+'''
+ 
+
+ 
 
 if(EICNNoptimisationAssumeInt8):
 		
@@ -396,9 +439,9 @@ if(EICNNoptimisationAssumeInt8):
 
 	def conv_blockwise(x: torch.Tensor, kernels: torch.Tensor, block: int = 32) -> torch.Tensor:
 		"""
-		Apply `kernels` (shape [512,1,3,3]) to **each** input channel in blocks
+		Apply `kernels` (shape [511,1,3,3]) to **each** input channel in blocks
 		of size \u2264 `block`, keeping RAM low.
-		Returns dense int8 (batch, inCh*512, H', W').
+		Returns dense int8 (batch, inCh*511, H', W').
 		"""
 		batch, inCh, H, W = x.shape
 		out = []
