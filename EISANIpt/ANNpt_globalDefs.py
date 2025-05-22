@@ -348,7 +348,10 @@ elif(useImageDataset):
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
 	if(useAlgorithmEISANI):
 		batchSize = 1
-		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
+		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
+		else:
+			numberOfConvlayers = 1	#rest will be linear	#default: 1
 		numberOfLinearLayers = 3
 		numberOfLayers = numberOfConvlayers+numberOfLinearLayers
 	else:

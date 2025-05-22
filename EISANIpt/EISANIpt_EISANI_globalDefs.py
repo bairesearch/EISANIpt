@@ -21,6 +21,7 @@ debugEISANIoutput = False
 debugEISANIfastTrain = False
 debugMeasureClassExclusiveNeuronRatio = True	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
 debugMeasureRatioOfHiddenNeuronsWithOutputConnections = True	#measure ratio of hidden neurons with output connections to those without output connections
+debugEISANICNNdynamicallyGenerateLinearInputFeatures = True
 
 useDefaultNumNeuronsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
@@ -33,11 +34,15 @@ if(useImageDataset):
 	CNNstride = 1
 	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
 	CNNmaxPool = True
+	encodedFeatureSizeDefault = 1280000	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	EISANICNNinputChannelThreshold = 0.5
-	EICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
-	EICNNoptimisationBlockwiseConv = False	#default: False (old optimisation)
-	EICNNoptimisationPackBinary = False	#default: False (old optimisation)
-	EICNNoptimisationAssumeInt8 = True	#cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will be temporarily converted to float
+	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
+	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
+	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#number of bits to encode image pixels
+	if(EISANICNNoptimisationSparseConv):
+		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
+	else:
+		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 else:
 	useTabularDataset = True
 	

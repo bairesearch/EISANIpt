@@ -39,7 +39,7 @@ def _init_conv_layers(self) -> None:
 	"""
 	assert CNNkernelSize == 3 and CNNstride == 1, "Only 33 stride-1 kernels supported in this implementation"
 
-	# --- generate every possible 3 � 3 BINARY mask (+1 / 0)
+	# --- generate every possible 3 � 3 BINARY mask (+1 / 0)
 	all_patterns = torch.tensor(list(itertools.product([0, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
 	all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
 	self.convKernels = all_patterns.view(-1, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)	# (2**9)-1=511 out-channel
@@ -49,7 +49,7 @@ def _init_conv_layers(self) -> None:
 	# --- compute flattened size after N conv (+max-pool) layers
 	H = inputImageHeight
 	W = inputImageWidth
-	ch = numberInputImageChannels
+	ch = numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits
 	print(f"conv0: channels={ch}, H={H}, W={W}")
 	for layerIdx in range(self.config.numberOfConvlayers):
 		H = H - CNNkernelSize + 1			# stride 1 conv
@@ -60,7 +60,11 @@ def _init_conv_layers(self) -> None:
 			W = (W + 1) // 2	#orig: W //= 2
 		ch *= (2**9)-1							# each conv multiplies channels by 511
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
-	self.encodedFeatureSize = ch * H * W
+	encodedFeatureSizeMax = ch * H * W
+	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+		self.encodedFeatureSize = encodedFeatureSizeDefault	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
+	else:
+		self.encodedFeatureSize = encodedFeatureSizeMax
 
 def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 	"""
@@ -70,37 +74,123 @@ def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 	 - flatten to (batch, -1) int8
 	"""
 	z = (x >= EISANICNNinputChannelThreshold)
-	if(EICNNoptimisationAssumeInt8):
+	if(EISANICNNoptimisationAssumeInt8):
 		z = z.to(torch.int8)
 	else:
 		z = z.float()
 	b_idx, c_idx, B, C = (None, None, None, None)
 	for convLayerIndex in range(self.config.numberOfConvlayers):
-		if EICNNoptimisationSparseConv and convLayerIndex > 0:
+		if EISANICNNoptimisationSparseConv and convLayerIndex > 0:
 			z, b_idx, c_idx, B, C = _sparse_conv(self, convLayerIndex, z, b_idx, c_idx, B, C)
 		else:
-			if EICNNoptimisationBlockwiseConv:
-				z = conv_blockwise(z, self.convKernels, 128)
-			else:
-				z, B, C = _dense_conv(self, z)
+			z, B, C = _dense_conv(self, z)
 		if CNNmaxPool:
-			if EICNNoptimisationSparseConv and convLayerIndex > 0:
-				z = sparse_maxpool2d(z, kernel_size=2, stride=2)
+			if EISANICNNoptimisationSparseConv and convLayerIndex > 0:
+				z = sparse_maxpool2d(self, z, kernel_size=2, stride=2)
 			else:
 				z = F.max_pool2d(z.float(), kernel_size=2, stride=2)
-				if(EICNNoptimisationAssumeInt8):
+				if(EISANICNNoptimisationAssumeInt8):
 					z = z.to(torch.int8)
-		if EICNNoptimisationPackBinary:
-			z_packed, z_shape = pack_binary(z)
-			z = unpack_binary(z_packed, z_shape)
 	
-	if EICNNoptimisationSparseConv and self.config.numberOfConvlayers>1:
-		#linearInput = dense_flat_to_sparse(z, b_idx, c_idx, B, C)
-		linearInput = dense_flat_to_dense(z, b_idx, c_idx, B, C)
+	if EISANICNNoptimisationSparseConv and self.config.numberOfConvlayers>1:
+		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+			linearInput = dynamicallyGenerateLinearInputFeaturesVectorised(self, z, b_idx, c_idx, B, C)
+		else:
+			linearInput = sparse_to_dense(self, z, b_idx, c_idx, B, C)
 	else:
-		linearInput = z
+		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+			printe("EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1")
+		else:
+			linearInput = z
 	linearInput = linearInput.view(linearInput.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
 	return linearInput
+
+
+
+
+
+def dynamicallyGenerateLinearInputFeaturesVectorised(				# pylint: disable=too-many-arguments
+		self,
+		CNNoutputLayerFeatures: torch.Tensor,	# (N_active, H, W) sparse activations
+		b_idx: torch.Tensor,					# (N_active,) batch index per slice
+		c_idx: torch.Tensor,					# (N_active,) channel index per slice
+		B: int,								# batch-size
+		C: int								# total CNN channels (active+inactive)
+) -> torch.Tensor:
+	"""
+	Vectorised: converts sparse CNN activations into a binary matrix of shape
+	(B, self.encodedFeatureSize) with no Python-level loops.
+
+	Internals
+	---------
+	• self.cnn_to_linear_map : 1-D LongTensor of length C*H*W
+	    - maps each flat CNN feature index → fixed linear-layer column (or -1)
+	• self.nextLinearCol     : scalar Python int = first free column index
+	These two tensors are created lazily on the first call.
+	"""
+	device = CNNoutputLayerFeatures.device
+	N_active, H, W = CNNoutputLayerFeatures.shape
+
+	# ------------------------------------------------------------------ #
+	# 0. Lazy initialisation of the mapping tensors (vectorised state)    #
+	# ------------------------------------------------------------------ #
+	num_possible_features = C * H * W
+	if not hasattr(self, "cnn_to_linear_map") or self.cnn_to_linear_map.numel() != num_possible_features:
+		self.cnn_to_linear_map = torch.full((num_possible_features,), -1, dtype=torch.long, device=device)
+		self.nextLinearCol = 0												# first free column
+
+	if(debugEISANICNNdynamicallyGenerateLinearInputFeatures):
+		linearInput = sparse_to_dense(self, CNNoutputLayerFeatures, b_idx, c_idx, B, C)
+		print("linearInput.shape = ", linearInput.shape)
+		numActive = (linearInput > 0).sum()
+		print("numActive = ", numActive)
+		print("nextLinearCol = ", self.nextLinearCol)
+
+	# ------------------------------------------------------------------ #
+	# 1. Find (slice-idx, h, w) of *non-zero* positions in each map      #
+	# ------------------------------------------------------------------ #
+	coords = (CNNoutputLayerFeatures != 0).nonzero(as_tuple=False)			# (K, 3)
+	if coords.numel() == 0:
+		return torch.zeros(B, self.encodedFeatureSize, device=device)
+
+	n, h, w = coords[:, 0], coords[:, 1], coords[:, 2]						# (K,)
+
+	# ------------------------------------------------------------------ #
+	# 2. Compute flat CNN index  idx = c*H*W + h*W + w                    #
+	# ------------------------------------------------------------------ #
+	c = c_idx[n]															# channel for coord
+	b = b_idx[n]															# batch-sample
+	flat_idx = (c * H * W) + (h * W) + w									# (K,)
+
+	# ------------------------------------------------------------------ #
+	# 3. Allocate columns for *new* CNN features (pure tensor ops)        #
+	# ------------------------------------------------------------------ #
+	current_cols = self.cnn_to_linear_map[flat_idx]							# (K,) may be −1
+	new_mask = current_cols.eq(-1)											# bool (K,)
+	if new_mask.any():
+		# Unique flat indices that still need a column
+		unique_new = flat_idx[new_mask].unique()							# (M,)
+		M = unique_new.numel()
+		if self.nextLinearCol + M > self.encodedFeatureSize:
+			raise RuntimeError(f"encodedFeatureSize={self.encodedFeatureSize} exhausted: need {M} more columns.")
+
+		new_cols = torch.arange(self.nextLinearCol, self.nextLinearCol + M, device=device, dtype=torch.long,)	# (M,)
+		# Vectorised scatter: fill look-up table for all new indices
+		self.cnn_to_linear_map[unique_new] = new_cols
+		self.nextLinearCol += M											# advance pointer
+
+		# Re-gather to get columns for *all* flat_idx (old + newly added)
+		current_cols = self.cnn_to_linear_map[flat_idx]						# (K,)
+
+	# ------------------------------------------------------------------ #
+	# 4. Build the output matrix in one scatter call                      #
+	# ------------------------------------------------------------------ #
+	linearInput = torch.zeros(B, self.encodedFeatureSize, device=device)
+	linearInput.index_put_((b, current_cols), torch.ones_like(b, dtype=linearInput.dtype))
+
+	return linearInput
+
+
 	
 def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 
@@ -134,7 +224,7 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	else:
 		x_active = x	#shape 
 	x_active = x_active.unsqueeze(1)				# [N_active, 1, H, W]
-	print("convLayerIndex = ", convLayerIndex, ", x_active.shape = ", x_active.shape)
+	#print("convLayerIndex = ", convLayerIndex, ", x_active.shape = ", x_active.shape)
 
 	'''
 	2. apply convOutChannels (eg 15) static binary (+1/-1) convolutional kernels (of shape = [convOutChannels, {1,} kernelInputH, kernelWidth]) to the activeBatchChannelKernelInputs. This can be done either by a) using some manual matrix operations of your choosing, or b) using a standard pytorch cnn kernel treating numberOfActiveChannels as the batch dimension and convInChannels=1 to a standard pytorch conv2d operation. Please implement at least method b (only implement method a if you think you have identified a faster way).
@@ -146,10 +236,10 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	# ---------------------------------------------------------------------------
 	weight = self.convKernels	# [O, 1, 3, 3]
 	O = weight.size(0)
-	if(EICNNoptimisationAssumeInt8):
+	if(EISANICNNoptimisationAssumeInt8):
 		x_active = x_active.float()
 	#print("weight.shape = ", weight.shape)
-	print("x_active.sum() = ", x_active.sum())
+	#print("x_active.sum() = ", x_active.sum())
 	
 	# ---------- overlap count (same as ordinary conv) ----------
 	overlap = F.conv2d(                                   # (N_active, O, H, W)
@@ -167,12 +257,12 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	convOut = (overlap == mask_sums.view(1, O, 1, 1))
 	# convOut shape: [N_active, O, H, W], values {0,1}
 
-	if(EICNNoptimisationAssumeInt8):
+	if(EISANICNNoptimisationAssumeInt8):
 		convOut = convOut.to(torch.int8)
 	else:
 		convOut = convOut.float()
 	
-	print("convOut.sum() = ", convOut.sum())
+	#print("convOut.sum() = ", convOut.sum())
 	
 	# ---------------------------------------------------------------------------
 	# 3) outputs
@@ -181,20 +271,20 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	# mask		   : [N_active, H, W]	 True = "kernel was applied"
 	
 	if(convLayerIndex == 0):
-		x_active_new, C_new = postprocess_dense(convOut, b_idx, c_idx, C)
+		x_active_new, C_new = postprocess_dense(self, convOut, b_idx, c_idx, C)
 		b_idx_new = None
 		c_idx_new = None
 	else:
-		x_active_new, b_idx_new, c_idx_new, C_new = postprocess_flat(convOut, b_idx, c_idx, C)
+		x_active_new, b_idx_new, c_idx_new, C_new = postprocess_flat(self, convOut, b_idx, c_idx, C)
 	
 	return x_active_new, b_idx_new, c_idx_new, B, C_new
 
 	
 # ------------------------------------------------------------------------------
-# 0)  dense_flat_to_dense() - restore shape  [B, C, H, W]   (zeros for every inactive channel)
+# 0)  sparse_to_dense() - restore shape  [B, C, H, W]   (zeros for every inactive channel)
 # ------------------------------------------------------------------------------
 
-def dense_flat_to_dense(x_active, b_idx, c_idx, B, C):
+def sparse_to_dense(self, x_active, b_idx, c_idx, B, C):
 	"""
 	x_active : [N_active*O, H, W]   - rows produced by postprocess_flat
 	b_idx	: [N_active*O]		 - batch index per row
@@ -218,7 +308,7 @@ def dense_flat_to_dense(x_active, b_idx, c_idx, B, C):
 # 1)  postprocess_dense()  
 #converts directly back to original non-sparse image format (orig: not used as image channel data is stored as sparse during CNN phase for optimisation)
 # ------------------------------------------------------------------------------
-def postprocess_dense(convOut, b_idx, c_idx, B, C):
+def postprocess_dense(self, convOut, b_idx, c_idx, B, C):
 
 	H, W = convOut.shape[-2:]
 	O = self.convKernels.shape[0]					# # output channels per input map
@@ -241,7 +331,7 @@ def postprocess_dense(convOut, b_idx, c_idx, B, C):
 #	 - flattens the O-axis into the batch axis
 #	 - updates b_idx / c_idx for the new logical channel count = C*O
 # ------------------------------------------------------------------------------
-def postprocess_flat(convOut, b_idx, c_idx, C):
+def postprocess_flat(self, convOut, b_idx, c_idx, C):
 	"""
 	convOut : [N_active, O, H, W]
 	b_idx   : [N_active]		  batch ids of active inputs
@@ -270,45 +360,10 @@ def postprocess_flat(convOut, b_idx, c_idx, C):
 
 
 # ------------------------------------------------------------------------------
-# 2)  dense_flat_to_sparse()   <<[N_active*O, H, W] - sparse COO [B, C, H, W]>>
-#	 - builds the COO tensor directly, no gigantic dense buffer
-# ------------------------------------------------------------------------------
-def dense_flat_to_sparse(x_active, b_idx, c_idx, B, C):
-	"""
-	x_active : [N_active*O, H, W]
-	b_idx	: batch index per row   (from postprocess_flat)
-	c_idx	: channel index per row (from postprocess_flat)
-	B, C	   : full tensor dims
-
-	returns torch.sparse_coo_tensor of shape [B, C, H, W]
-	"""
-	H, W = x_active.shape[1:]
-	nz   = torch.nonzero(x_active, as_tuple=False)		# [nnz, 3]
-
-	row, h_idx, w_idx = nz.t()								# 1-D each
-
-	indices = torch.stack((
-		b_idx[row],			# batch dim
-		c_idx[row],			# channel dim
-		h_idx,					# height
-		w_idx					# width
-	), dim=0)												# [4, nnz]
-
-	values  = x_active[row, h_idx, w_idx]				# [nnz]
-
-	return torch.sparse_coo_tensor(
-		indices, values,
-		size=(B, C, H, W),
-		dtype=x_active.dtype,
-		device=x_active.device
-	)
-
-
-# ------------------------------------------------------------------------------
 # 3)  sparse_maxpool2d()   <<[N_active, H, W] - [N_active, H//2, W//2]>>
 #	 - 2x2 max-pool with stride 2 (change k,s if desired)
 # ------------------------------------------------------------------------------
-def sparse_maxpool2d(x, kernel_size=2, stride=2):
+def sparse_maxpool2d(self, x, kernel_size=2, stride=2):
 	"""
 	x : [N_active, H, W]   (no channel axis)
 
@@ -342,7 +397,7 @@ def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	
 	#----- grouped convolution -------------------------------------------
 	# groups=C -> each group uses its own slice of C_out=C*K channels
-	if(EICNNoptimisationAssumeInt8):
+	if(EISANICNNoptimisationAssumeInt8):
 		cInput = x.float()
 	else:
 		cInput = x
@@ -350,7 +405,7 @@ def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	
 	#----- full-mask match ------------------------------------------------
 	match = (overlap == mask_sums.view(1, -1, 1, 1))   # (B, C*K, H', W')
-	if(EICNNoptimisationAssumeInt8):
+	if(EISANICNNoptimisationAssumeInt8):
 		match = match.to(torch.int8)
 	else:
 		match = match.float()
@@ -360,122 +415,5 @@ def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	return match, B, Cnew
 
 
-'''
-def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
-	"""
-	Mask-match: output 1 only when **all** 1-positions in the mask are
-	present in the input patch.
-	"""
-	batch, inCh, H, W = x.shape
-	out = []
-	kernel_bank = self.convKernels.to(x.device)               # float32, 0/1
-	mask_sums   = kernel_bank.view(kernel_bank.size(0), -1).sum(dim=1)  # (511,)
-
-	for c in range(inCh):
-		# count how many 1s overlap between input and mask
-		cInput = x[:, c:c+1]
-		if(EICNNoptimisationAssumeInt8):
-			cInput = cInput.float()
-		overlap = F.conv2d(cInput, kernel_bank, stride=1)   # (B,511,H',W')
-		# full match when overlap == number of 1s in that mask
-		match = (overlap == mask_sums.view(1, -1, 1, 1))
-		if(EICNNoptimisationAssumeInt8):
-			match = match.to(torch.int8)
-		else:
-			match = match.float()
-
-		out.append(match)
-
-
-	outAll = torch.cat(out, dim=1)    # (B, inCh*511, H', W')
-	
-	B, Cnew, *spatial = outAll.shape
-
-	return outAll, B, Cnew
-'''
  
-
- 
-
-if(EICNNoptimisationAssumeInt8):
-		
-	def _torch_packbits_fallback(x: torch.Tensor, dim=-1) -> torch.Tensor:
-		"""Pack binary {0,1} uint8/int8 along `dim` \u2192 uint8 tensor."""
-		if x.dtype not in (torch.uint8, torch.int8):
-			x = x.to(torch.uint8)
-		if dim < 0:
-			dim += x.ndim
-		pad_len = (-x.size(dim)) % 8
-		if pad_len:
-			pad_shape = list(x.shape)
-			pad_shape[dim] = pad_len
-			x = torch.cat([x, x.new_zeros(pad_shape)], dim=dim)
-		x = x.view(*x.shape[:dim], -1, 8, *x.shape[dim+1:])
-		shifts = torch.arange(7, -1, -1, device=x.device, dtype=torch.uint8)
-		x = (x << shifts).sum(dim=dim+1)
-		return x
-
-	def _torch_unpackbits_fallback(x: torch.Tensor, dim=-1) -> torch.Tensor:
-		"""Inverse of _torch_packbits_fallback."""
-		if dim < 0:
-			dim += x.ndim
-		x = x.unsqueeze(dim+1)
-		shifts = torch.arange(7, -1, -1, device=x.device, dtype=torch.uint8)
-		bits = (x >> shifts) & 1
-		return bits.reshape(*x.shape[:dim], -1, *x.shape[dim+2:])
-
-	torch_has_pack = hasattr(torch, "packbits")
-
-	def pack_binary(x: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
-		packed = (torch.packbits if torch_has_pack else _torch_packbits_fallback)(x.to(torch.uint8), dim=-1)
-		return packed, x.shape
-
-	def unpack_binary(packed: torch.Tensor, shape: tuple[int, ...]) -> torch.Tensor:
-		"""Inverse of pack_binary, trimming pad bits to match `shape` exactly."""
-		unpacked = (torch.unpackbits if torch_has_pack else _torch_unpackbits_fallback)(packed, dim=-1)
-		n_needed = math.prod(shape)					   # total elements wanted
-		unpacked = unpacked.flatten()[:n_needed]		  # drop padding zeros
-		return unpacked.view(shape).to(torch.int8)
-
-	def conv_blockwise(x: torch.Tensor, kernels: torch.Tensor, block: int = 32) -> torch.Tensor:
-		"""
-		Apply `kernels` (shape [511,1,3,3]) to **each** input channel in blocks
-		of size \u2264 `block`, keeping RAM low.
-		Returns dense int8 (batch, inCh*511, H', W').
-		"""
-		batch, inCh, H, W = x.shape
-		out = []
-		for i in range(0, kernels.size(0), block):
-			k_blk = kernels[i:i+block]				# (b,1,3,3)
-			for c in range(inCh):
-				y = F.conv2d(x[:, c:c+1].float(), k_blk, stride=1)
-				y = (y >= CNNkernelThreshold).to(torch.int8)
-				out.append(y)
-		return torch.cat(out, dim=1)				 # concat over channel dim
-
-	def unfold_int8_stride1(x, k=3):
-		"""
-		x : [N_active, 1, H, W]  (int8 or any dtype)
-		k : kernel size (odd, e.g. 3)
-
-		returns patches : [N_active, k*k, H*W]  (view, no copy)
-		"""
-		N, _, H, W = x.shape
-		if N == 0:											# nothing active \u2192 nothing to do
-			return x.new_empty((0, k * k, H * W))
-
-		p = k // 2
-		xp = F.pad(x, (p, p, p, p))						# SAME pad, still int8
-
-		# unfold height then width \u2192 (N, 1, H, W, k, k)
-		patch_view = xp.unfold(2, k, 1).unfold(3, k, 1)
-
-		# reshape explicitly: (N, k*k, H, W)
-		patch_view = patch_view.reshape(N, k * k, H, W)
-
-		# final flatten to (N, k*k, H*W)
-		return patch_view.reshape(N, k * k, H * W)
-
-
-
 
