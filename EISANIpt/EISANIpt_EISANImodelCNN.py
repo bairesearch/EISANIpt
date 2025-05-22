@@ -241,21 +241,24 @@ def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	#print("weight.shape = ", weight.shape)
 	#print("x_active.sum() = ", x_active.sum())
 	
-	# ---------- overlap count (same as ordinary conv) ----------
-	overlap = F.conv2d(                                   # (N_active, O, H, W)
-    	x_active,                                 # [N_active, 1, H, W]  \u2013 0/1
-    	weight,                                          # [O, 1, 3, 3]         \u2013 0/1
-    	stride=1,
-    	padding=1                                        # 3//2
-	)
+	# ---------- overlap: how many 1-bits of the mask are present ----------
+	overlap = F.conv2d(
+		x_active.float(),          # [N_active,1,H,W]
+		weight,                    # [O,1,3,3]
+		stride=1,
+		padding=1)                 # keep spatial size
 
-	# ---------- number of ones in each mask ---------------
-	# pre-compute once and cache if you like
+	# ---------- number of 1s in each *mask* -------------------------------
 	mask_sums = weight.view(O, -1).sum(dim=1)            # (O,)
 
-	# ---------- full-mask match ---------------------------
-	convOut = (overlap == mask_sums.view(1, O, 1, 1))
-	# convOut shape: [N_active, O, H, W], values {0,1}
+	# ---------- number of 1s in each *patch* ------------------------------
+	ones_kernel = weight.new_ones(1, 1, 3, 3)            # (1,1,3,3)
+	patch_sum   = F.conv2d(x_active.float(), ones_kernel, stride=1, padding=1)  # [N_active,1,H,W]
+	patch_sum   = patch_sum.repeat(1, O, 1, 1)           # broadcast to (N_active,O,H,W)
+
+	# ---------- exact-pattern match  (= AND =) ----------------------------
+	mask_sum_broad = mask_sums.view(1, O, 1, 1)
+	convOut = ((overlap == mask_sum_broad) & (patch_sum == mask_sum_broad))
 
 	if(EISANICNNoptimisationAssumeInt8):
 		convOut = convOut.to(torch.int8)
@@ -384,34 +387,31 @@ def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	33 patch of the *same* input channel.
 	'''
 	B, C, H, W = x.shape
-	device      = x.device
-	
-	#----- prepare kernel bank for grouped conv ---------------------------
-	# Repeat the 511 masks once for each input channel.
-	kernels = self.convKernels.to(device).repeat(C, 1, 1, 1)   # (C*K, 1, 3, 3)
-	
-	# Number of 1-bits in each mask (repeated per channel).
+	device = x.device
+
+	# ---------- kernel bank duplicated per input channel ----------
+	kernels = self.convKernels.to(device).repeat(C, 1, 1, 1)      # (C*K,1,3,3)
+	K = self.convKernels.size(0)
 	if not hasattr(self, "_mask_sums"):
-		self._mask_sums = self.convKernels.view(self.convKernels.size(0), -1).sum(1)  # (K,)
-	mask_sums = self._mask_sums.to(device).repeat(C)                                   # (C*K,)
-	
-	#----- grouped convolution -------------------------------------------
-	# groups=C -> each group uses its own slice of C_out=C*K channels
-	if(EISANICNNoptimisationAssumeInt8):
-		cInput = x.float()
-	else:
-		cInput = x
-	overlap = F.conv2d(cInput, kernels, stride=1, groups=C)        # (B, C*K, H', W')
-	
-	#----- full-mask match ------------------------------------------------
-	match = (overlap == mask_sums.view(1, -1, 1, 1))   # (B, C*K, H', W')
-	if(EISANICNNoptimisationAssumeInt8):
-		match = match.to(torch.int8)
-	else:
-		match = match.float()
-		
+		self._mask_sums = self.convKernels.view(K, -1).sum(1)      # (K,)
+	mask_sums = self._mask_sums.to(device).repeat(C)               # (C*K,)
+
+	# ---------- overlap = how many mask-ones are present ----------
+	overlap = F.conv2d(x.float(), kernels, stride=1, groups=C)     # (B,C*K,H',W')
+
+	# ---------- patch_sum = how many ones in *entire* patch -------
+	ones_kernel = torch.ones_like(self.convKernels[:1])            # (1,1,3,3)
+	ones_kernel = ones_kernel.repeat(C, 1, 1, 1)                   # (C,1,3,3)
+	patch_sum = F.conv2d(x.float(), ones_kernel, stride=1, groups=C)  # (B,C,H',W')
+	patch_sum = patch_sum.repeat_interleave(K, dim=1)              # (B,C*K,H',W')
+
+	# ---------- exact match : both equalities ---------------------
+	match = ((overlap == mask_sums.view(1, -1, 1, 1)) &
+	         (patch_sum == mask_sums.view(1, -1, 1, 1)))
+
+	match = match.to(torch.int8 if EISANICNNoptimisationAssumeInt8 else torch.float32)
+
 	B, Cnew, *spatial = match.shape
-		
 	return match, B, Cnew
 
 

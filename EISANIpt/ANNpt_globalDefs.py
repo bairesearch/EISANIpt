@@ -347,7 +347,7 @@ elif(useImageDataset):
 	momentum = 0.9     #default: 0.9	#orig: 0.0
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
 	if(useAlgorithmEISANI):
-		batchSize = 1
+		batchSize = 2	#default: 1
 		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
 			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
 		else:

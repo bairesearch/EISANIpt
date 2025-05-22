@@ -34,7 +34,7 @@ if(useImageDataset):
 	CNNstride = 1
 	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
 	CNNmaxPool = True
-	encodedFeatureSizeDefault = 1280000	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
+	encodedFeatureSizeDefault = 12800000	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	EISANICNNinputChannelThreshold = 0.5
 	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
 	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
