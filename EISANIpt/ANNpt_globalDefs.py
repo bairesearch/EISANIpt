@@ -34,6 +34,15 @@ useAlgorithmFFANN = False
 stateTrainDataset = True
 stateTestDataset = True
 
+#cloud execution;
+useCloudExecution = False	#jupyter notebook does not support long cmd output
+if(useCloudExecution):
+	relativeFolderLocations = True
+	debugPrintGPUusage = True
+else:
+	relativeFolderLocations = False
+	debugPrintGPUusage = False
+	
 #initialise (dependent vars);
 usePairedDataset = False
 datasetNormalise = False
@@ -347,7 +356,10 @@ elif(useImageDataset):
 	momentum = 0.9     #default: 0.9	#orig: 0.0
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
 	if(useAlgorithmEISANI):
-		batchSize = 2	#default: 1
+		if(useCloudExecution):
+			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
+		else:
+			batchSize = 1	#default: 1
 		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
 			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
 		else:
@@ -391,12 +403,18 @@ if(not datasetHasTestSplit):
 		datasetTestSplitSeed = None
 
 if(useAlgorithmEISANI):
-	trainNumberOfEpochs = 1
-	if(useMultipleTrainEpochs):
-		if(not datasetRepeat):
-			trainNumberOfEpochs = 10	#10	#default: 10
-			if(useDefaultNumNeuronsParam):
-				hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
+	if(useImageDataset):
+		trainNumberOfEpochs = 10
+		hiddenLayerSizeSANI = hiddenLayerSizeSANI*2
+		#trainNumberOfEpochs = 100
+		#hiddenLayerSizeSANI = hiddenLayerSizeSANI*20
+	else:
+		trainNumberOfEpochs = 1
+		if(useMultipleTrainEpochs):
+			if(not datasetRepeat):
+				trainNumberOfEpochs = 10	#10	#default: 10
+				if(useDefaultNumNeuronsParam):
+					hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
 
 	if(debugEISANIfastTrain):
 		assert datasetRepeat == True and trainNumberOfEpochs == 1
@@ -425,7 +443,6 @@ datasetSplitNameTest = 'test'
 if(not datasetHasTestSplit):
 	datasetTestSplitSize = 0.1
 
-relativeFolderLocations = False
 userName = 'user'	#default: user
 tokenString = "INSERT_HUGGINGFACE_TOKEN_HERE"	#default: INSERT_HUGGINGFACE_TOKEN_HERE
 import os
@@ -488,3 +505,9 @@ else:
 
 device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
 	
+def printf(*args, filePath="log.txt", sep=" ", end="\n"):
+	if(useCloudExecution):
+		with open(filePath, "a") as f:
+			f.write(sep.join(str(arg) for arg in args) + end)
+	else:
+		print(*args, sep=sep, end=end)

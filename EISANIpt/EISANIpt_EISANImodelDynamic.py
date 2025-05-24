@@ -106,15 +106,15 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device,) -> None:
 	batchActiveMask = currentActivation != 0.0
 	fractionActive = batchActiveMask.float().mean().item()
-	#if(debugEISANIoutput):
-	#	print("fractionActive = ", fractionActive)
+	#if(debugEISANIdynamicOutput):
+	#	printf("fractionActive = ", fractionActive)
 	if fractionActive >= self.targetActivationSparsityFraction:
 		return  # sparsity satisfied
 
 	# Need to activate a new neuron (one per call)
 	available = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
-	if(debugEISANIoutput):
-		print("neuronSegmentAssignedMask available.numel() = ", available.numel())
+	if(debugEISANIdynamicOutput):
+		printf("neuronSegmentAssignedMask available.numel() = ", available.numel())
 	if available.numel() == 0:
 		if self.training:
 			print(f"Warning: no more available neurons in hidden layer {layerIdx}")
@@ -269,8 +269,8 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
 		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
-			if(debugEISANIoutput):
-				print("_dynamic_hidden_growth warning: generated neuron segment not unique")
+			#if(debugEISANIdynamicOutput):
+			#	printf("_dynamic_hidden_growth warning: generated neuron segment not unique")
 			return
 			
 	# Update hidden connection matrix
@@ -329,7 +329,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 	# ---------- 1. which samples need a neuron? ------------------------------
 	fracAct = currActivation.float().mean(dim=1)				 # [B]
-	#if(debugEISANIoutput):
+	#if(debugEISANIdynamicOutput):
 	#	print("fracAct = ", fracAct)
 	growMask = fracAct < self.targetActivationSparsityFraction   # bool [B]
 	if not growMask.any():
@@ -340,8 +340,8 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 	# ---------- 2. reserve G unused neuron slots -----------------------------
 	avail = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
-	if(debugEISANIoutput):
-		print("neuronSegmentAssignedMask avail.numel() = ", avail.numel())
+	if(debugEISANIdynamicOutput):
+		printf("neuronSegmentAssignedMask avail.numel() = ", avail.numel())
 	if avail.numel() < G:
 		G = avail.numel()
 		growSamples = growSamples[:G]
@@ -357,16 +357,6 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	presynBatch = prevActivation[growSamples]
 	onMask	  = presynBatch > 0								# bool
 	offMask	 = ~onMask
-
-	# -- helper to draw N unique indices from a row mask ----------------------
-	def draw_indices(mask: torch.Tensor, n: int) -> torch.Tensor:
-		"""
-		mask : [G, P]  bool
-		returns [G, n] long, allowing repeats if a row has < n True
-		"""
-		prob = mask.float() + 1e-6							   # avoid zero row
-		idx  = torch.multinomial(prob, n, replacement=True)	  # [G, n]
-		return idx
 
 	# decide counts
 	if getattr(self, "useActiveBias", True):
@@ -424,12 +414,12 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 			colIdx = colIdx[keep_mask]
 			weights = weights[keep_mask]
 			G = newRows.numel()
-			if(debugEISANIoutput):
-				if dup_found:
-					print("_dynamic_hidden_growth_vectorised warning: non-unique generated neuron segments (ie duplicates) skipped")
+			#if(debugEISANIdynamicOutput):
+			#	if dup_found:
+			#		printf("_dynamic_hidden_growth_vectorised warning: non-unique generated neuron segments (ie duplicates) skipped")
 		else:
-			if(debugEISANIoutput):
-				print("_dynamic_hidden_growth_vectorised warning: no generated neuron segments unique in this batch")
+			#if(debugEISANIdynamicOutput):
+			#	printf("_dynamic_hidden_growth_vectorised warning: no generated neuron segments unique in this batch")
 			return
 
 	# shuffle cols inside each row to keep random order
@@ -539,6 +529,74 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		self.hiddenConnectionMatrix[layerIdx] = mat_new.to(device) #ensure device consistency
 
 
+def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:
+	"""
+	Select `n` column indices per group where `onMask` is True.
+	\u25ce Works even when C > 2**24 (torch.multinomial limit).
+
+	Args
+	----
+	onMask : (G, C) bool   \u2013 mask of eligible presynaptic neurons.
+	n      : int           \u2013 number of indices to draw per group (with
+	                         replacement, uniform over True entries).
+
+	Returns
+	-------
+	idx : (G, n) int64     \u2013 sampled column indices.
+	"""
+	G, C = onMask.shape
+
+	if C <= (1 << 24):
+		# normal path \u2013 multinomial is safe
+		prob = onMask.float() + 1e-6							   # avoid zero row
+		idx  = torch.multinomial(prob, n, replacement=True)	  # [G, n]
+		return idx
+
+	# ---------- big-width fallback ----------
+	# Strategy: 1) get True positions per row, 2) sample with randint.
+	# This keeps memory modest and is CUDA-friendly.
+
+	# 1. list of index tensors, one per group
+	true_per_row = onMask.nonzero(as_tuple=False)          # (K, 2)
+	#   row_offsets[i] ... row_offsets[i+1]-1 are entries of group i
+	row_offsets = torch.zeros(G + 1, dtype=torch.long, device=onMask.device)
+	row_offsets[1:].copy_(torch.bincount(true_per_row[:, 0], minlength=G))
+	row_offsets = row_offsets.cumsum(0)                    # (G+1,)
+
+	# 2. sample
+	samples = []
+	for g in range(G):
+		start, end = row_offsets[g].item(), row_offsets[g + 1].item()
+		count      = end - start
+		if count == 0:
+			#v1;
+			#samples.append(torch.full((n,), -1, device=onMask.device))  # no candidates
+			
+			#v2;
+			# row has no eligible columns \u2013 pick any valid index (e.g. 0)
+			#samples.append(torch.zeros(n, dtype=torch.long, device=onMask.device))
+			
+			#v3;
+			samples.append(torch.randint(0, C, (n,), device=onMask.device))
+			continue
+		pool = true_per_row[start:end, 1]                   # (count,)
+		rnd  = torch.randint(0, count, (n,), device=onMask.device)
+		samples.append(pool[rnd])
+
+	return torch.stack(samples)                            # (G, n)
+	
+'''
+# -- helper to draw N unique indices from a row mask ----------------------
+def draw_indices(mask: torch.Tensor, n: int) -> torch.Tensor:
+	"""
+	mask : [G, P]  bool
+	returns [G, n] long, allowing repeats if a row has < n True
+	"""
+	prob = mask.float() + 1e-6							   # avoid zero row
+	idx  = torch.multinomial(prob, n, replacement=True)	  # [G, n]
+	return idx
+'''
+
 def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
 	"""Compute ratio of hidden neurons having any output connection."""
 	oc = self.outputConnectionMatrix
@@ -549,7 +607,7 @@ def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
 	if any_conn.numel() == 0:
 		return 0.0
 	ratio = any_conn.sum().item() / any_conn.numel()
-	print("measure_ratio_of_hidden_neurons_with_output_connections = ", ratio)
+	printf("measure_ratio_of_hidden_neurons_with_output_connections = ", ratio)
 	return ratio
 
 def measure_class_exclusive_neuron_ratio(self) -> float:
@@ -565,7 +623,7 @@ def measure_class_exclusive_neuron_ratio(self) -> float:
 		ratio = float('inf')
 	else:
 		ratio = exclusive / non_exclusive
-	print("measure_class_exclusive_neuron_ratio = ", ratio)
+	printf("measure_class_exclusive_neuron_ratio = ", ratio)
 	return ratio
 
 def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:

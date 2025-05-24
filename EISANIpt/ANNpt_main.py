@@ -30,7 +30,7 @@ import torch
 from tqdm.auto import tqdm
 from torch import optim
 from torch.optim.lr_scheduler import StepLR, LambdaLR, SequentialLR
-
+import GPUtil
 
 
 from ANNpt_globalDefs import *
@@ -111,6 +111,16 @@ def createScheduler(model, optim):
 	else:
 		return [make_scheduler(optim)]
 
+def print_gpu_utilization():
+	GPUs = GPUtil.getGPUs()
+	for gpu in GPUs:
+		printf(f"GPU ID: {gpu.id}, Name: {gpu.name}")
+		printf(f"  Memory Free: {gpu.memoryFree}MB")
+		printf(f"  Memory Used: {gpu.memoryUsed}MB")
+		printf(f"  Memory Total: {gpu.memoryTotal}MB")
+		printf(f"  Utilization: {gpu.load * 100}%")
+		printf(f"  Temperature: {gpu.temperature} C\n")
+
 def processDataset(trainOrTest, dataset, model):
 	if(trainOrTest):
 		if(useAlgorithmEISANI and trainLocal):
@@ -139,6 +149,9 @@ def processDataset(trainOrTest, dataset, model):
 		ANNpt_algorithm.preprocessLUANNpermutations(dataset, model)
 		
 	for epoch in range(numberOfEpochs):
+
+		if(debugPrintGPUusage):
+			print_gpu_utilization()
 
 		if(usePairedDataset):
 			dataset1, dataset2 = ANNpt_algorithm.generateVICRegANNpairedDatasets(dataset)

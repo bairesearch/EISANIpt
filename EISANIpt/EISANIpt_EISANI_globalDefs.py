@@ -17,11 +17,13 @@ EISANIpt globalDefs
 
 """
 
-debugEISANIoutput = False
+import math
+
+debugEISANIdynamicOutput = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 debugEISANIfastTrain = False
 debugMeasureClassExclusiveNeuronRatio = True	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
 debugMeasureRatioOfHiddenNeuronsWithOutputConnections = True	#measure ratio of hidden neurons with output connections to those without output connections
-debugEISANICNNdynamicallyGenerateLinearInputFeatures = True
+debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
 
 useDefaultNumNeuronsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
@@ -34,11 +36,11 @@ if(useImageDataset):
 	CNNstride = 1
 	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
 	CNNmaxPool = True
-	encodedFeatureSizeDefault = 12800000	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
+	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#8	#number of bits to encode image pixels
+	encodedFeatureSizeDefault = 12800000*math.ceil(EISANICNNcontinuousVarEncodingNumBits/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
 	EISANICNNinputChannelThreshold = 0.5
 	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
 	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
-	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#number of bits to encode image pixels
 	if(EISANICNNoptimisationSparseConv):
 		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	else:

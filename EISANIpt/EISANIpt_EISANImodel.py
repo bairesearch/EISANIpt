@@ -238,7 +238,7 @@ class EISANImodel(nn.Module):
 			predictions, outputActivations (both shape (batch, classes)).
 		"""
 		batchSize = x.size(0)
-		assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
+		#assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
 
 		encoded = self._encodeContinuousVarsAsBits(x)

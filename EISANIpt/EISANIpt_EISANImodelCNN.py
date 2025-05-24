@@ -141,10 +141,10 @@ def dynamicallyGenerateLinearInputFeaturesVectorised(				# pylint: disable=too-m
 
 	if(debugEISANICNNdynamicallyGenerateLinearInputFeatures):
 		linearInput = sparse_to_dense(self, CNNoutputLayerFeatures, b_idx, c_idx, B, C)
-		print("linearInput.shape = ", linearInput.shape)
+		printf("linearInput.shape = ", linearInput.shape)
 		numActive = (linearInput > 0).sum()
-		print("numActive = ", numActive)
-		print("nextLinearCol = ", self.nextLinearCol)
+		printf("numActive = ", numActive)
+		printf("nextLinearCol = ", self.nextLinearCol)
 
 	# ------------------------------------------------------------------ #
 	# 1. Find (slice-idx, h, w) of *non-zero* positions in each map      #
