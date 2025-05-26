@@ -407,7 +407,7 @@ if(useAlgorithmEISANI):
 		trainNumberOfEpochs = 10
 		hiddenLayerSizeSANI = hiddenLayerSizeSANI*2
 		#trainNumberOfEpochs = 100
-		#hiddenLayerSizeSANI = hiddenLayerSizeSANI*20
+		#hiddenLayerSizeSANI = hiddenLayerSizeSANI*10
 	else:
 		trainNumberOfEpochs = 1
 		if(useMultipleTrainEpochs):

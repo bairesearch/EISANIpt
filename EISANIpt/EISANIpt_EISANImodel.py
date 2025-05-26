@@ -149,11 +149,17 @@ class EISANImodel(nn.Module):
 		# verify neuron uniqueness
 		# -----------------------------
 		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
+			L = self.config.numberOfHiddenLayers
+			self.hiddenHashes       = [torch.empty(0, dtype=torch.int64, device=device) for _ in range(L)]
+			if self.useEIneurons:
+				self.hiddenHashesExc = [torch.empty(0, dtype=torch.int64, device=device) for _ in range(L)]
+				self.hiddenHashesInh = [torch.empty(0, dtype=torch.int64, device=device) for _ in range(L)]
+			'''
 			self.hiddenNeuronSignatures = [dict() for _ in range(config.numberOfHiddenLayers+1)]
 			if self.useEIneurons:
 				self.hiddenNeuronSignaturesExc = [dict() for _ in range(config.numberOfHiddenLayers+1)]
 				self.hiddenNeuronSignaturesInh = [dict() for _ in range(config.numberOfHiddenLayers+1)]
-
+			'''
 
 	# ---------------------------------------------------------
 	# Helper - layer initialisation
@@ -505,15 +511,58 @@ class EISANImodel(nn.Module):
 		if(trainOrTest):
 	
 			if debugMeasureClassExclusiveNeuronRatio:
-				EISANIpt_EISANImodelDynamic.measure_class_exclusive_neuron_ratio(self)
+				measure_class_exclusive_neuron_ratio(self)
 			if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
-				EISANIpt_EISANImodelDynamic.measure_ratio_of_hidden_neurons_with_output_connections(self)
+				measure_ratio_of_hidden_neurons_with_output_connections(self)
 
 			if limitOutputConnectionsBasedOnPrevelanceAndExclusivity:
-				EISANIpt_EISANImodelDynamic.prune_output_connections_based_on_prevalence_and_exclusivity(self)
+				prune_output_connections_based_on_prevalence_and_exclusivity(self)
 				
 				if debugMeasureClassExclusiveNeuronRatio:
-					EISANIpt_EISANImodelDynamic.measure_class_exclusive_neuron_ratio(self)
+					measure_class_exclusive_neuron_ratio(self)
 				if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
-					EISANIpt_EISANImodelDynamic.measure_ratio_of_hidden_neurons_with_output_connections(self)
+					measure_ratio_of_hidden_neurons_with_output_connections(self)
 
+
+def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
+	"""Compute ratio of hidden neurons having any output connection."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	mask = oc != 0
+	any_conn = mask.any(dim=1)
+	if any_conn.numel() == 0:
+		return 0.0
+	ratio = any_conn.sum().item() / any_conn.numel()
+	printf("measure_ratio_of_hidden_neurons_with_output_connections = ", ratio)
+	return ratio
+
+def measure_class_exclusive_neuron_ratio(self) -> float:
+	"""Compute ratio of class-exclusive to non-class-exclusive hidden neurons."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	mask = oc != 0
+	counts = mask.sum(dim=1)
+	exclusive = (counts == 1).sum().item()
+	non_exclusive = (counts > 1).sum().item()
+	if non_exclusive == 0:
+		ratio = float('inf')
+	else:
+		ratio = exclusive / non_exclusive
+	printf("measure_class_exclusive_neuron_ratio = ", ratio)
+	return ratio
+
+def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
+	"""Prune output connections not both prevalent and exclusive to one class."""
+	oc = self.outputConnectionMatrix
+	if not self.useOutputConnectionsLastLayer:
+		oc = oc.view(-1, oc.shape[-1])
+	weights = oc
+	prevalent = weights > limitOutputConnectionsPrevelanceMin
+	exclusive = prevalent.sum(dim=1) == 1
+	keep = prevalent & exclusive.unsqueeze(1)
+	if useBinaryOutputConnectionsEffective:
+		oc[...] = keep
+	else:
+		oc[...] = oc * keep.float()

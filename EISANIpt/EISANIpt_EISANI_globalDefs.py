@@ -65,7 +65,10 @@ if(useDefaultNumNeuronsParam):
 	numberNeuronsGeneratedPerSample = 5	#50	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
 else:
 	continuousVarEncodingNumBits = 16
-	hiddenLayerSizeSANI = 1280000*2
+	if(useImageDataset):
+		hiddenLayerSizeSANI = 1280000*10	#neurons are undersaturated with useImageDataset:encodedFeatureSize (many more inputs possible) / different number average samples per epoch with useImageDataset
+	else:
+		hiddenLayerSizeSANI = 1280000*2
 	numberNeuronsGeneratedPerSample = 50
 
 if(useDefaultSegmentSizeParam):

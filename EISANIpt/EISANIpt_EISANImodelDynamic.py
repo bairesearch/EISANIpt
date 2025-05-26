@@ -26,6 +26,139 @@ import EISANIpt_EISANImodelDynamic
 # Neuron segment (connections) uniquesness checks;
 # ---------------------------------------------------------
 
+
+# 64-bit modulus - a large prime < 26  (fits signed int64)
+_MOD64 = 9223372036854775783
+# base for polynomial rolling hash (also prime)
+_BASE  = 1099511628211
+
+def _hash_connections(cols: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+	"""
+	Compute order-independent 64-bit hashes for a *batch* of neurons
+	fully vectorised (no Python loop).
+
+	Parameters
+	----------
+	cols, w : (G, k)  - presynaptic indices and weights (1)
+
+	Returns
+	-------
+	hashes : (G,) int64  - per-neuron hash in [0, _MOD64-1]
+	"""
+	G, k = cols.shape
+	device = cols.device
+
+	# 1. sort rows so representation is order-invariant
+	sort_idx   = torch.argsort(cols, dim=1)
+	cols_sorted = torch.gather(cols, 1, sort_idx)
+	w_sorted    = torch.gather(w,    1, sort_idx)
+
+	# 2. encode (column, weight) - small int  (weight -1-0, +1-1)
+	key_row = cols_sorted.to(torch.int64).mul_(2).add_((w_sorted > 0).to(torch.int64))  # (G,k)
+
+	# 3. vectorised polynomial hash  S key[i] * BASE^{k-1-i}  (mod M)
+	powers = torch.pow(_BASE, torch.arange(k - 1, -1, -1, device=device, dtype=torch.int64),) 	           .remainder(_MOD64)           # (k,)
+
+	hashes = (key_row * powers).remainder(_MOD64).sum(dim=1).remainder(_MOD64)
+	return hashes
+
+# ------------------------------------------------------------------
+# Single-row uniqueness check (now hash-based, no Python dicts)
+# ------------------------------------------------------------------
+
+def perform_uniqueness_check(
+		self, layerIdx: int,
+		newNeuronIdx: int,            # scalar index within hidden layer
+		cols: torch.Tensor,           # (k,)  presynaptic indices
+		w: torch.Tensor               # (k,)  weights 1
+) -> bool:
+	"""
+	Non-batch version for backward-compat.
+	Returns
+	-------
+	unique : bool - True if neuron was not a duplicate.
+	"""
+	h = _hash_connections(cols.unsqueeze(0), w.unsqueeze(0))[0]   # int64
+
+	if self.useEIneurons:
+		half = self.config.hiddenLayerSize // 2
+		if newNeuronIdx < half:
+			bank = self.hiddenHashesExc[layerIdx]
+		else:
+			bank = self.hiddenHashesInh[layerIdx]
+	else:
+		bank = self.hiddenHashes[layerIdx]
+
+	is_dup = torch.isin(h, bank)
+
+	if is_dup:
+		# abort growth for this neuron
+		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx] = False
+		return False
+
+	# record new hash
+	if self.useEIneurons:
+		if newNeuronIdx < half:
+			self.hiddenHashesExc[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+		else:
+			self.hiddenHashesInh[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+	else:
+		self.hiddenHashes[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+
+	return True
+
+
+def perform_uniqueness_check_vectorised(
+		self, layerIdx: int, colsBatch: torch.Tensor, wBatch: torch.Tensor,
+		newRows: torch.Tensor):
+	"""
+	Vectorised duplicate elimination.
+	colsBatch, wBatch : (G,k)
+	newRows           : (G,) global row indices in hidden layer.
+
+	Returns
+	-------
+	keep_mask : (G,) bool - True = keep neuron
+	dup_found : bool      - True if any duplicate row detected
+	"""
+	hashes = _hash_connections(colsBatch, wBatch)        # (G,)
+
+	if self.useEIneurons:
+		half = self.config.hiddenLayerSize // 2
+		isExc = newRows < half
+
+		# -------- excitatory ---------------
+		exc_keep = ~torch.isin(hashes[isExc], self.hiddenHashesExc[layerIdx])
+		if exc_keep.any():
+			self.hiddenHashesExc[layerIdx] = torch.cat(
+				[self.hiddenHashesExc[layerIdx], hashes[isExc][exc_keep]])
+
+		# -------- inhibitory ---------------
+		inh_keep = ~torch.isin(hashes[~isExc], self.hiddenHashesInh[layerIdx])
+		if inh_keep.any():
+			self.hiddenHashesInh[layerIdx] = torch.cat(
+				[self.hiddenHashesInh[layerIdx], hashes[~isExc][inh_keep]])
+
+		# stitch back together
+		keep_mask = torch.empty_like(hashes, dtype=torch.bool)
+		keep_mask[isExc] = exc_keep
+		keep_mask[~isExc] = inh_keep
+	else:
+		keep_mask = ~torch.isin(hashes, self.hiddenHashes[layerIdx])
+		if keep_mask.any():
+			self.hiddenHashes[layerIdx] = torch.cat(
+				[self.hiddenHashes[layerIdx], hashes[keep_mask]])
+
+	# Abort growth for duplicate neurons by updating neuronSegmentAssignedMask
+	if (~keep_mask).any():
+		duplicate_rows = newRows[~keep_mask]
+		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows] = False
+
+	dup_found = (~keep_mask).any().item()
+	return keep_mask, dup_found
+
+
+'''
 def _build_signature(self, cols: torch.Tensor, w: torch.Tensor) -> str:
 	# cols, w  are 1-D tensors length k  (on GPU)
 	# move to CPU (tiny) and build sorted signature
@@ -96,7 +229,14 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 				sigDict[sig] = True
 				
 	keep_mask = torch.tensor(keep_list, device=newRows.device, dtype=torch.bool) # Changed device
+
+	# Abort growth for duplicate neurons by updating neuronSegmentAssignedMask
+	if (~keep_mask).any():
+		duplicate_rows = newRows[~keep_mask]
+		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows] = False
+	
 	return keep_mask, dup_found
+'''
 
 # ---------------------------------------------------------
 # Dynamic hidden growth helper
@@ -585,57 +725,3 @@ def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:
 
 	return torch.stack(samples)                            # (G, n)
 	
-'''
-# -- helper to draw N unique indices from a row mask ----------------------
-def draw_indices(mask: torch.Tensor, n: int) -> torch.Tensor:
-	"""
-	mask : [G, P]  bool
-	returns [G, n] long, allowing repeats if a row has < n True
-	"""
-	prob = mask.float() + 1e-6							   # avoid zero row
-	idx  = torch.multinomial(prob, n, replacement=True)	  # [G, n]
-	return idx
-'''
-
-def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
-	"""Compute ratio of hidden neurons having any output connection."""
-	oc = self.outputConnectionMatrix
-	if not self.useOutputConnectionsLastLayer:
-		oc = oc.view(-1, oc.shape[-1])
-	mask = oc != 0
-	any_conn = mask.any(dim=1)
-	if any_conn.numel() == 0:
-		return 0.0
-	ratio = any_conn.sum().item() / any_conn.numel()
-	printf("measure_ratio_of_hidden_neurons_with_output_connections = ", ratio)
-	return ratio
-
-def measure_class_exclusive_neuron_ratio(self) -> float:
-	"""Compute ratio of class-exclusive to non-class-exclusive hidden neurons."""
-	oc = self.outputConnectionMatrix
-	if not self.useOutputConnectionsLastLayer:
-		oc = oc.view(-1, oc.shape[-1])
-	mask = oc != 0
-	counts = mask.sum(dim=1)
-	exclusive = (counts == 1).sum().item()
-	non_exclusive = (counts > 1).sum().item()
-	if non_exclusive == 0:
-		ratio = float('inf')
-	else:
-		ratio = exclusive / non_exclusive
-	printf("measure_class_exclusive_neuron_ratio = ", ratio)
-	return ratio
-
-def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
-	"""Prune output connections not both prevalent and exclusive to one class."""
-	oc = self.outputConnectionMatrix
-	if not self.useOutputConnectionsLastLayer:
-		oc = oc.view(-1, oc.shape[-1])
-	weights = oc
-	prevalent = weights > limitOutputConnectionsPrevelanceMin
-	exclusive = prevalent.sum(dim=1) == 1
-	keep = prevalent & exclusive.unsqueeze(1)
-	if useBinaryOutputConnectionsEffective:
-		oc[...] = keep
-	else:
-		oc[...] = oc * keep.float()
