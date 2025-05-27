@@ -436,6 +436,7 @@ class EISANImodel(nn.Module):
 		if weight.is_sparse:
 			# Called only when self.useEIneurons is False.
 			# Sparse bool weights: True is +1, False is -1.
+			weight = weight.coalesce()
 			indices = weight.indices()
 			values = weight.values() # bool
 			numeric_values_float = torch.where(values, torch.tensor(1.0, device=dev, dtype=torch.float32), torch.tensor(-1.0, device=dev, dtype=torch.float32))

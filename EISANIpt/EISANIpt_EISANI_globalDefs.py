@@ -20,9 +20,8 @@ EISANIpt globalDefs
 import math
 
 debugEISANIdynamicOutput = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
-debugEISANIfastTrain = False
-debugMeasureClassExclusiveNeuronRatio = True	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
-debugMeasureRatioOfHiddenNeuronsWithOutputConnections = True	#measure ratio of hidden neurons with output connections to those without output connections
+debugMeasureClassExclusiveNeuronRatio = False	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
+debugMeasureRatioOfHiddenNeuronsWithOutputConnections = False	#measure ratio of hidden neurons with output connections to those without output connections
 debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
 
 useDefaultNumNeuronsParam = True	#default: True (use low network width)
@@ -45,6 +44,7 @@ if(useImageDataset):
 		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	else:
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
+	trainNumberOfEpochsHigh = False	#default: False
 else:
 	useTabularDataset = True
 	
@@ -61,16 +61,15 @@ targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously a
 useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 if(useDefaultNumNeuronsParam):
 	continuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
-	hiddenLayerSizeSANI = 1280000	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
-	numberNeuronsGeneratedPerSample = 5	#50	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
+	numberNeuronsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
 else:
-	continuousVarEncodingNumBits = 16
-	if(useImageDataset):
-		hiddenLayerSizeSANI = 1280000*10	#neurons are undersaturated with useImageDataset:encodedFeatureSize (many more inputs possible) / different number average samples per epoch with useImageDataset
-	else:
-		hiddenLayerSizeSANI = 1280000*2
+	continuousVarEncodingNumBits = 16	#default: 16
 	numberNeuronsGeneratedPerSample = 50
-
+if(useDynamicGeneratedHiddenConnections):
+	hiddenLayerSizeSANIbase = numberNeuronsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
+else:		
+	hiddenLayerSizeSANI = 5120000	#default: 40960000, or 40960000*64 with batchSize//64	#large randomly initialised sparse EISANI network width 
+				
 if(useDefaultSegmentSizeParam):
 	numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 	segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
@@ -106,7 +105,7 @@ else:
 		limitOutputConnectionsPrevelanceMin = 5	#minimum connection weight to be retained after pruning
 		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
 		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
-
+	
 trainLocal = True	#local learning rule	#required
 
 #sublayer paramters:	

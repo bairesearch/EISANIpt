@@ -47,6 +47,7 @@ else:
 usePairedDataset = False
 datasetNormalise = False
 datasetRepeat = False
+datasetRepeatSize = 1
 datasetShuffle = False	#automatically performed by generateVICRegANNpairedDatasets
 datasetOrderByClass = False	#automatically performed by generateVICRegANNpairedDatasets
 dataloaderShuffle = True
@@ -111,6 +112,7 @@ datasetNormaliseStdAvg = False	#normalise based on std and mean (~-1.0 to 1.0)
 supportSkipLayers = False
 supportSkipLayersResidual = False
 supportFieldTypeList = False
+useMultipleTrainEpochs = True
 
 useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
@@ -176,17 +178,17 @@ if(useCustomWeightInitialisation):
 	WstdDev = 0.05	#stddev of weight initialisations
 
 if(useTabularDataset):
-	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%
-	#datasetName = 'blog-feedback'	#expected test accuracy: ~70%
-	datasetName = 'titanic'	#expected test accuracy: ~90%
-	#datasetName = 'red-wine'	#expected test accuracy: ~58%
-	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%
-	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%
-	#datasetName = 'banking-marketing'	#expected test accuracy: ~85%	#third party benchmark accuracy: ~79.1%
-	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%
-	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%
-	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs
-	#datasetName = 'new-thyroid'	#expected test accuracy: ~95%	https://archive.ics.uci.edu/dataset/102/thyroid+disease
+	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%	#samples: 58.3k
+	#datasetName = 'blog-feedback'	#expected test accuracy: ~70%	#samples: 52.4k
+	datasetName = 'titanic'	#expected test accuracy: ~90%	#samples: 1.3k
+	#datasetName = 'red-wine'	#expected test accuracy: ~58%	#samples: 1.6k
+	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%	#samples: 569
+	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%	#samples: 81.4k
+	#datasetName = 'banking-marketing'	#expected test accuracy: ~85%	#third party benchmark accuracy: ~79.1%	#samples: 45.2k
+	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%	#samples: 48.8k
+	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%	#samples: 581k
+	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs	#samples: 11m
+	#datasetName = 'new-thyroid'	#expected test accuracy: ~95%	https://archive.ics.uci.edu/dataset/102/thyroid+disease	#samples: 215
 	if(datasetName == 'tabular-benchmark'):
 		datasetNameFull = 'inria-soda/tabular-benchmark'
 		classFieldName = 'class'
@@ -197,7 +199,7 @@ if(useTabularDataset):
 		learningRate = 0.001
 		hiddenLayerSize = 64	#default: 64	#orig: 10
 		numberOfLayers = 4	#default: 4
-		trainNumberOfEpochs = 1	#default: 1
+		numberOfSamplesK = 58.3
 	elif(datasetName == 'blog-feedback'):
 		datasetNameFull = 'wwydmanski/blog-feedback'
 		classFieldName = 'target'
@@ -208,7 +210,7 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 144	#default: 144	#orig: 144	#old 800	#144=288/2 [input features padded / 2]
-		trainNumberOfEpochs = 1	#default: 1
+		numberOfSamplesK = 52.4
 	elif(datasetName == 'titanic'):
 		datasetNameFull = 'victor/titanic'
 		classFieldName = '2urvived'
@@ -220,10 +222,7 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100
-		trainNumberOfEpochs = 10	#default: 10
-		datasetRepeat = True
-		if(datasetRepeat):
-			datasetRepeatSize = 10
+		numberOfSamplesK = 1.3
 	elif(datasetName == 'red-wine'):
 		datasetNameFull = 'lvwerra/red-wine'
 		classFieldName = 'quality'
@@ -234,10 +233,7 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4	#external benchmark: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100	#external benchmark; 64/128
-		trainNumberOfEpochs = 10	#default: 10	#note train accuracy continues to increase (overfit) with increasing epochs
-		datasetRepeat = True
-		if(datasetRepeat):
-			datasetRepeatSize = 10
+		numberOfSamplesK = 1.6
 	elif(datasetName == 'breast-cancer-wisconsin'):
 		datasetNameFull = 'scikit-learn/breast-cancer-wisconsin'
 		classFieldName = 'diagnosis'
@@ -251,10 +247,7 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 32	#default: 32	#orig: 20	#old: 100
-		trainNumberOfEpochs = 10	#default: 10
-		datasetRepeat = True
-		if(datasetRepeat):
-			datasetRepeatSize = 10
+		numberOfSamplesK = 0.569
 	elif(datasetName == 'diabetes-readmission'):
 		datasetNameFull = 'imodels/diabetes-readmission'
 		classFieldName = 'readmitted'
@@ -263,7 +256,7 @@ if(useTabularDataset):
 		learningRate = 0.005
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 304	#default: 304	#orig: 10, 256
-		trainNumberOfEpochs = 1
+		numberOfSamplesK = 81.4
 	elif(datasetName == 'banking-marketing'):
 		datasetSpecifyDataFiles = False
 		datasetConvertFeatureValues = True	#required if they contain strings
@@ -274,7 +267,7 @@ if(useTabularDataset):
 		learningRate = 0.001
 		numberOfLayers = 5	#default: 5
 		hiddenLayerSize = 128	#default: 128
-		trainNumberOfEpochs = 1
+		numberOfSamplesK = 45.2
 	elif(datasetName == 'adult_income_dataset'):
 		datasetSpecifyDataFiles = False
 		datasetConvertFeatureValues = True	#required if they contain strings
@@ -286,7 +279,7 @@ if(useTabularDataset):
 		learningRate = 0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 256	#default: 256
-		trainNumberOfEpochs = 10	
+		numberOfSamplesK = 48.8
 	elif(datasetName == 'covertype'):
 		datasetSpecifyDataFiles = False
 		datasetConvertFeatureValues = True	#required if they contain strings
@@ -301,8 +294,7 @@ if(useTabularDataset):
 		hiddenLayerSize = 512	#default: 512
 		#numberOfLayers = 2
 		#hiddenLayerSize = 512*4
-		trainNumberOfEpochs = 10		#train performance increases with higher epochs
-		trainNumberOfEpochsHigh = False	#orig: True
+		numberOfSamplesK = 581
 	elif(datasetName == 'higgs'):
 		datasetLocalFile = True		#manually download higgs.zip:HIGGS.csv from https://archive.ics.uci.edu/dataset/280/higgs
 		#echo "class,lepton_pT,lepton_eta,lepton_phi,missing_energy_magnitude,missing_energy_phi,jet1pt,jet1eta,jet1phi,jet1b,jet2pt,jet2eta,jet2phi,jet2b,jet3pt,jet3eta,jet3phi,jet3b,jet4pt,jet4eta,jet4phi,jet4b,m_jj,m_jjj,m_lv,m_jlv,m_bb,m_wbb,m_wwbb" | cat - HIGGS.csv > HIGGSwithHeader.csv
@@ -316,8 +308,8 @@ if(useTabularDataset):
 		#numberOfLayers = 2
 		hiddenLayerSize = 256	#default: 256
 		batchSize = 64		#4096	#default: 64
-		trainNumberOfEpochs = 10
 		datasetLocalFileOptimise = False	#default: False
+		numberOfSamplesK = 11000
 	elif(datasetName == 'new-thyroid'):
 		classFieldName = 'class'
 		trainFileName = 'new-thyroid.csv'	#manually download thyroid+disease.zip:new-thyroid.data from https://archive.ics.uci.edu/dataset/102/thyroid+disease
@@ -329,10 +321,10 @@ if(useTabularDataset):
 		learningRate = 0.005	#default: 0.005
 		numberOfLayers = 3	#default: 3	#orig: 2, 4
 		hiddenLayerSize = 16	#default: 16	#orig: 4, 10
-		trainNumberOfEpochs = 100	#default: 100
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
-			datasetRepeatSize = 100	#for batchSize ~= 64
+			datasetRepeatSize = 10	#required for batchSize ~= 64
+		numberOfSamplesK = 0.215*datasetRepeatSize
 	#elif ...
 
 	if(datasetLocalFileOptimise):
@@ -355,6 +347,7 @@ elif(useImageDataset):
 	learningRate = 0.001	#default: 0.001 (or 0.01)	#orig: 0.005
 	momentum = 0.9     #default: 0.9	#orig: 0.0
 	weightDecay  = 5e-4    #default: 5e-4	#orig: 0.0
+	numberOfSamplesK = 60
 	if(useAlgorithmEISANI):
 		if(useCloudExecution):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
@@ -394,6 +387,11 @@ elif(useImageDataset):
 	dropout = False	#default: False
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 
+def round_up_to_power_of_2(x: float) -> int:
+	if x <= 0:
+		raise ValueError("x must be positive")
+	return 1 << (math.ceil(math.log2(x)))
+
 if(not datasetHasTestSplit):
 	datasetTestSplitShuffle = True	#mandatory: True	#required for many datasets (without randomised class order)
 	datasetTestSplitShuffleDeterministic = False	#default: False	#can be enabled to always get the same test result
@@ -404,28 +402,18 @@ if(not datasetHasTestSplit):
 
 if(useAlgorithmEISANI):
 	if(useImageDataset):
-		trainNumberOfEpochs = 10
-		hiddenLayerSizeSANI = hiddenLayerSizeSANI*2
-		#trainNumberOfEpochs = 100
-		#hiddenLayerSizeSANI = hiddenLayerSizeSANI*10
-	else:
+		if(trainNumberOfEpochsHigh):
+			trainNumberOfEpochs = 100
+		else:
+			trainNumberOfEpochs = 10
+	if(not useMultipleTrainEpochs):
 		trainNumberOfEpochs = 1
-		if(useMultipleTrainEpochs):
-			if(not datasetRepeat):
-				trainNumberOfEpochs = 10	#10	#default: 10
-				if(useDefaultNumNeuronsParam):
-					hiddenLayerSizeSANI = hiddenLayerSizeSANI*2	#required to store increased number of dynamically generated segments
-
-	if(debugEISANIfastTrain):
-		assert datasetRepeat == True and trainNumberOfEpochs == 1
-		datasetRepeat = False	#typically need to increase numberNeuronsGeneratedPerSample if disable datasetRepeat (but not during debug
-		batchSize = 1		#required for !datasetRepeat for small datasets (eg new-thyroid)
+				
 	if(not useDefaultNumLayersParam):
 		numberOfLayers = numberOfLayers*2
-
-if(trainNumberOfEpochsHigh):
-	trainNumberOfEpochs = trainNumberOfEpochs*4
-	
+else:
+	if(trainNumberOfEpochsHigh):
+		trainNumberOfEpochs = trainNumberOfEpochs*4
 if(debugSmallBatchSize):
 	batchSize = 10
 if(debugSmallNetwork):

@@ -17,18 +17,32 @@ EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal in
 
 """
 
+import EISANIpt_EISANI_globalDefs
 from ANNpt_globalDefs import *
 from torchsummary import summary
 import EISANIpt_EISANImodel
 import ANNpt_data
 
 def createModel(dataset):
-	datasetSize = ANNpt_data.getDatasetSize(dataset, printSize=True)
+	datasetSize = ANNpt_data.getDatasetSize(dataset, printSize=False)
 	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
-
-	print("creating new model")
+	if(useDynamicGeneratedHiddenConnections):
+		datasetSizeRounded = round_up_to_power_of_2(datasetSize)
+		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+	else:
+		hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+	print("Creating new model:")
+	print("\tdatasetName = ", datasetName)
+	print("\tdatasetSize = ", datasetSize)
+	print("\tbatchSize = ", batchSize)
+	print("\tnumberOfLayers = ", numberOfLayers)
+	print("\tnumberOfConvlayers = ", numberOfConvlayers)
+	print("\thiddenLayerSizeSANI = ", hiddenLayerSizeSANI)
+	print("\tinputLayerSize (numberOfFeatures) = ", numberOfFeatures)
+	print("\toutputLayerSize (numberOfClasses) = ", numberOfClasses)
+	print("\tnumberOfSynapsesPerSegment = ", numberOfSynapsesPerSegment)
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,
