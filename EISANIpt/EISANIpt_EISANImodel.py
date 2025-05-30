@@ -183,27 +183,42 @@ class EISANImodel(nn.Module):
 		cfg = self.config
 		dev = device  # ensures GPU/CPU consistency
 		k = cfg.numberOfSynapsesPerSegment  # shorthand
-
+		nnz  = numNeurons * k
+    
 		if self.useSparseMatrix:
-			# -------------------------------------------------- sparse initialisation
+
 			sparse_dtype = torch.bool
+			if(initialiseSANIlayerWeightsUsingCPU):
+				devTemp =  pt.device('cpu')
+			else:
+				devTemp = dev
+				
 			if self.useDynamicGeneratedHiddenConnections:
 				# start EMPTY
-				indices = torch.empty((2, 0), dtype=torch.long, device=dev)
-				values  = torch.empty((0,), dtype=sparse_dtype, device=dev)
+				indices = torch.empty((2, 0), dtype=torch.int64, device=devTemp)
+				values  = torch.empty((0,),  dtype=sparse_dtype, device=devTemp)
 			else:
 				# start with k random synapses per neuron
+				'''
 				row_idx = torch.arange(numNeurons, device=dev).repeat_interleave(k)
 				col_idx = torch.randint(prevSize, (numNeurons * k,), device=dev)
 				indices = torch.stack([row_idx, col_idx])  # shape [2, nnz]
+				'''
+				# ---------- memory-tight random initialisation ----------
+				indices = torch.empty((2, nnz), dtype=torch.int64, device=devTemp)
+				# 1. columns: generate in-place
+				torch.randint(prevSize, (nnz,), dtype=torch.int64, device=devTemp, out=indices[1])
+				# 2. rows: broadcast one small vector into the big slot buffer
+				rows = torch.arange(numNeurons, dtype=torch.int64, device=devTemp)  # length = numNeurons
+				indices[0].view(numNeurons, k).copy_(rows.unsqueeze(1))		 # expand, copy once
 
 				if self.useEIneurons:
-					values = torch.ones(indices.size(1), device=dev, dtype=sparse_dtype) # All True
+					values = torch.ones(nnz, device=devTemp, dtype=sparse_dtype)
 				else:
-					# True/False with equal probability
-					values = torch.randint(0, 2, (indices.size(1),), device=dev, dtype=sparse_dtype)
-
-			mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=dev, dtype=sparse_dtype,).coalesce()
+					values = torch.randint(0, 2, (nnz,), device=devTemp, dtype=sparse_dtype)
+         
+			mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=devTemp, dtype=sparse_dtype,).coalesce()
+			mat = mat.to(dev)
 			return mat
 		else:
 			# -------------------------------------------------- dense initialisation
@@ -219,9 +234,7 @@ class EISANImodel(nn.Module):
 					else:
 						# Generate +1 or -1 with equal probability, as int8
 						rand_signs_bool = torch.randint(0, 2, (k,), device=dev, dtype=torch.bool)
-						rand_signs = torch.where(rand_signs_bool, 
-						                        torch.tensor(1, device=dev, dtype=torch.int8), 
-						                        torch.tensor(-1, device=dev, dtype=torch.int8))
+						rand_signs = torch.where(rand_signs_bool, torch.tensor(1, device=dev, dtype=torch.int8), torch.tensor(-1, device=dev, dtype=torch.int8))
 						weight[n, syn_idx] = rand_signs
 
 			# make it a learnable parameter for the dense case

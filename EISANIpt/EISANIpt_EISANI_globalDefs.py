@@ -19,7 +19,8 @@ EISANIpt globalDefs
 
 import math
 
-debugEISANIdynamicOutput = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
+debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
+debugEISANIfractionActivated = False	#print fractionActive of each layer
 debugMeasureClassExclusiveNeuronRatio = False	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
 debugMeasureRatioOfHiddenNeuronsWithOutputConnections = False	#measure ratio of hidden neurons with output connections to those without output connections
 debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
@@ -52,7 +53,7 @@ useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron 
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
-useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)
+useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
 useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
@@ -65,11 +66,16 @@ if(useDefaultNumNeuronsParam):
 else:
 	continuousVarEncodingNumBits = 16	#default: 16
 	numberNeuronsGeneratedPerSample = 50
+if(useEIneurons):
+	EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
+	#if(EIneuronsMatchComputation): numberNeuronsGeneratedPerSample *= 2
 if(useDynamicGeneratedHiddenConnections):
 	hiddenLayerSizeSANIbase = numberNeuronsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
-else:		
-	hiddenLayerSizeSANI = 5120000	#default: 40960000, or 40960000*64 with batchSize//64	#large randomly initialised sparse EISANI network width 
-				
+	initialiseSANIlayerWeightsUsingCPU = False
+else:
+	hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
+	initialiseSANIlayerWeightsUsingCPU = False 	#optional
+		
 if(useDefaultSegmentSizeParam):
 	numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 	segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
@@ -89,7 +95,7 @@ if(useInitOrigParam):
 	useOutputConnectionsLastLayer = False	
 	datasetEqualiseClassSamples = False	
 	datasetEqualiseClassSamplesTest = False	
-	useMultipleTrainEpochs = False
+	useMultipleTrainEpochsSmallDatasetsOnly = True #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
 	limitOutputConnectionsBasedOnPrevelanceAndExclusivity = False
 else:
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
@@ -99,13 +105,13 @@ else:
 	useOutputConnectionsLastLayer = False	#use output connections only from last hidden layer to output neurons
 	datasetEqualiseClassSamples = True	#default: True		#optional - advantage depends on dataset class distribution
 	datasetEqualiseClassSamplesTest = False	#default: False	
-	useMultipleTrainEpochs = True
+	useMultipleTrainEpochsSmallDatasetsOnly = False
 	limitOutputConnectionsBasedOnPrevelanceAndExclusivity = False	#limit output connectivity to prevelant class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
 	if(limitOutputConnectionsBasedOnPrevelanceAndExclusivity):
 		limitOutputConnectionsPrevelanceMin = 5	#minimum connection weight to be retained after pruning
 		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
 		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
-	
+
 trainLocal = True	#local learning rule	#required
 
 #sublayer paramters:	

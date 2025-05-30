@@ -246,14 +246,14 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device,) -> None:
 	batchActiveMask = currentActivation != 0.0
 	fractionActive = batchActiveMask.float().mean().item()
-	#if(debugEISANIdynamicOutput):
-	#	printf("fractionActive = ", fractionActive)
+	if(debugEISANIfractionActivated):
+		printf("fractionActive = ", fractionActive)
 	if fractionActive >= self.targetActivationSparsityFraction:
 		return  # sparsity satisfied
 
 	# Need to activate a new neuron (one per call)
 	available = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
-	if(debugEISANIdynamicOutput):
+	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask available.numel() = ", available.numel())
 	if available.numel() == 0:
 		if self.training:
@@ -409,7 +409,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
 		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
-			#if(debugEISANIdynamicOutput):
+			#if(debugEISANIdynamicUsage):
 			#	printf("_dynamic_hidden_growth warning: generated neuron segment not unique")
 			return
 			
@@ -469,8 +469,8 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 	# ---------- 1. which samples need a neuron? ------------------------------
 	fracAct = currActivation.float().mean(dim=1)				 # [B]
-	#if(debugEISANIdynamicOutput):
-	#	print("fracAct = ", fracAct)
+	if(debugEISANIfractionActivated):
+		print("fracAct = ", fracAct)
 	growMask = fracAct < self.targetActivationSparsityFraction   # bool [B]
 	if not growMask.any():
 		return
@@ -480,7 +480,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 	# ---------- 2. reserve G unused neuron slots -----------------------------
 	avail = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
-	if(debugEISANIdynamicOutput):
+	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask avail.numel() = ", avail.numel())
 	if avail.numel() < G:
 		G = avail.numel()
@@ -554,11 +554,11 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 			colIdx = colIdx[keep_mask]
 			weights = weights[keep_mask]
 			G = newRows.numel()
-			#if(debugEISANIdynamicOutput):
+			#if(debugEISANIdynamicUsage):
 			#	if dup_found:
 			#		printf("_dynamic_hidden_growth_vectorised warning: non-unique generated neuron segments (ie duplicates) skipped")
 		else:
-			#if(debugEISANIdynamicOutput):
+			#if(debugEISANIdynamicUsage):
 			#	printf("_dynamic_hidden_growth_vectorised warning: no generated neuron segments unique in this batch")
 			return
 

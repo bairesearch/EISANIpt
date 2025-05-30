@@ -112,7 +112,6 @@ datasetNormaliseStdAvg = False	#normalise based on std and mean (~-1.0 to 1.0)
 supportSkipLayers = False
 supportSkipLayersResidual = False
 supportFieldTypeList = False
-useMultipleTrainEpochs = True
 
 useInbuiltCrossEntropyLossFunction = True	#required
 if(useSignedWeights):
@@ -223,6 +222,10 @@ if(useTabularDataset):
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100
 		numberOfSamplesK = 1.3
+		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		if(datasetRepeat):
+			datasetRepeatSize = 10
+			trainNumberOfEpochs //= 10
 	elif(datasetName == 'red-wine'):
 		datasetNameFull = 'lvwerra/red-wine'
 		classFieldName = 'quality'
@@ -234,6 +237,10 @@ if(useTabularDataset):
 		numberOfLayers = 4	#default: 4	#external benchmark: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100	#external benchmark; 64/128
 		numberOfSamplesK = 1.6
+		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		if(datasetRepeat):
+			datasetRepeatSize = 10
+			trainNumberOfEpochs //= 10
 	elif(datasetName == 'breast-cancer-wisconsin'):
 		datasetNameFull = 'scikit-learn/breast-cancer-wisconsin'
 		classFieldName = 'diagnosis'
@@ -248,6 +255,10 @@ if(useTabularDataset):
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 32	#default: 32	#orig: 20	#old: 100
 		numberOfSamplesK = 0.569
+		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		if(datasetRepeat):
+			datasetRepeatSize = 10	#required for batchSize ~= 64
+			trainNumberOfEpochs //= 10
 	elif(datasetName == 'diabetes-readmission'):
 		datasetNameFull = 'imodels/diabetes-readmission'
 		classFieldName = 'readmitted'
@@ -324,6 +335,7 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10	#required for batchSize ~= 64
+			trainNumberOfEpochs //= 10
 		numberOfSamplesK = 0.215*datasetRepeatSize
 	#elif ...
 
@@ -401,13 +413,16 @@ if(not datasetHasTestSplit):
 		datasetTestSplitSeed = None
 
 if(useAlgorithmEISANI):
-	if(useImageDataset):
-		if(trainNumberOfEpochsHigh):
-			trainNumberOfEpochs = 100
-		else:
+	batchSize = 64
+	if(useEIneurons and EIneuronsMatchComputation and not useImageDataset):
+		numberOfLayers += 1
+	if(trainNumberOfEpochsHigh):
+		trainNumberOfEpochs = 100
+	if(useMultipleTrainEpochsSmallDatasetsOnly):
+		if(datasetName in ['titanic', 'red-wine', 'breast-cancer-wisconsin', 'new-thyroid']):
 			trainNumberOfEpochs = 10
-	if(not useMultipleTrainEpochs):
-		trainNumberOfEpochs = 1
+		else:
+			trainNumberOfEpochs = 1
 				
 	if(not useDefaultNumLayersParam):
 		numberOfLayers = numberOfLayers*2

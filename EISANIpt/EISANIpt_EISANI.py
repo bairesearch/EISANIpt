@@ -43,6 +43,11 @@ def createModel(dataset):
 	print("\tinputLayerSize (numberOfFeatures) = ", numberOfFeatures)
 	print("\toutputLayerSize (numberOfClasses) = ", numberOfClasses)
 	print("\tnumberOfSynapsesPerSegment = ", numberOfSynapsesPerSegment)
+	print("\t---")
+	print("\tuseDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
+	print("\tuseEIneurons = ", useEIneurons)
+	print("\tdatasetRepeatSize = ", datasetRepeatSize)
+	print("\ttrainNumberOfEpochs = ", trainNumberOfEpochs)
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,
