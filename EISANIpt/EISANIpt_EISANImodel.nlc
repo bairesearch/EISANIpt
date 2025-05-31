@@ -1,6 +1,8 @@
-//EI SANI Network Specification (o3 prompt):
+//EI SANI Network Specification (prompts):
 
-v1a:
+---
+v1a (o3 prompt);
+
 Please implement this specification for a custom pytorch binary neural network;
 - The pytorch model config init function is defined as follows; 	
 	class EISANIconfig():
@@ -72,3 +74,49 @@ Please implement this specification for a custom pytorch binary neural network;
 			- the predicted class is selected by selecting the output neuron with the highest activation value.
 - Do not hardcode any variables (ie no magic numbers).
 
+---
+useDynamicGeneratedHiddenConnectionsUniquenessChecks (o3 prompt);
+
+Please now provide a patch for both _dynamic_hidden_growth and _dynamic_hidden_growth_vectorised that dynamically generates neuron connections only if a neuron does not exist on the current layer with the same connections. The patch needs to work for all cases; is_sparse=True and is_sparse=False, useEIneurons=True and useEIneurons=False. (note if useEIneurons: it verifies an excitatory/inhibitory neuron does not xist on the current layer with the same connections, depending on whether an excitatory or inhibitory neuron is being defined).
+
+---
+useImageDataset (o3 prompt);
+
+EISANIpt_EISANImodel.py currently supports tabular datasets (useTabularDataset), where forward argument x is of shape [batchSize, numberOfFeatures]. I want to upgrade EISANIpt_EISANImodel.py to optionally support image datasets (based on the option useImageDataset=True or False).
+
+1. If useImageDataset=True, the forward argument x will be of shape [batchSize, numberOfChannels, inputImageHeight, inputImageWidth] instead of shape [batchSize, numberOfFeatures];
+numberOfConvlayers = 6
+numberOfLinearLayers = 3
+numberOfLayers = numberOfConvlayers+numberOfLinearLayers
+numberOfChannels = 3 for the input layer only
+
+2. If useImageDataset=True, execute propagateConvLayers(); a set of convolutional layers (numberOfConvlayers) will be applied before applying standard EISANI linear layers (numberOfLinearLayers);
+- Convert each input channel to binary before processing the image, based on a particular threshold EISANICNNinputChannelThreshold;
+EISANICNNinputChannelThreshold = 0.5 (assume the input image pixels have been normalised between 0.0 and 1.0 and randomly augmented using torchvision functions). Each channel has a binary value (+1/on or 0/off).
+- The model will initialise every possible CNN kernel distribution for each CNN layer, where the CNN kernels have binary weights (+1 or -1) for each "pixel" within their kernel bounds (CNNkernelSize*CNNkernelSize). A threshold (CNNkernelThreshold) is applied to select the final output of a kernel (+1 or 0). The number of channels produced by each CNN layer is therefore calculated by multiplying the previous layer number of channels by 2^(3*3) = 512. Each channel has a binary value (+1/on or 0/off);
+	CNNkernelSize = 3
+	CNNstride = 1
+	CNNkernelThreshold = 5 (ie sum of applied kernel is >= 5)
+- If NNmaxPool=True is set, then a standard maxpool operation is performed. The max of each set of 2x2 pixels of the same input channel is calculated after applying each layer CNN (thereby reducing the number of H/W pixels by a factor 2 at each layer).
+- If there are 3 conv layers, then the final number of channels before propagating the linear layers will be 3*512*512*512 = 402653184 (approx 400 million), and the number of "pixels" (flattened) will be 32x32/(2x2)/(2x2)/(2x2) = 4x4
+
+3. If useImageDataset=True, the linear layers (numberOfLinearLayers) are initialised, propagated, and updated (if useDynamicGeneratedHiddenConnections=True) using the exact same code as useImageDataset=False (numberOfLayers).
+
+---
+numberOfSegmentsPerNeuron (Gemini 2.5 Pro prompt);
+
+Please upgrade the entire EISANI codebase to support multiple segments per neuron (numberOfSegmentsPerNeuron):
+- update EISANIpt_EISANI_globalDefs: set numberOfSegmentsPerNeuron = 8.
+- update EISANIpt_EISANImodel:_initialise_layer_weights() - 
+	- add a new dimension of size numberOfSegmentsPerNeuron in the dense (useSparseMatrix=False) and sparse (useSparseMatrix=True) weight matrices.
+	- the dimensions of each weight matrix is now shape=[numNeurons, numberOfSegmentsPerNeuron, prevSize].
+- update EISANIpt_EISANImodel:forward():_compute_layer_standard/_compute_layer_EI - when forward propagating the activations, propagate the previous layer input activations into every segment of each hidden layer neuron.
+- update EISANIpt_EISANImodel:_neuronActivationFunction() - update the neuron activation function to activate a neuron if any of its segments are active.
+- update EISANIpt_EISANImodel:__init__:
+	- upgrade neuronSegmentAssignedMask with a new dimension (of size numberOfSegmentsPerNeuron).
+	- upgrade hiddenHashes/hiddenHashesExc/hiddenHashesInh with a new dimension (of size numberOfSegmentsPerNeuron).
+- update EISANIpt_EISANImodelDynamic:_dynamic_hidden_growth_vectorised()/_dynamic_hidden_growth() -
+	- add argument (segmentIndexToUpdate), which defines which segment of the neurons to update. 
+	- segmentIndexToUpdate will be defined based on the independent dataset being trained.
+	- [the dynamic growth functions will therefore reuse already assigned neurons if their segment index (segmentIndexToUpdate) is not already assigned; otherwise a new neuron will be assigned. This requirement should not need to be explicitly coded, it should naturally emerge from constraining dynamic updates to segmentIndexToUpdate.]
+- update EISANIpt_EISANImodelDynamic:perform_uniqueness_check()/perform_uniqueness_check_vectorised() - add argument (segmentIndexToUpdate), which defines which segment of a neuron to perform a uniqueness check.

@@ -58,6 +58,9 @@ useGrayCode = True	#use graycode to encode continuous vars into binary (else use
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
 
+numberOfSegmentsPerNeuron = 1 #number of segments per neuron
+segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based on dataset index. Using 0 as a placeholder.
+
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 if(useDefaultNumNeuronsParam):

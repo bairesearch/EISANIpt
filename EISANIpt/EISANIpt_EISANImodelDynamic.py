@@ -71,6 +71,7 @@ def perform_uniqueness_check(
 		newNeuronIdx: int,            # scalar index within hidden layer
 		cols: torch.Tensor,           # (k,)  presynaptic indices
 		w: torch.Tensor               # (k,)  weights 1
+		, segmentIndexToUpdate: int    # Added: segment index to update
 ) -> bool:
 	"""
 	Non-batch version for backward-compat.
@@ -83,34 +84,36 @@ def perform_uniqueness_check(
 	if self.useEIneurons:
 		half = self.config.hiddenLayerSize // 2
 		if newNeuronIdx < half:
-			bank = self.hiddenHashesExc[layerIdx]
+			bank = self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] # Modified
 		else:
-			bank = self.hiddenHashesInh[layerIdx]
+			bank = self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] # Modified
 	else:
-		bank = self.hiddenHashes[layerIdx]
+		bank = self.hiddenHashes[layerIdx][segmentIndexToUpdate] # Modified
 
 	is_dup = torch.isin(h, bank)
 
 	if is_dup:
-		# abort growth for this neuron
-		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx] = False
+		# abort growth for this neuron segment
+		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx, segmentIndexToUpdate] = False # Modified
 		return False
 
 	# record new hash
 	if self.useEIneurons:
 		if newNeuronIdx < half:
-			self.hiddenHashesExc[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+			self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 		else:
-			self.hiddenHashesInh[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+			self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 	else:
-		self.hiddenHashes[layerIdx] = torch.cat([bank, h.unsqueeze(0)])
+		self.hiddenHashes[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 
 	return True
 
 
 def perform_uniqueness_check_vectorised(
 		self, layerIdx: int, colsBatch: torch.Tensor, wBatch: torch.Tensor,
-		newRows: torch.Tensor):
+		newRows: torch.Tensor,
+		segmentIndexToUpdate: int # Added: segment index to update
+):
 	"""
 	Vectorised duplicate elimination.
 	colsBatch, wBatch : (G,k)
@@ -128,31 +131,31 @@ def perform_uniqueness_check_vectorised(
 		isExc = newRows < half
 
 		# -------- excitatory ---------------
-		exc_keep = ~torch.isin(hashes[isExc], self.hiddenHashesExc[layerIdx])
+		exc_keep = ~torch.isin(hashes[isExc], self.hiddenHashesExc[layerIdx][segmentIndexToUpdate]) # Modified
 		if exc_keep.any():
-			self.hiddenHashesExc[layerIdx] = torch.cat(
-				[self.hiddenHashesExc[layerIdx], hashes[isExc][exc_keep]])
+			self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashesExc[layerIdx][segmentIndexToUpdate], hashes[isExc][exc_keep]])
 
 		# -------- inhibitory ---------------
-		inh_keep = ~torch.isin(hashes[~isExc], self.hiddenHashesInh[layerIdx])
+		inh_keep = ~torch.isin(hashes[~isExc], self.hiddenHashesInh[layerIdx][segmentIndexToUpdate]) # Modified
 		if inh_keep.any():
-			self.hiddenHashesInh[layerIdx] = torch.cat(
-				[self.hiddenHashesInh[layerIdx], hashes[~isExc][inh_keep]])
+			self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashesInh[layerIdx][segmentIndexToUpdate], hashes[~isExc][inh_keep]])
 
 		# stitch back together
 		keep_mask = torch.empty_like(hashes, dtype=torch.bool)
 		keep_mask[isExc] = exc_keep
 		keep_mask[~isExc] = inh_keep
 	else:
-		keep_mask = ~torch.isin(hashes, self.hiddenHashes[layerIdx])
+		keep_mask = ~torch.isin(hashes, self.hiddenHashes[layerIdx][segmentIndexToUpdate]) # Modified
 		if keep_mask.any():
-			self.hiddenHashes[layerIdx] = torch.cat(
-				[self.hiddenHashes[layerIdx], hashes[keep_mask]])
+			self.hiddenHashes[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashes[layerIdx][segmentIndexToUpdate], hashes[keep_mask]])
 
-	# Abort growth for duplicate neurons by updating neuronSegmentAssignedMask
+	# Abort growth for duplicate neuron segments by updating neuronSegmentAssignedMask
 	if (~keep_mask).any():
 		duplicate_rows = newRows[~keep_mask]
-		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows] = False
+		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows, segmentIndexToUpdate] = False # Modified
 
 	dup_found = (~keep_mask).any().item()
 	return keep_mask, dup_found
@@ -243,7 +246,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 # ---------------------------------------------------------
 
 @torch.no_grad()
-def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device,) -> None:
+def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
 	batchActiveMask = currentActivation != 0.0
 	fractionActive = batchActiveMask.float().mean().item()
 	if(debugEISANIfractionActivated):
@@ -252,15 +255,15 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		return  # sparsity satisfied
 
 	# Need to activate a new neuron (one per call)
-	available = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
+	available = (~self.neuronSegmentAssignedMask[layerIdx, :, segmentIndexToUpdate]).nonzero(as_tuple=True)[0] # Modified
 	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask available.numel() = ", available.numel())
 	if available.numel() == 0:
 		if self.training:
-			print(f"Warning: no more available neurons in hidden layer {layerIdx}")
+			print(f"Warning: no more available neurons in hidden layer {layerIdx} for segment {segmentIndexToUpdate}") # Modified
 		return
 	newNeuronIdx = available[0].item()
-	self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx] = True
+	self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx, segmentIndexToUpdate] = True # Modified
 
 
 	"""
@@ -408,7 +411,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
-		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
+		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate): # Added segmentIndexToUpdate
 			#if(debugEISANIdynamicUsage):
 			#	printf("_dynamic_hidden_growth warning: generated neuron segment not unique")
 			return
@@ -428,22 +431,28 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		relativeIdx = newNeuronIdx
 
 	if mat.is_sparse:
-		# Append to sparse matrix
-		existing_indices = mat._indices()
-		existing_values = mat._values()
+		# Append to sparse matrix (now 3D)
+		existing_indices = mat._indices() # [3, nnz_old]
+		existing_values = mat._values()   # [nnz_old]
 
-		new_indices = torch.stack([torch.full((randIdx.numel(),), relativeIdx, device=device, dtype=torch.long), randIdx,])
+		# New entries for the specific segment
+		num_new_synapses = randIdx.numel()
+		new_neuron_indices = torch.full((num_new_synapses,), relativeIdx, device=device, dtype=torch.long)
+		new_segment_indices = torch.full((num_new_synapses,), segmentIndexToUpdate, device=device, dtype=torch.long) # Added
+		new_prev_neuron_indices = randIdx
+
+		new_indices = torch.stack([new_neuron_indices, new_segment_indices, new_prev_neuron_indices], dim=0) # [3, num_new_synapses] # Modified
 		new_values = weights #dtype is bool or float32
 
 		dev = existing_indices.device
 		new_indices = new_indices.to(dev)
 		new_values  = new_values.to(dev)
 
-		matNew = torch.sparse_coo_tensor(torch.cat([existing_indices, new_indices], dim=1), torch.cat([existing_values, new_values]), mat.size(), device=dev,)
+		matNew = torch.sparse_coo_tensor(torch.cat([existing_indices, new_indices], dim=1), torch.cat([existing_values, new_values]), mat.size(), device=dev,).coalesce()
 	else:
 		# structural update - do NOT track in autograd
 		with torch.no_grad():
-			mat[relativeIdx, randIdx] = weights
+			mat[relativeIdx, segmentIndexToUpdate, randIdx] = weights # Modified for 3D dense
 		matNew = mat
 
 	if self.useEIneurons and newNeuronIdx >= half:
@@ -454,7 +463,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		self.hiddenConnectionMatrix[layerIdx] = matNew.to(device) #ensure device consistency
 
 @torch.no_grad()
-def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device,) -> None:
+def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
 	"""
 	Vectorised growth: handles an entire batch, but creates at most ONE new
 	neuron per *sample* that is below the sparsity target.  Exactly follows
@@ -478,8 +487,8 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	growSamples = growMask.nonzero(as_tuple=False).squeeze(1)	# [G] sample idx
 	G = growSamples.numel()
 
-	# ---------- 2. reserve G unused neuron slots -----------------------------
-	avail = (~self.neuronSegmentAssignedMask[layerIdx]).nonzero(as_tuple=True)[0]
+	# ---------- 2. reserve G unused neuron slots for the specified segment -----------------------------
+	avail = (~self.neuronSegmentAssignedMask[layerIdx, :, segmentIndexToUpdate]).nonzero(as_tuple=True)[0] # Modified
 	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask avail.numel() = ", avail.numel())
 	if avail.numel() < G:
@@ -487,10 +496,10 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		growSamples = growSamples[:G]
 		if G == 0:
 			if self.training:
-				print(f"Warning: no free neurons in layer {layerIdx}")
+				print(f"Warning: no free neurons in layer {layerIdx} for segment {segmentIndexToUpdate}") # Modified
 			return
-	newRows = avail[:G]										  # [G]
-	self.neuronSegmentAssignedMask[layerIdx, newRows] = True
+	newRows = avail[:G] # [G] neuron indices
+	self.neuronSegmentAssignedMask[layerIdx, newRows, segmentIndexToUpdate] = True # Modified
 
 	# ---------- 3. vectorised synapse sampling -------------------------------
 	# presynBatch: [G, P] float {0,1}
@@ -547,7 +556,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 			weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))
 	
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
-		keep_mask, dup_found = perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows)
+		keep_mask, dup_found = perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows, segmentIndexToUpdate) # Added segmentIndexToUpdate
 		if keep_mask.any():
 			#filter out rows whose signature already exists
 			newRows = newRows[keep_mask]
@@ -567,35 +576,41 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	colIdx = colIdx[:, perm]
 	weights = weights[:, perm]
 
-	# ---------- 4. flatten to COO lists --------------------------------------
-	flatRows = newRows.repeat_interleave(k)					  # [G*k]
-	flatCols = colIdx.reshape(-1)								# [G*k]
-	flatVals = weights.reshape(-1)							   # [G*k]
+	# ---------- 4. flatten to COO lists for 3D sparse tensor --------------------------------------
+	num_new_connections_total = G * k # Corrected G if it was reduced by uniqueness check
+	flatNeuronIndices = newRows.repeat_interleave(k) # [G*k] - these are the neuron indices (0 to numNeurons-1)
+	flatSegmentIndices = torch.full((num_new_connections_total,), segmentIndexToUpdate, device=device, dtype=torch.long) # [G*k] # Added
+	flatPrevNeuronIndices = colIdx.reshape(-1) # [G*k] - these are the presynaptic neuron indices
+	flatVals = weights.reshape(-1) # [G*k]
 
 	if self.useEIneurons:
 		# ---------- 5. write to weight matrix (sparse or dense) ------------------
 		half = cfg.hiddenLayerSize // 2
-		excMask = newRows < half						# [G] bool
-		inhMask = ~excMask
+		# excMask = newRows < half						# [G] bool # Not needed here, use flatNeuronIndices
+		# inhMask = ~excMask
 
-		def merge_into(mat, rowsSel, colsSel, valsSel, isExc):
+		def merge_into(mat, rowsSel, colsSel, valsSel, isExc, segmentIdx): # Added segmentIdx
 			"""
 			rowsSel : flat (global) neuron indices
 			colsSel : flat presynapse indices
 			valsSel : flat weights
 			isExc   : True -> excitatory matrix, row shift = 0
 					  False -> inhibitory  matrix, row shift = -half
+			segmentIdx : the segment to update # Added
 			"""
 			if rowsSel.numel() == 0:
 				return mat
 			rowShift = 0 if isExc else -half
-			rowsRel  = rowsSel + rowShift
+			rowsRel  = rowsSel + rowShift # these are neuron indices relative to E or I part
 
 			if mat.is_sparse:
-				idx_new = torch.stack([rowsRel, colsSel], dim=0)
+				# For 3D sparse: indices are [neuron_idx, segment_idx, prev_neuron_idx]
+				num_entries = rowsRel.numel()
+				seg_indices_for_new = torch.full((num_entries,), segmentIdx, device=device, dtype=torch.long) # Modified
+				idx_new = torch.stack([rowsRel, seg_indices_for_new, colsSel], dim=0) # [3, num_entries] # Modified
 				val_new = valsSel #dtype is bool or float32
 				mat = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
-			else:
+			else: # dense 3D matrix
 				mat = mat.clone()
 				# Ensure valsSel is compatible with int8 matrix
 				if mat.dtype == torch.int8:
@@ -607,45 +622,49 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 						# For simplicity, assuming EI means valsSel are effectively 1 (True)
 						# and non-EI means valsSel could be True (1) or False (-1)
 						if self.useEIneurons: # context of merge_into being called
-							mat[rowsRel, colsSel] = valsSel.to(torch.int8) # True -> 1
+							mat[rowsRel, segmentIdx, colsSel] = valsSel.to(torch.int8) # True -> 1
 						else:
-							mat[rowsRel, colsSel] = torch.where(valsSel, 
+							mat[rowsRel, segmentIdx, colsSel] = torch.where(valsSel, # Modified
 							                                    torch.tensor(1, device=device, dtype=torch.int8), 
 							                                    torch.tensor(-1, device=device, dtype=torch.int8))
 					else:
-						mat[rowsRel, colsSel] = valsSel.to(torch.int8) # direct cast if already numeric
+						mat[rowsRel, segmentIdx, colsSel] = valsSel.to(torch.int8) # direct cast if already numeric # Modified
 				else:
-					mat[rowsRel, colsSel] = valsSel
+					mat[rowsRel, segmentIdx, colsSel] = valsSel # Modified
 			return mat
 
 		# split flattened arrays once for efficiency
-		isExcEntry = flatRows < half
-		flatRows_exc = flatRows[isExcEntry]
-		flatCols_exc = flatCols[isExcEntry]
+		isExcEntry = flatNeuronIndices < half # Mask for entries belonging to excitatory neurons
+		
+		# Excitatory neuron updates
+		flatNeuronIndices_exc = flatNeuronIndices[isExcEntry]
+		flatPrevNeuronIndices_exc = flatPrevNeuronIndices[isExcEntry]
 		flatVals_exc = flatVals[isExcEntry]
 
-		flatRows_inh = flatRows[~isExcEntry]
-		flatCols_inh = flatCols[~isExcEntry]
+		# Inhibitory neuron updates
+		flatNeuronIndices_inh = flatNeuronIndices[~isExcEntry]
+		flatPrevNeuronIndices_inh = flatPrevNeuronIndices[~isExcEntry]
 		flatVals_inh = flatVals[~isExcEntry]
 
 		# merge into respective matrices
 		Emat = self.hiddenConnectionMatrixExcitatory[layerIdx]
 		Imat = self.hiddenConnectionMatrixInhibitory[layerIdx]
 
-		Emat = merge_into(Emat, flatRows_exc, flatCols_exc, flatVals_exc, True)
-		Imat = merge_into(Imat, flatRows_inh, flatCols_inh, flatVals_inh, False)
+		Emat = merge_into(Emat, flatNeuronIndices_exc, flatPrevNeuronIndices_exc, flatVals_exc, True, segmentIndexToUpdate) # Added segmentIndexToUpdate
+		Imat = merge_into(Imat, flatNeuronIndices_inh, flatPrevNeuronIndices_inh, flatVals_inh, False, segmentIndexToUpdate) # Added segmentIndexToUpdate
 
 		self.hiddenConnectionMatrixExcitatory[layerIdx] = Emat
 		self.hiddenConnectionMatrixInhibitory[layerIdx] = Imat
 	else:
-		# ---------- 5. write to weight matrix (sparse or dense) ------------------
+		# ---------- 5. write to weight matrix (sparse or dense) for standard (non-EI) ------------------
 		mat = self.hiddenConnectionMatrix[layerIdx]
 
 		if mat.is_sparse:
-			idx_new = torch.stack([flatRows, flatCols], dim=0)	   # [2, G*k]
+			# For 3D sparse: indices are [neuron_idx, segment_idx, prev_neuron_idx]
+			idx_new = torch.stack([flatNeuronIndices, flatSegmentIndices, flatPrevNeuronIndices], dim=0) # [3, G*k] # Modified
 			val_new = flatVals #dtype is bool or float32
 			mat_new = torch.sparse_coo_tensor(torch.cat([mat.indices(), idx_new], dim=1), torch.cat([mat.values(),  val_new]), size=mat.size(), device=device,).coalesce()
-		else:	# dense case
+		else:	# dense case (3D)
 			mat_new = mat.clone()
 			# Ensure flatVals is compatible with int8 matrix
 			if mat_new.dtype == torch.int8:
@@ -653,17 +672,14 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 				# This part handles the case where dense matrices are int8
 				if flatVals.dtype == torch.bool:
 					# Convert boolean flatVals to int8: True to 1, False to -1 (standard) or True to 1 (EI)
-					if self.useEIneurons: # Context of the broader function
-						# This assumes that for EI, weights are always 1. If flatVals can be False for EI, this needs adjustment.
-						mat_new[flatRows, flatCols] = flatVals.to(torch.int8) # True -> 1
-					else:
-						mat_new[flatRows, flatCols] = torch.where(flatVals, 
-						                                        torch.tensor(1, device=device, dtype=torch.int8), 
-						                                        torch.tensor(-1, device=device, dtype=torch.int8))
+					# This context is non-EI, so True -> 1, False -> -1
+					mat_new[flatNeuronIndices, flatSegmentIndices, flatPrevNeuronIndices] = torch.where(flatVals, # Modified
+					                                        torch.tensor(1, device=device, dtype=torch.int8), 
+					                                        torch.tensor(-1, device=device, dtype=torch.int8)) 
 				else:
-					mat_new[flatRows, flatCols] = flatVals.to(torch.int8) # direct cast if already numeric
+					mat_new[flatNeuronIndices, flatSegmentIndices, flatPrevNeuronIndices] = flatVals.to(torch.int8) # direct cast if already numeric # Modified
 			else:
-				mat_new[flatRows, flatCols] = flatVals
+				mat_new[flatNeuronIndices, flatSegmentIndices, flatPrevNeuronIndices] = flatVals # Modified
 
 		# ---------- 6. store back -------------------------------------------------
 		self.hiddenConnectionMatrix[layerIdx] = mat_new.to(device) #ensure device consistency
@@ -724,4 +740,4 @@ def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:
 		samples.append(pool[rnd])
 
 	return torch.stack(samples)                            # (G, n)
-	
+
