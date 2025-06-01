@@ -24,10 +24,12 @@ EISANI algorithm advantages/biological feasibility over classical ANN (artificia
 - no backpropagation.
 - supports continuous learning.
 - training speed (can learn meaningful representations/discrimination even from a single example if overtrained).
-- neural substrate can be reapplied to any dataset/task (only need to train new connections to target output neurons).
+- neural substrate can be reapplied to any dataset/task with shared input space/representations (only need to train new connections to target output neurons).
 - supports independent excitatory/inhibitory neurons.
 - low power requirements (binary processing could be embedded in hardware/ASIC architecture).
-- online learning (unbatched, single epoch).
+- online learning (unbatched, supports single epoch).
+- neural substrate can be overloaded for any dataset/task with independent representations (using multiple segments; assuming sufficient activation sparsity to reduce probability of conflicts).
+- supports recursive layers.
 
 ##### Summary
 

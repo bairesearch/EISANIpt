@@ -28,6 +28,7 @@ If useEIneurons=True: - a relU function is applied to both E and I neurons (so t
 
 import torch
 from torch import nn
+import EISANIpt_EISANI_globalDefs
 from ANNpt_globalDefs import *
 from typing import List, Optional, Tuple
 if(useDynamicGeneratedHiddenConnections):
@@ -36,6 +37,36 @@ if(useImageDataset):
 	import EISANIpt_EISANImodelCNN
 
 
+def generateNumberHiddenLayers(numberOfLayers: int, numberOfConvlayers: int) -> None:
+	if(useImageDataset):
+		numberOfLinearLayers = numberOfLayers - numberOfConvlayers
+		numberOfHiddenLayers = numberOfLinearLayers - 1
+	else:
+		numberOfHiddenLayers = numberOfLayers - 1
+	return numberOfHiddenLayers
+
+def getNumberUniqueLayers(recursiveLayers, recursiveSuperblocksNumber, numberOfHiddenLayers):
+	if(recursiveLayers):
+		numberUniqueLayers = recursiveSuperblocksNumber*2
+		#*2 explanation: the first forward propagated layer in a superblock always uses unique weights:
+		#	- for the first superblock this will comprise unique weights between the input layer and the first hidden layer of the superblock
+		#	- for the all other superblocks this will comprise unique weights between the previous superblock and the first hidden layer of the superblock
+	else:
+		numberUniqueLayers = numberOfHiddenLayers
+	return numberUniqueLayers
+
+def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers):
+	numberOfHiddenLayers = generateNumberHiddenLayers(numberOfLayers, numberOfConvlayers)
+	if(useDynamicGeneratedHiddenConnections):
+		datasetSizeRounded = round_up_to_power_of_2(datasetSize)
+		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+	else:
+		hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+	if(recursiveLayers):
+		maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
+		hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer
+	return hiddenLayerSizeSANI
+		
 class EISANIconfig():
 	def __init__(self, batchSize, numberOfLayers, numberOfConvlayers, hiddenLayerSize, inputLayerSize, outputLayerSize, numberOfFeatures, numberOfClasses, numberOfSynapsesPerSegment, fieldTypeList):
 		self.batchSize = batchSize
@@ -47,11 +78,7 @@ class EISANIconfig():
 		self.numberOfFeatures = numberOfFeatures
 		self.numberOfClasses = numberOfClasses
 		self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
-		if(useImageDataset):
-			numberOfLinearLayers = numberOfLayers - numberOfConvlayers
-			self.numberOfHiddenLayers = numberOfLinearLayers - 1
-		else:
-			self.numberOfHiddenLayers = numberOfLayers - 1
+		self.numberOfHiddenLayers = generateNumberHiddenLayers(numberOfLayers, numberOfConvlayers) # Added
 		self.fieldTypeList = fieldTypeList
 
 class Loss:
@@ -84,15 +111,20 @@ class EISANImodel(nn.Module):
 		self.targetActivationSparsityFraction = targetActivationSparsityFraction
 		self.useOutputConnectionsLastLayer = useOutputConnectionsLastLayer
 		self.numberOfSegmentsPerNeuron = numberOfSegmentsPerNeuron # Added
+		self.recursiveLayers = recursiveLayers # Added
+		self.recursiveSuperblocksNumber = recursiveSuperblocksNumber # Added
 
 		# -----------------------------
 		# Derived sizes
 		# -----------------------------
+
+		self.numberUniqueLayers = getNumberUniqueLayers(self.recursiveLayers, self.recursiveSuperblocksNumber, config.numberOfHiddenLayers)
+
 		if useImageDataset:
 			EISANIpt_EISANImodelCNN._init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
 
 			#if(EISANICNNdynamicallyGenerateLinearInputFeatures):	
-			#	self.CNNoutputEncodedFeaturesDict = {}	#key: CNNoutputLayerFlatFeatureIndex, value: linearInputLayerFeatureIndex	#non-vectorised implementation
+			#	self.CNNoutputEncodedFeaturesDict = {} #key: CNNoutputLayerFlatFeatureIndex, value: linearInputLayerFeatureIndex	#non-vectorised implementation
 		else:
 			# self.encodedFeatureSize = config.numberOfFeatures * continuousVarEncodingNumBits # Old
 			fieldTypeList = config.fieldTypeList
@@ -116,7 +148,7 @@ class EISANImodel(nn.Module):
 		self.hiddenConnectionMatrixExcitatory: List[torch.Tensor] = []
 		self.hiddenConnectionMatrixInhibitory: List[torch.Tensor] = []
 
-		for layerIdx in range(config.numberOfHiddenLayers):
+		for layerIdx in range(self.numberUniqueLayers): # Modified
 			if self.useEIneurons: # Corrected: use self.useEIneurons
 				excitSize = config.hiddenLayerSize // 2
 				inhibSize = config.hiddenLayerSize - excitSize
@@ -131,7 +163,7 @@ class EISANImodel(nn.Module):
 
 		if self.useDynamicGeneratedHiddenConnections:
 			# self.register_buffer('neuronSegmentAssignedMask', torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, dtype=torch.bool, device=device)) # Reverted
-			self.neuronSegmentAssignedMask = torch.zeros(config.numberOfHiddenLayers, config.hiddenLayerSize, self.numberOfSegmentsPerNeuron, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron
+			self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueLayers, config.hiddenLayerSize, self.numberOfSegmentsPerNeuron, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
 
 		# -----------------------------
 		# Output connection matrix
@@ -139,7 +171,7 @@ class EISANImodel(nn.Module):
 		if self.useOutputConnectionsLastLayer:
 			outConnShape = (config.hiddenLayerSize, config.numberOfClasses,)
 		else:
-			outConnShape = (config.numberOfHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,)
+			outConnShape = (self.numberUniqueLayers, config.hiddenLayerSize, config.numberOfClasses,) # Modified
 		if useBinaryOutputConnections:
 			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.bool, device=device) # Added device=device
 		else:
@@ -150,7 +182,7 @@ class EISANImodel(nn.Module):
 		# verify neuron uniqueness
 		# -----------------------------
 		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
-			L = self.config.numberOfHiddenLayers
+			L = self.numberUniqueLayers # Modified
 			S = self.numberOfSegmentsPerNeuron # Added
 			self.hiddenHashes       = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
 			if self.useEIneurons:
@@ -166,6 +198,16 @@ class EISANImodel(nn.Module):
 	# ---------------------------------------------------------
 	# Helper - layer initialisation
 	# ---------------------------------------------------------
+
+	def getUniqueLayerIndex(self, layerIdSuperblock: int, layerIdHidden: int) -> int: # Added
+		if(self.recursiveLayers):
+			if(layerIdHidden==0):
+				uniqueLayerIndex = layerIdSuperblock*2
+			else:
+				uniqueLayerIndex = layerIdSuperblock*2+1
+		else:
+			uniqueLayerIndex = layerIdHidden
+		return uniqueLayerIndex
 
 	def _initialise_layer_weights(self, numNeurons: int, prevSize: int, layerIdx: int,) -> torch.Tensor:
 		"""
@@ -277,29 +319,31 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		layerActivations: List[torch.Tensor] = []
 
-		for layerIdx in range(self.config.numberOfHiddenLayers):
-			if self.useEIneurons:
-				aExc, aInh = self._compute_layer_EI(layerIdx, prevActivation, device)
-				currentActivation = torch.cat([aExc, aInh], dim=1)
-			else:
-				currentActivation = self._compute_layer_standard(layerIdx, prevActivation, device)
+		for layerIdSuperblock in range(self.recursiveSuperblocksNumber): # Modified
+			for layerIdHidden in range(self.config.numberOfHiddenLayers): # Modified
+				uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
+				if self.useEIneurons:
+					aExc, aInh = self._compute_layer_EI(uniqueLayerIndex, prevActivation, device) # Modified
+					currentActivation = torch.cat([aExc, aInh], dim=1)
+				else:
+					currentActivation = self._compute_layer_standard(uniqueLayerIndex, prevActivation, device) # Modified
 
-			layerActivations.append(currentActivation)
+				layerActivations.append(currentActivation)
 
-			# -------------------------
-			# Dynamic hidden connection growth
-			# -------------------------
-			if (trainOrTest and self.useDynamicGeneratedHiddenConnections):
-				for _ in range(numberNeuronsGeneratedPerSample):
-					if(useDynamicGeneratedHiddenConnectionsVectorised):
-						EISANIpt_EISANImodelDynamic._dynamic_hidden_growth_vectorised(self, layerIdx, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate
-					else:
-						for s_batch_idx in range(prevActivation.size(0)):                # loop over batch
-							prevAct_b  = prevActivation[s_batch_idx : s_batch_idx + 1]             # keep 2- [1, prevSize]
-							currAct_b  = currentActivation[s_batch_idx : s_batch_idx + 1]          # keep 2- [1, layerSize]
-							EISANIpt_EISANImodelDynamic._dynamic_hidden_growth(self, layerIdx, prevAct_b, currAct_b, device, segmentIndexToUpdate) # Added segmentIndexToUpdate
+				# -------------------------
+				# Dynamic hidden connection growth
+				# -------------------------
+				if (trainOrTest and self.useDynamicGeneratedHiddenConnections):
+					for _ in range(numberNeuronsGeneratedPerSample):
+						if(useDynamicGeneratedHiddenConnectionsVectorised):
+							EISANIpt_EISANImodelDynamic._dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
+						else:
+							for s_batch_idx in range(prevActivation.size(0)):                # loop over batch
+								prevAct_b  = prevActivation[s_batch_idx : s_batch_idx + 1]             # keep 2- [1, prevSize]
+								currAct_b  = currentActivation[s_batch_idx : s_batch_idx + 1]          # keep 2- [1, layerSize]
+								EISANIpt_EISANImodelDynamic._dynamic_hidden_growth(self, uniqueLayerIndex, prevAct_b, currAct_b, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
 
-			prevActivation = currentActivation
+				prevActivation = currentActivation
 
 		# -----------------------------
 		# Output layer
@@ -318,19 +362,29 @@ class EISANImodel(nn.Module):
 			if trainOrTest and y is not None:
 				# For the last layer, layerIdx is effectively self.config.numberOfHiddenLayers - 1
 				# but since outputConnectionMatrix is 2D, we don't pass layerIdx or pass a dummy one if the function expects it
-				self._update_output_connections(self.config.numberOfHiddenLayers - 1, lastLayerActivation, y, device)
+				#TODO: this is probably wrong for recursive layers; should be uniqueLayerIndex?
+				# Determine the correct uniqueLayerIndex for the last layer in the last superblock
+				lastSuperblockIndex = self.recursiveSuperblocksNumber - 1
+				lastHiddenLayerInSuperblockIndex = self.config.numberOfHiddenLayers -1
+				uniqueLayerIndexForLastLayer = self.getUniqueLayerIndex(lastSuperblockIndex, lastHiddenLayerInSuperblockIndex)
+				self._update_output_connections(uniqueLayerIndexForLastLayer, lastLayerActivation, y, device)
 		else:
-			for layerIdx, act in enumerate(layerActivations): # act is torch.int8
-				if self.useBinaryOutputConnections:
-					weights = self.outputConnectionMatrix[layerIdx].to(torch.int8) # bool to int8 (0/1)
-					outputActivations += act.float() @ weights.float() # Cast to float for matmul
-				else:
-					weights = self.outputConnectionMatrix[layerIdx] # float
-					outputActivations += act.float() @ weights # cast act to float for matmul
+			actLayerIndex = 0 # Added
+			for layerIdSuperblock in range(self.recursiveSuperblocksNumber): # Added
+				for layerIdHidden in range(self.config.numberOfHiddenLayers): # Added
+					act = layerActivations[actLayerIndex] # Modified
+					uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
+					weights = self.outputConnectionMatrix[uniqueLayerIndex] # Modified
+					if self.useBinaryOutputConnections:
+						#weights = weights.to(torch.int8) # bool to int8 (0/1)
+						outputActivations += act.float() @ weights.float() # Cast to float for matmul
+					else:
+						outputActivations += act.float() @ weights # cast act to float for matmul
 
-				# Training: reinforce output connections
-				if trainOrTest and y is not None:
-					self._update_output_connections(layerIdx, act, y, device)
+					# Training: reinforce output connections
+					if trainOrTest and y is not None:
+						self._update_output_connections(uniqueLayerIndex, act, y, device) # Modified
+					actLayerIndex += 1 # Added
 
 		predictions = torch.argmax(outputActivations, dim=1)
 		

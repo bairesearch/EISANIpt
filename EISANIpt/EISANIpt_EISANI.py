@@ -17,37 +17,37 @@ EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal in
 
 """
 
-import EISANIpt_EISANI_globalDefs
 from ANNpt_globalDefs import *
 from torchsummary import summary
 import EISANIpt_EISANImodel
 import ANNpt_data
+
 
 def createModel(dataset):
 	datasetSize = ANNpt_data.getDatasetSize(dataset, printSize=False)
 	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
-	if(useDynamicGeneratedHiddenConnections):
-		datasetSizeRounded = round_up_to_power_of_2(datasetSize)
-		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
-	else:
-		hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+	hiddenLayerSizeSANI = EISANIpt_EISANImodel.generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers)
+
 	print("Creating new model:")
-	print("\tdatasetName = ", datasetName)
-	print("\tdatasetSize = ", datasetSize)
-	print("\tbatchSize = ", batchSize)
-	print("\tnumberOfLayers = ", numberOfLayers)
-	print("\tnumberOfConvlayers = ", numberOfConvlayers)
-	print("\thiddenLayerSizeSANI = ", hiddenLayerSizeSANI)
-	print("\tinputLayerSize (numberOfFeatures) = ", numberOfFeatures)
-	print("\toutputLayerSize (numberOfClasses) = ", numberOfClasses)
-	print("\tnumberOfSynapsesPerSegment = ", numberOfSynapsesPerSegment)
-	print("\t---")
-	print("\tuseDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
-	print("\tuseEIneurons = ", useEIneurons)
-	print("\tdatasetRepeatSize = ", datasetRepeatSize)
-	print("\ttrainNumberOfEpochs = ", trainNumberOfEpochs)
+	print("\t datasetName = ", datasetName)
+	print("\t datasetSize = ", datasetSize)
+	print("\t batchSize = ", batchSize)
+	print("\t numberOfLayers = ", numberOfLayers)
+	print("\t numberOfConvlayers = ", numberOfConvlayers)
+	print("\t hiddenLayerSizeSANI = ", hiddenLayerSizeSANI)
+	print("\t inputLayerSize (numberOfFeatures) = ", numberOfFeatures)
+	print("\t outputLayerSize (numberOfClasses) = ", numberOfClasses)
+	print("\t numberOfSynapsesPerSegment = ", numberOfSynapsesPerSegment)
+	print("\t ---")
+	print("\t useDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
+	print("\t useEIneurons = ", useEIneurons)
+	print("\t datasetRepeatSize = ", datasetRepeatSize)
+	print("\t trainNumberOfEpochs = ", trainNumberOfEpochs)
+	print("\t recursiveLayers = ", recursiveLayers)
+	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
+
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
 		numberOfLayers = numberOfLayers,

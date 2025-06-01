@@ -120,3 +120,63 @@ Please upgrade the entire EISANI codebase to support multiple segments per neuro
 	- segmentIndexToUpdate will be defined based on the independent dataset being trained.
 	- [the dynamic growth functions will therefore reuse already assigned neurons if their segment index (segmentIndexToUpdate) is not already assigned; otherwise a new neuron will be assigned. This requirement should not need to be explicitly coded, it should naturally emerge from constraining dynamic updates to segmentIndexToUpdate.]
 - update EISANIpt_EISANImodelDynamic:perform_uniqueness_check()/perform_uniqueness_check_vectorised() - add argument (segmentIndexToUpdate), which defines which segment of a neuron to perform a uniqueness check.
+
+---
+recursiveLayers (Gemini 2.5 Pro prompt);
+
+Please upgrade the entire EISANI codebase to support recursive layers (recursiveLayers):
+- update EISANIpt_EISANI_globalDefs: 
+	recursiveLayers = True
+	if(recursiveLayers): 
+		transformerSuperblocks = False
+		if(transformerSuperblocks):
+			recursiveSuperblocksNumber = 2
+		else:
+			recursiveSuperblocksNumber = 1
+	else:
+		recursiveSuperblocksNumber = 1
+- update EISANIpt_EISANImodel:EISANImodel:__init__() - 
+	if(recursiveLayers): 
+		numberUniqueLayers = recursiveSuperblocksNumber*2
+		#*2 explanation: the first forward propagated layer in a superblock always uses unique weights:
+		#	- for the first superblock this will comprise unique weights between the input layer and the first hidden layer of the superblock
+		#	- for the all other superblocks this will comprise unique weights between the previous superblock and the first hidden layer of the superblock
+	else:
+		numberUniqueLayers = numberOfHiddenLayers
+	store unique weights for numberUniqueLayers instead of numberOfHiddenLayers
+	store unique outputConnectionMatrix for numberUniqueLayers instead of numberOfHiddenLayers
+	store neuronSegmentAssignedMask for numberUniqueLayers instead of numberOfHiddenLayers
+	store hiddenHashes* for numberUniqueLayers instead of numberOfHiddenLayers
+	etc
+- define getUniqueLayerIndex(self, layerIdSuperblock, layerIdHidden):
+	if(recursiveLayers):
+		if(layerIdHidden==0):
+			uniqueLayerIndex = layerIdSuperblock*2
+		else:
+			uniqueLayerIndex = layerIdSuperblock*2+1
+	else:
+		uniqueLayerIndex = layerIdHidden
+	return uniqueLayerIndex
+- update EISANIpt_EISANImodel:forward() - 
+	update forward propagation logic;
+		for layerIdSuperblock in range(recursiveSuperblocksNumber):
+			for layerIdHidden in range(numberOfHiddenLayers):
+				uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden)
+				pass uniqueLayerIndex to _compute_layer_EI/_compute_layer_standard (layerIdx argument)
+				pass uniqueLayerIndex to _dynamic_hidden_growth_vectorised/_dynamic_hidden_growth (layerIdx argument)
+	update output connections logic;
+		if self.useOutputConnectionsLastLayer;
+			...	#same
+		else:
+			actLayerIndex = 0
+			for layerIdSuperblock in range(recursiveSuperblocksNumber):
+				for layerIdHidden in range(numberOfHiddenLayers):
+					act = layerActivations[actLayerIndex]
+					uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden)
+					weights = self.outputConnectionMatrix[luniqueLayerIndexayerIdx]
+					...	#same
+					if trainOrTest and y is not None:
+						self._update_output_connections(uniqueLayerIndex, act, y, device)
+					actLayerIndex += 1
+
+	

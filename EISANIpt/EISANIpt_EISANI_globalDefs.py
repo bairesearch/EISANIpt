@@ -115,6 +115,16 @@ else:
 		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
 		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
 
+recursiveLayers = False	#default: False
+if(recursiveLayers): 
+	recursiveSuperblocks = False	#default: False
+	if(recursiveSuperblocks):
+		recursiveSuperblocksNumber = 2
+	else:
+		recursiveSuperblocksNumber = 1
+else:
+	recursiveSuperblocksNumber = 1
+	
 trainLocal = True	#local learning rule	#required
 
 #sublayer paramters:	
