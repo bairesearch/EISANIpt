@@ -179,4 +179,13 @@ Please upgrade the entire EISANI codebase to support recursive layers (recursive
 						self._update_output_connections(uniqueLayerIndex, act, y, device)
 					actLayerIndex += 1
 
-	
+---
+limitOutputConnectionsBasedOnPrevalenceOrExclusivity (o3 prompt);
+
+Please upgrade the implementation of prune_output_connections_based_on_prevalence_and_exclusivity (limitOutputConnectionsBasedOnPrevalenceOrExclusivity=True);
+- prune across layers iteratively (starting with the last hidden layer):
+	- when pruning output connections from the last hidden layer, use the existing code logic (limitOutputConnectionsBasedOnPrevalence and limitOutputConnectionsBasedOnExclusivity).
+	- when pruning output connections from every hidden layer below the last hidden layer, use the existing code logic (limitOutputConnectionsBasedOnPrevalence and limitOutputConnectionsBasedOnExclusivity), but also verify that the hidden neuron does not have any connections remaining to a higher layer hidden neuron.
+	- prune hidden neurons without any output connections (that have had all of their output connections pruned); 
+		- create bool tensor hiddenNeuronsRemoved to define which hidden neurons must be removed.
+		- execute new function pruneHiddenNeurons(layerIndex) to update self.hiddenConnectionMatrix*, self.hiddenNeuronSignatures* and self.neuronSegmentAssignedMask based on neurons recently removed in the layer (hiddenNeuronsRemoved).

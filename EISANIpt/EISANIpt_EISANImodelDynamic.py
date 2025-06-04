@@ -26,7 +26,7 @@ import EISANIpt_EISANImodelDynamic
 # Neuron segment (connections) uniquesness checks;
 # ---------------------------------------------------------
 
-
+'''
 # 64-bit modulus - a large prime < 26  (fits signed int64)
 _MOD64 = 9223372036854775783
 # base for polynomial rolling hash (also prime)
@@ -159,9 +159,8 @@ def perform_uniqueness_check_vectorised(
 
 	dup_found = (~keep_mask).any().item()
 	return keep_mask, dup_found
-
-
 '''
+
 def _build_signature(self, cols: torch.Tensor, w: torch.Tensor) -> str:
 	# cols, w  are 1-D tensors length k  (on GPU)
 	# move to CPU (tiny) and build sorted signature
@@ -174,7 +173,7 @@ def _build_signature_vectorised(self, colsBatch: torch.Tensor, wBatch: torch.Ten
 		sigs.append(_build_signature(self, cols, w))
 	return sigs
 
-def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
+def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate):
 	unique = True
 	cfg	= self.config
 	
@@ -183,15 +182,15 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
 	if self.useEIneurons:
 		half = cfg.hiddenLayerSize // 2
 		if newNeuronIdx < half:
-			sigDict = self.hiddenNeuronSignaturesExc[layerIdx]
+			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
 		else:
-			sigDict = self.hiddenNeuronSignaturesInh[layerIdx]
+			sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
 	else:
-		sigDict = self.hiddenNeuronSignatures[layerIdx]
+		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
 
 	if sig_new in sigDict:
 		# duplicate -> abort growth
-		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx] = False
+		self.neuronSegmentAssignedMask[layerIdx, newNeuronIdx, segmentIndexToUpdate] = False
 		unique = False
 	else:
 		# record signature (will keep dict small and incremental)
@@ -199,7 +198,7 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights):
 
 	return unique
 
-def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows):
+def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows, segmentIndexToUpdate):
 	unique = True
 	cfg	= self.config
 
@@ -212,9 +211,9 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 		# keep_mask = [] # Original comment, assuming keep_list is used
 		for r, sig in zip(newRows.tolist(), batchSigs):
 			if r < half:
-				sigDict = self.hiddenNeuronSignaturesExc[layerIdx]
+				sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
 			else:
-				sigDict = self.hiddenNeuronSignaturesInh[layerIdx]
+				sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
 			if sig in sigDict:
 				keep_list.append(False)
 				dup_found = True
@@ -222,7 +221,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 				keep_list.append(True)
 				sigDict[sig] = True			# record & keep
 	else:
-		sigDict = self.hiddenNeuronSignatures[layerIdx]
+		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
 		for sig in batchSigs:
 			if sig in sigDict:
 				keep_list.append(False)
@@ -236,10 +235,10 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 	# Abort growth for duplicate neurons by updating neuronSegmentAssignedMask
 	if (~keep_mask).any():
 		duplicate_rows = newRows[~keep_mask]
-		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows] = False
+		self.neuronSegmentAssignedMask[layerIdx, duplicate_rows, segmentIndexToUpdate] = False
 	
 	return keep_mask, dup_found
-'''
+
 
 # ---------------------------------------------------------
 # Dynamic hidden growth helper
