@@ -819,12 +819,22 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 		return	# no work
 
 	if(debugLimitOutputConnectionsBasedOnExclusivity):
+		'''
 		removed_count = hiddenNeuronsRemoved.sum().item()
 		total_neurons = hiddenNeuronsRemoved.numel()                # hiddenLayerSizeSANI
 		assigned_mask  = self.neuronSegmentAssignedMask[layerIndex].any(dim=1)
 		assigned_count = assigned_mask.sum().item()
 		perc_total    = removed_count / total_neurons  * 100.0
 		perc_assigned = (removed_count / assigned_count * 100.0) if assigned_count else 0.0
+		'''
+		total_neurons  = hiddenNeuronsRemoved.numel()                   # hiddenLayerSizeSANI
+		assigned_mask   = self.neuronSegmentAssignedMask[layerIndex].any(dim=1)
+		assigned_count  = assigned_mask.sum().item()
+		removed_assigned_mask = hiddenNeuronsRemoved & assigned_mask
+		removed_count         = removed_assigned_mask.sum().item()      # \u2190 intersection
+		perc_total     = removed_count / total_neurons  * 100.0
+		perc_assigned  = (removed_count / assigned_count * 100.0) if assigned_count else 0.0
+
 		printf("pruneHiddenNeurons: layer=", layerIndex, ", removed=", removed_count, "/ assigned=", assigned_count, "/ hiddenLayerSizeSANI=", total_neurons, "(", round(perc_assigned, 2), "% of assigned;", round(perc_total,   2), "% of all)")  
 
 	dev     = hiddenNeuronsRemoved.device

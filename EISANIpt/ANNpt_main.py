@@ -211,6 +211,10 @@ def processDataset(trainOrTest, dataset, model):
 			model.executePostTrainPrune(trainOrTest)
 
 		saveModel(model)
+		
+	#if(useAlgorithmEISANI):
+	#	model.executePostTrainPrune(trainOrTest)
+
 					
 def trainBatch(batchIndex, batch, model, optim, l=None, fieldTypeList=None):
 	if(not trainLocal):
