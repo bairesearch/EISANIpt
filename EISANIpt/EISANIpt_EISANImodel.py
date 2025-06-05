@@ -107,6 +107,7 @@ class EISANImodel(nn.Module):
 		self.useEIneurons = useEIneurons
 		self.useDynamicGeneratedHiddenConnections = useDynamicGeneratedHiddenConnections
 		self.useBinaryOutputConnections = useBinaryOutputConnections
+		self.useBinaryOutputConnectionsEffective = useBinaryOutputConnectionsEffective
 		self.segmentActivationThreshold = segmentActivationThreshold
 		self.targetActivationSparsityFraction = targetActivationSparsityFraction
 		self.useOutputConnectionsLastLayer = useOutputConnectionsLastLayer
@@ -177,7 +178,14 @@ class EISANImodel(nn.Module):
 		else:
 			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.float, device=device) # Added device=device
 
-		
+
+		# -------------------------------------------------------------
+		# Hidden-neuron prediction-accuracy tracker
+		#   dim-2: 0 -> #correct, 1 -> #total
+		# -------------------------------------------------------------
+		if(limitOutputConnectionsBasedOnAccuracy):
+			self.hiddenNeuronPredictionAccuracy = torch.zeros(self.numberUniqueLayers, config.hiddenLayerSize, 2, dtype=torch.int64, device=device,)	#2: (correct, total)
+
 		# -----------------------------
 		# verify neuron uniqueness
 		# -----------------------------
@@ -353,12 +361,15 @@ class EISANImodel(nn.Module):
 
 		if self.useOutputConnectionsLastLayer:
 			lastLayerActivation = layerActivations[-1] # Activations from the last hidden layer
-			if self.useBinaryOutputConnections:
-				weights = self.outputConnectionMatrix.to(torch.int8) # bool to int8 (0/1)
-				outputActivations += lastLayerActivation.float() @ weights.float()
+			
+			if self.useBinaryOutputConnectionsEffective:
+				weights = self.outputConnectionMatrix.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
 			else:
-				weights = self.outputConnectionMatrix # float
-				outputActivations += lastLayerActivation.float() @ weights
+				if self.useBinaryOutputConnections:
+					weights = self.outputConnectionMatrix.to(torch.int8) # bool to int8 (0/1)
+				else:
+					weights = self.outputConnectionMatrix # float
+			outputActivations += lastLayerActivation.float() @ weights.float()
 			
 			if trainOrTest and y is not None:
 				# For the last layer, layerIdx is effectively self.config.numberOfHiddenLayers - 1
@@ -376,11 +387,15 @@ class EISANImodel(nn.Module):
 					act = layerActivations[actLayerIndex] # Modified
 					uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
 					weights = self.outputConnectionMatrix[uniqueLayerIndex] # Modified
-					if self.useBinaryOutputConnections:
-						#weights = weights.to(torch.int8) # bool to int8 (0/1)
-						outputActivations += act.float() @ weights.float() # Cast to float for matmul
+					
+					if self.useBinaryOutputConnectionsEffective:
+						weights = weights.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
 					else:
-						outputActivations += act.float() @ weights # cast act to float for matmul
+						if self.useBinaryOutputConnections:
+							weights = weights.to(torch.int8) # bool to int8 (0/1)
+						else:
+							weights = weights
+					outputActivations += act.float() @ weights.float() # cast act to float for matmul
 
 					# Training: reinforce output connections
 					if trainOrTest and y is not None:
@@ -388,7 +403,42 @@ class EISANImodel(nn.Module):
 					actLayerIndex += 1 # Added
 
 		predictions = torch.argmax(outputActivations, dim=1)
-		
+
+		# -----------------------------------------------------------------
+		# Update hidden-neuron accuracy statistics (per-neuron definition)
+		# -----------------------------------------------------------------
+		if(limitOutputConnectionsBasedOnAccuracy and trainOrTest):
+			if y is not None:												# labels available
+				if self.useOutputConnectionsLastLayer:
+					# each neuron appears only once (final hidden layer)
+					neuron_to_class = torch.argmax(self.outputConnectionMatrix, dim=1)		# [H]
+					has_conn        = (self.outputConnectionMatrix != 0).any(dim=1)			# [H]
+				else:
+					# per-layer output matrices
+					neuron_to_class = torch.argmax(self.outputConnectionMatrix, dim=2)		# [L,H]
+					has_conn        = (self.outputConnectionMatrix != 0).any(dim=2)			# [L,H]
+
+				for lidx, act in enumerate(layerActivations):
+					active_mask = (act != 0)												# [B,H]
+
+					if self.useOutputConnectionsLastLayer:
+						pred_class_layer = neuron_to_class
+						conn_layer       = has_conn
+					else:
+						pred_class_layer = neuron_to_class[lidx]								# [H]
+						conn_layer       = has_conn[lidx]									# [H]
+
+					# Only neurons that have at least one output connection participate
+					valid_neuron_mask = conn_layer.unsqueeze(0)								# [1,H] \u2192 broadcast
+
+					label_eq_pred = (pred_class_layer.unsqueeze(0) == y.unsqueeze(1))		# [B,H]
+
+					correct_neuron = active_mask & valid_neuron_mask & label_eq_pred			# [B,H]
+					considered     = active_mask & valid_neuron_mask							# [B,H]
+
+					self.hiddenNeuronPredictionAccuracy[lidx,:,0] += correct_neuron.sum(dim=0)
+					self.hiddenNeuronPredictionAccuracy[lidx,:,1] += considered.sum(dim=0)
+
 		# count how many are exactly correct
 		correct = (predictions == y).sum().item()
 		accuracy = correct / y.size(0)
@@ -538,13 +588,7 @@ class EISANImodel(nn.Module):
 					indices_2d_segment[0] = torch.clamp(indices_2d_segment[0], 0, numNeurons -1)
 					indices_2d_segment[1] = torch.clamp(indices_2d_segment[1], 0, prevSize -1)
 
-					weight_segment_sparse = torch.sparse_coo_tensor(
-						indices_2d_segment, 
-						values_2d_segment, 
-						size=(numNeurons, prevSize), 
-						device=dev, 
-						dtype=weight_matrix.dtype
-					).coalesce()
+					weight_segment_sparse = torch.sparse_coo_tensor(indices_2d_segment, values_2d_segment, size=(numNeurons, prevSize), device=dev, dtype=weight_matrix.dtype).coalesce()
 
 					numeric_values_float = torch.where(weight_segment_sparse.values(), torch.tensor(1.0, device=dev, dtype=torch.float32), torch.tensor(-1.0, device=dev, dtype=torch.float32))
 					weight_eff_float = torch.sparse_coo_tensor(weight_segment_sparse.indices(), numeric_values_float, weight_segment_sparse.shape, device=dev, dtype=torch.float32).coalesce()
@@ -680,8 +724,8 @@ class EISANImodel(nn.Module):
 			if debugMeasureRatioOfHiddenNeuronsWithOutputConnections:
 				measure_ratio_of_hidden_neurons_with_output_connections(self)
 
-			if limitOutputConnectionsBasedOnPrevalenceOrExclusivity:
-				prune_output_connections_based_on_prevalence_and_exclusivity(self)
+			if limitOutputConnections:
+				prune_output_connections_and_hidden_neurons(self)
 				
 				if debugMeasureClassExclusiveNeuronRatio:
 					measure_class_exclusive_neuron_ratio(self)
@@ -719,37 +763,39 @@ def measure_class_exclusive_neuron_ratio(self) -> float:
 	return ratio
 
 ################################################################################
-# Output-connection pruning (iterative, prevalence / exclusivity aware)
+# Output-connection pruning (iterative, prevalence / exclusivity / accuracy aware)
 ################################################################################
-def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
+def prune_output_connections_and_hidden_neurons(self) -> None:
 	"""
-	Iteratively prune output connections starting from the last hidden layer.
+	Iteratively prune output connections and hidden neurons starting from the last hidden layer.
 
-	* Last hidden layer - apply prevalence / exclusivity tests directly.  
-	* Lower layers    - apply the same tests *but* keep every neuron that
-	  still feeds any higher-layer hidden neuron.  
-	* After each layer pass, call pruneHiddenNeurons() so weight matrices,
-	  signatures and masks stay consistent.
+	* Last hidden layer - apply prevalence / exclusivity / accuracy tests directly.  
+	* Lower layers    - apply the same tests *but* keep every neuron that still feeds any higher-layer hidden neuron.  
+	* After each layer pass, call pruneHiddenNeurons() so weight matrices, signatures and masks stay consistent.
 
 	This function assumes:
-	    - self.outputConnectionMatrix is     [hidden,   C]  when
-	      self.useOutputConnectionsLastLayer == True
-	      ...otherwise                          [Lhidden, hidden, C]
+	    - when self.useOutputConnectionsLastLayer == True: self.outputConnectionMatrix is [hidden,   C]
+	    - when self.useOutputConnectionsLastLayer == False: self.outputConnectionMatrix is [Lhidden, hidden, C]
 	"""
 	# ------------------------------------------------------------------
-	def _keep_mask(weights: torch.Tensor) -> torch.Tensor:         # bool same shape
+	def _keep_mask(lidx: int, weights: torch.Tensor) -> torch.Tensor:         # bool same shape
+		
+		mask = torch.ones_like(weights, dtype=torch.bool)
 		if limitOutputConnectionsBasedOnPrevalence:
 			prevalent = weights > limitOutputConnectionsPrevalenceMin
-		else:
-			prevalent = torch.ones_like(weights, dtype=torch.bool)
+			mask &= prevalent
 
 		if limitOutputConnectionsBasedOnExclusivity:
 			exclusive = (weights.sum(dim=1, keepdim=True) == 1)
-		else:
-			exclusive = torch.ones_like(weights, dtype=torch.bool)
+			mask &= exclusive
+	
+		if(limitOutputConnectionsBasedOnAccuracy):
+			acc_layer = self.hiddenNeuronPredictionAccuracy[lidx, :, 0].float() / self.hiddenNeuronPredictionAccuracy[lidx, :, 1].clamp(min=1).float()
+			accurate  = (acc_layer > limitOutputConnectionsAccuracyMin).unsqueeze(1).expand_as(weights)
+			mask &= accurate
+		
+		return mask
 
-		return prevalent & exclusive if (limitOutputConnectionsBasedOnPrevalence
-		                                 and limitOutputConnectionsBasedOnExclusivity) 		     else prevalent if limitOutputConnectionsBasedOnPrevalence 		     else exclusive
 	# ------------------------------------------------------------------
 	def _set_kept(mat: torch.Tensor, keep: torch.Tensor) -> None:  # in-place
 		if useBinaryOutputConnectionsEffective:
@@ -765,8 +811,7 @@ def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
 
 		for upper in range(layer_idx + 1, self.numberUniqueLayers):
 			if self.useEIneurons:
-				mats = (self.hiddenConnectionMatrixExcitatory[upper],
-						self.hiddenConnectionMatrixInhibitory[upper])
+				mats = (self.hiddenConnectionMatrixExcitatory[upper], self.hiddenConnectionMatrixInhibitory[upper])
 			else:
 				mats = (self.hiddenConnectionMatrix[upper],)
 			for m in mats:
@@ -778,28 +823,27 @@ def prune_output_connections_based_on_prevalence_and_exclusivity(self) -> None:
 		return used
 	# ==================================================================
 
-	# -------- Case A: only final hidden layer owns output connections ---
 	if self.useOutputConnectionsLastLayer:
+		# -------- Case A: only final hidden layer owns output connections ---
 		oc   = self.outputConnectionMatrix                     # [hidden, C]
-		keep = _keep_mask(oc)
+		keep = _keep_mask(self.numberUniqueLayers-1, oc)
 		_set_kept(oc, keep)
 
 		removed = ~(oc != 0).any(dim=1)                        # neurons now dead
 		pruneHiddenNeurons(self, self.numberUniqueLayers - 1, removed)
-		return
+	else:
+		# -------- Case B: every hidden layer owns output connections --------
+		for l in reversed(range(self.numberUniqueLayers)):
+			oc_layer = self.outputConnectionMatrix[l]              # [hidden, C]
+			keep = _keep_mask(l, oc_layer)
 
-	# -------- Case B: every hidden layer owns output connections --------
-	for l in reversed(range(self.numberUniqueLayers)):
-		oc_layer = self.outputConnectionMatrix[l]              # [hidden, C]
-		keep     = _keep_mask(oc_layer)
+			if l < self.numberUniqueLayers - 1:                    # not topmost
+				keep |= _still_used(l).unsqueeze(1)                # retain required ones
 
-		if l < self.numberUniqueLayers - 1:                    # not topmost
-			keep |= _still_used(l).unsqueeze(1)                # retain required ones
+			_set_kept(oc_layer, keep)
 
-		_set_kept(oc_layer, keep)
-
-		removed = ~(oc_layer != 0).any(dim=1)                  # [hidden]
-		pruneHiddenNeurons(self, l, removed)
+			removed = ~(oc_layer != 0).any(dim=1)                  # [hidden]
+			pruneHiddenNeurons(self, l, removed)
 
 ################################################################################
 # Hidden-neuron pruning helper
@@ -818,15 +862,7 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 	if not hiddenNeuronsRemoved.any():
 		return	# no work
 
-	if(debugLimitOutputConnectionsBasedOnExclusivity):
-		'''
-		removed_count = hiddenNeuronsRemoved.sum().item()
-		total_neurons = hiddenNeuronsRemoved.numel()                # hiddenLayerSizeSANI
-		assigned_mask  = self.neuronSegmentAssignedMask[layerIndex].any(dim=1)
-		assigned_count = assigned_mask.sum().item()
-		perc_total    = removed_count / total_neurons  * 100.0
-		perc_assigned = (removed_count / assigned_count * 100.0) if assigned_count else 0.0
-		'''
+	if(debugLimitOutputConnections):
 		total_neurons  = hiddenNeuronsRemoved.numel()                   # hiddenLayerSizeSANI
 		assigned_mask   = self.neuronSegmentAssignedMask[layerIndex].any(dim=1)
 		assigned_count  = assigned_mask.sum().item()
@@ -834,7 +870,6 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 		removed_count         = removed_assigned_mask.sum().item()      # \u2190 intersection
 		perc_total     = removed_count / total_neurons  * 100.0
 		perc_assigned  = (removed_count / assigned_count * 100.0) if assigned_count else 0.0
-
 		printf("pruneHiddenNeurons: layer=", layerIndex, ", removed=", removed_count, "/ assigned=", assigned_count, "/ hiddenLayerSizeSANI=", total_neurons, "(", round(perc_assigned, 2), "% of assigned;", round(perc_total,   2), "% of all)")  
 
 	dev     = hiddenNeuronsRemoved.device
@@ -849,9 +884,7 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 			idx = mat.indices()
 			val = mat.values()
 			keep = ~mask[idx[0]]
-			return torch.sparse_coo_tensor(idx[:, keep], val[keep],
-			                               size=mat.shape,
-			                               dtype=mat.dtype, device=mat.device).coalesce()
+			return torch.sparse_coo_tensor(idx[:, keep], val[keep], size=mat.shape, dtype=mat.dtype, device=mat.device).coalesce()
 		else:
 			mat[mask] = 0
 			return mat
@@ -874,13 +907,10 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 		ex_rm = hiddenNeuronsRemoved[:H_exc]
 		ih_rm = hiddenNeuronsRemoved[H_exc:]
 
-		self.hiddenConnectionMatrixExcitatory[layerIndex] = _prune_rows(
-			self.hiddenConnectionMatrixExcitatory[layerIndex], ex_rm)
-		self.hiddenConnectionMatrixInhibitory[layerIndex] = _prune_rows(
-			self.hiddenConnectionMatrixInhibitory[layerIndex], ih_rm)
+		self.hiddenConnectionMatrixExcitatory[layerIndex] = _prune_rows(self.hiddenConnectionMatrixExcitatory[layerIndex], ex_rm)
+		self.hiddenConnectionMatrixInhibitory[layerIndex] = _prune_rows(self.hiddenConnectionMatrixInhibitory[layerIndex], ih_rm)
 	else:
-		self.hiddenConnectionMatrix[layerIndex] = _prune_rows(
-			self.hiddenConnectionMatrix[layerIndex], hiddenNeuronsRemoved)
+		self.hiddenConnectionMatrix[layerIndex] = _prune_rows(self.hiddenConnectionMatrix[layerIndex], hiddenNeuronsRemoved)
 
 	# ---- dynamic-growth bookkeeping -----------------------------------
 	if self.useDynamicGeneratedHiddenConnections:

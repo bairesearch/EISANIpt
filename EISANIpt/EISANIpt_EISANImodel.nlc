@@ -180,7 +180,7 @@ Please upgrade the entire EISANI codebase to support recursive layers (recursive
 					actLayerIndex += 1
 
 ---
-limitOutputConnectionsBasedOnPrevalenceOrExclusivity (o3 prompt);
+limitOutputConnectionsBasedOnPrevalence/limitOutputConnectionsBasedOnExclusivity (o3 prompt);
 
 Please upgrade the implementation of prune_output_connections_based_on_prevalence_and_exclusivity (limitOutputConnectionsBasedOnPrevalenceOrExclusivity=True);
 - prune across layers iteratively (starting with the last hidden layer):
@@ -189,3 +189,12 @@ Please upgrade the implementation of prune_output_connections_based_on_prevalenc
 	- prune hidden neurons without any output connections (that have had all of their output connections pruned); 
 		- create bool tensor hiddenNeuronsRemoved to define which hidden neurons must be removed.
 		- execute new function pruneHiddenNeurons(layerIndex) to update self.hiddenConnectionMatrix*, self.hiddenNeuronSignatures* and self.neuronSegmentAssignedMask based on neurons recently removed in the layer (hiddenNeuronsRemoved).
+
+limitOutputConnectionsBasedOnAccuracy (o3 prompt);
+
+Thanks, please now;
+- assume a global bool called limitOutputConnectionsBasedOnAccuracy is defined.
+- create a new pytorch tensor called hiddenNeuronPredictionAccuracy, which records an effective tuple representing the class prediction accuracy of each hidden neuron in each layer of the network. Provide a diff of the init() function with this change.
+- rename the function prune_output_connections_based_on_prevalence_and_exclusivity() to prune_output_connections_and_hidden_neurons(), and add option limitOutputConnectionsBasedOnAccuracy. Provide a diff of the prune_output_connections_and_hidden_neurons() function containing this change.
+- update the hiddenNeuronPredictionAccuracy tensor every time the forward function is executed. Provide a diff of the forward() function containing this change.
+

@@ -24,7 +24,7 @@ debugEISANIfractionActivated = False	#print fractionActive of each layer
 debugMeasureClassExclusiveNeuronRatio = False	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
 debugMeasureRatioOfHiddenNeuronsWithOutputConnections = False	#measure ratio of hidden neurons with output connections to those without output connections
 debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
-debugLimitOutputConnectionsBasedOnExclusivity = True
+debugLimitOutputConnections = True
 
 useDefaultNumNeuronsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
@@ -100,7 +100,7 @@ if(useInitOrigParam):
 	datasetEqualiseClassSamples = False	
 	datasetEqualiseClassSamplesTest = False	
 	useMultipleTrainEpochsSmallDatasetsOnly = True #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
-	limitOutputConnectionsBasedOnPrevalenceOrExclusivity = False
+	limitOutputConnections = False
 else:
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
 	encodeDatasetBoolValuesAs1Bit = True
@@ -111,14 +111,17 @@ else:
 	datasetEqualiseClassSamplesTest = False	#default: False	
 	useMultipleTrainEpochsSmallDatasetsOnly = False
 	limitOutputConnectionsBasedOnPrevalence = False	#optional	#limit output connectivity to prevelant hidden neurons (used to prune network output connections and unused hidden neuron segments)
-	limitOutputConnectionsBasedOnExclusivity = False	#mandatory: False (lowers accuracy significantly)	#limit output connectivity to class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
-	if(limitOutputConnectionsBasedOnPrevalence or limitOutputConnectionsBasedOnExclusivity):
-		limitOutputConnectionsBasedOnPrevalenceOrExclusivity = True
+	limitOutputConnectionsBasedOnExclusivity = False	#experimental	#limit output connectivity to class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
+	limitOutputConnectionsBasedOnAccuracy = False	#experimental	#limit output connectivity to accurate hidden neurons; associated output class predictions observed during training (used to prune network output connections and unused hidden neuron segments)
+	if(limitOutputConnectionsBasedOnPrevalence or limitOutputConnectionsBasedOnExclusivity or limitOutputConnectionsBasedOnAccuracy):
+		limitOutputConnections = True
 		limitOutputConnectionsPrevalenceMin = 5	#minimum connection weight to be retained after pruning
+		limitOutputConnectionsAccuracyMin = 0.5	#minimum train prediction accuracy to be retained after pruning
 		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
 		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
 	else:
-		limitOutputConnectionsBasedOnPrevalenceOrExclusivity = False
+		limitOutputConnections = False
+		useBinaryOutputConnectionsEffective = False
 		
 recursiveLayers = False	#default: False
 if(recursiveLayers): 

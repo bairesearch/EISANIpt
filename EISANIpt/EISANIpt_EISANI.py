@@ -51,7 +51,6 @@ def createModel(dataset):
 	print("\t numberNeuronsGeneratedPerSample = ", numberNeuronsGeneratedPerSample)
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
-	print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
 
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,
