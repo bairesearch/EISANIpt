@@ -81,7 +81,7 @@ def perform_uniqueness_check(
 	"""
 	h = _hash_connections(cols.unsqueeze(0), w.unsqueeze(0))[0]   # int64
 
-	if self.useEIneurons:
+	if useEIneurons:
 		half = self.config.hiddenLayerSize // 2
 		if newNeuronIdx < half:
 			bank = self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] # Modified
@@ -98,7 +98,7 @@ def perform_uniqueness_check(
 		return False
 
 	# record new hash
-	if self.useEIneurons:
+	if useEIneurons:
 		if newNeuronIdx < half:
 			self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 		else:
@@ -126,7 +126,7 @@ def perform_uniqueness_check_vectorised(
 	"""
 	hashes = _hash_connections(colsBatch, wBatch)        # (G,)
 
-	if self.useEIneurons:
+	if useEIneurons:
 		half = self.config.hiddenLayerSize // 2
 		isExc = newRows < half
 
@@ -179,7 +179,7 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, seg
 	
 	sig_new = _build_signature(self, randIdx, weights)
 
-	if self.useEIneurons:
+	if useEIneurons:
 		half = cfg.hiddenLayerSize // 2
 		if newNeuronIdx < half:
 			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
@@ -206,7 +206,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 	dup_found = False
 	keep_list = []
 	
-	if self.useEIneurons:
+	if useEIneurons:
 		half = cfg.hiddenLayerSize // 2
 		# keep_mask = [] # Original comment, assuming keep_list is used
 		for r, sig in zip(newRows.tolist(), batchSigs):
@@ -250,7 +250,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 	fractionActive = batchActiveMask.float().mean().item()
 	if(debugEISANIfractionActivated):
 		printf("fractionActive = ", fractionActive)
-	if fractionActive >= self.targetActivationSparsityFraction:
+	if fractionActive >= targetActivationSparsityFraction:
 		return  # sparsity satisfied
 
 	# Need to activate a new neuron (one per call)
@@ -302,7 +302,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 	#presyn   = prevActivation[0]						 # [prevSize] 0./1.	#orig
 	presyn   = (prevActivation > 0).any(dim=0).float()   # [prevSize] 0./1.
 
-	if self.useEIneurons:
+	if useEIneurons:
 		# -------------------------------------------------------
 		# implementation 1d: Sample synapses - 50% active, 50% inactive
 		# For useEIneurons=True;
@@ -416,7 +416,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 			return
 			
 	# Update hidden connection matrix
-	if self.useEIneurons:
+	if useEIneurons:
 		# Decide whether the new neuron is excitatory or inhibitory based on index
 		half = self.config.hiddenLayerSize // 2
 		if newNeuronIdx < half:
@@ -454,9 +454,9 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 			mat[relativeIdx, segmentIndexToUpdate, randIdx] = weights # Modified for 3D dense
 		matNew = mat
 
-	if self.useEIneurons and newNeuronIdx >= half:
+	if useEIneurons and newNeuronIdx >= half:
 		self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew.to(device) #ensure device consistency
-	elif self.useEIneurons:
+	elif useEIneurons:
 		self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew.to(device) #ensure device consistency
 	else:
 		self.hiddenConnectionMatrix[layerIdx] = matNew.to(device) #ensure device consistency
@@ -479,7 +479,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	fracAct = currActivation.float().mean(dim=1)				 # [B]
 	if(debugEISANIfractionActivated):
 		print("fracAct = ", fracAct)
-	growMask = fracAct < self.targetActivationSparsityFraction   # bool [B]
+	growMask = fracAct < targetActivationSparsityFraction   # bool [B]
 	if not growMask.any():
 		return
 
@@ -514,7 +514,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	nI = k - nA
 
 	# EI-aware pools -----------------------------------------------------------
-	if self.useEIneurons:
+	if useEIneurons:
 		halfPrev = P // 2
 		isExcPre = torch.arange(P, device=device) < halfPrev   # [P] bool
 		isInhPre = ~isExcPre
@@ -582,7 +582,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	flatPrevNeuronIndices = colIdx.reshape(-1) # [G*k] - these are the presynaptic neuron indices
 	flatVals = weights.reshape(-1) # [G*k]
 
-	if self.useEIneurons:
+	if useEIneurons:
 		# ---------- 5. write to weight matrix (sparse or dense) ------------------
 		half = cfg.hiddenLayerSize // 2
 		# excMask = newRows < half						# [G] bool # Not needed here, use flatNeuronIndices
@@ -620,7 +620,7 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 						# This logic should align with how weights are determined for int8 dense elsewhere
 						# For simplicity, assuming EI means valsSel are effectively 1 (True)
 						# and non-EI means valsSel could be True (1) or False (-1)
-						if self.useEIneurons: # context of merge_into being called
+						if useEIneurons: # context of merge_into being called
 							mat[rowsRel, segmentIdx, colsSel] = valsSel.to(torch.int8) # True -> 1
 						else:
 							mat[rowsRel, segmentIdx, colsSel] = torch.where(valsSel, # Modified

@@ -165,7 +165,7 @@ Please upgrade the entire EISANI codebase to support recursive layers (recursive
 				pass uniqueLayerIndex to _compute_layer_EI/_compute_layer_standard (layerIdx argument)
 				pass uniqueLayerIndex to _dynamic_hidden_growth_vectorised/_dynamic_hidden_growth (layerIdx argument)
 	update output connections logic;
-		if self.useOutputConnectionsLastLayer;
+		if useOutputConnectionsLastLayer;
 			...	#same
 		else:
 			actLayerIndex = 0
@@ -192,9 +192,13 @@ Please upgrade the implementation of prune_output_connections_based_on_prevalenc
 
 limitOutputConnectionsBasedOnAccuracy (o3 prompt);
 
-Thanks, please now;
+please now;
 - assume a global bool called limitOutputConnectionsBasedOnAccuracy is defined.
 - create a new pytorch tensor called hiddenNeuronPredictionAccuracy, which records an effective tuple representing the class prediction accuracy of each hidden neuron in each layer of the network. Provide a diff of the init() function with this change.
 - rename the function prune_output_connections_based_on_prevalence_and_exclusivity() to prune_output_connections_and_hidden_neurons(), and add option limitOutputConnectionsBasedOnAccuracy. Provide a diff of the prune_output_connections_and_hidden_neurons() function containing this change.
 - update the hiddenNeuronPredictionAccuracy tensor every time the forward function is executed. Provide a diff of the forward() function containing this change.
 
+Please update this code to perform a softer max (instead of argmax) to determine if a hidden neuron correctly predicts the class target y;
+- normalise output connection weights; weights = self.normaliseOutputConnectionWeights(self.outputConnectionMatrix)
+- take a softmax across every hidden neuron's output connection weights (dim output neurons)
+- a hidden neuron correctly predicts the class target y if its softmax output connection weight is above some threshold (limitOutputConnectionsSoftmaxWeightMin=0.5).

@@ -45,12 +45,16 @@ def createModel(dataset):
 	print("\t outputLayerSize (numberOfClasses) = ", numberOfClasses)
 	print("\t numberOfSynapsesPerSegment = ", numberOfSynapsesPerSegment)
 	print("\t ---")
+	print("\t useBinaryOutputConnections = ", useBinaryOutputConnections)
 	print("\t useDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
 	print("\t useEIneurons = ", useEIneurons)
 	print("\t continuousVarEncodingNumBits = ", continuousVarEncodingNumBits)
 	print("\t numberNeuronsGeneratedPerSample = ", numberNeuronsGeneratedPerSample)
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
+	print("\t useOutputConnectionsNormalised = ", useOutputConnectionsNormalised)
+	print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
+	print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)
 
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,

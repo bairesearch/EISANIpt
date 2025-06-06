@@ -63,7 +63,6 @@ numberOfSegmentsPerNeuron = 1 #number of segments per neuron
 segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based on dataset index. Using 0 as a placeholder.
 
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
-useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 if(useDefaultNumNeuronsParam):
 	continuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
 	numberNeuronsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
@@ -92,6 +91,7 @@ else:
 	useDefaultNumLayersParam = False	#disable to increase number of layers
 
 if(useInitOrigParam):
+	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
 	encodeDatasetBoolValuesAs1Bit = False
 	if(encodeDatasetBoolValuesAs1Bit):
@@ -101,7 +101,10 @@ if(useInitOrigParam):
 	datasetEqualiseClassSamplesTest = False	
 	useMultipleTrainEpochsSmallDatasetsOnly = True #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
 	limitOutputConnections = False
+	useBinaryOutputConnectionsEffective = False
+	useOutputConnectionsNormalised = False
 else:
+	useBinaryOutputConnections = False	#use binary weighted connections from hidden neurons to output neurons
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = True
 	encodeDatasetBoolValuesAs1Bit = True
 	if(encodeDatasetBoolValuesAs1Bit):
@@ -112,17 +115,24 @@ else:
 	useMultipleTrainEpochsSmallDatasetsOnly = False
 	limitOutputConnectionsBasedOnPrevalence = False	#optional	#limit output connectivity to prevelant hidden neurons (used to prune network output connections and unused hidden neuron segments)
 	limitOutputConnectionsBasedOnExclusivity = False	#experimental	#limit output connectivity to class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
-	limitOutputConnectionsBasedOnAccuracy = False	#experimental	#limit output connectivity to accurate hidden neurons; associated output class predictions observed during training (used to prune network output connections and unused hidden neuron segments)
+	limitOutputConnectionsBasedOnAccuracy = False	#optional	#limit output connectivity to accurate hidden neurons; associated output class predictions observed during training (used to prune network output connections and unused hidden neuron segments)
+	useBinaryOutputConnectionsEffective = False
 	if(limitOutputConnectionsBasedOnPrevalence or limitOutputConnectionsBasedOnExclusivity or limitOutputConnectionsBasedOnAccuracy):
 		limitOutputConnections = True
-		limitOutputConnectionsPrevalenceMin = 5	#minimum connection weight to be retained after pruning
+		limitOutputConnectionsPrevalenceMin = 5	#minimum connection weight to be retained after pruning (unnormalised)
 		limitOutputConnectionsAccuracyMin = 0.5	#minimum train prediction accuracy to be retained after pruning
-		useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
-		useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
+		limitOutputConnectionsSoftmaxWeightMin = 0.5	#minimum hidden neuron normalised+softmax output connection weight to accept as predictive of output class y (ie accurate=True)
+		if(useBinaryOutputConnections):
+			useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
+			useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
 	else:
 		limitOutputConnections = False
-		useBinaryOutputConnectionsEffective = False
-		
+	if(useBinaryOutputConnections):
+		useOutputConnectionsNormalised = False
+	else:
+		useOutputConnectionsNormalised = True	#uses tanh to normalise output connection weights between 0 and 1
+		useOutputConnectionsNormalisationRange = 1.0	#divide tanh input by useOutputConnectionsNormalisationRange
+
 recursiveLayers = False	#default: False
 if(recursiveLayers): 
 	recursiveSuperblocks = False	#default: False
