@@ -202,3 +202,10 @@ Please update this code to perform a softer max (instead of argmax) to determine
 - normalise output connection weights; weights = self.normaliseOutputConnectionWeights(self.outputConnectionMatrix)
 - take a softmax across every hidden neuron's output connection weights (dim output neurons)
 - a hidden neuron correctly predicts the class target y if its softmax output connection weight is above some threshold (limitOutputConnectionsSoftmaxWeightMin=0.5).
+
+---
+!useInhibition (Claude Sonnet 4 prompt);
+
+Please upgrade EISANIpt_EISANImodel.py and EISANIpt_EISANImodelDynamic.py to support option useInhibition=False;
+Do not create or assign any inhibitory neurons (if useEIneurons=True) or synapses (if useEIneurons=False).
+

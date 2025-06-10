@@ -49,7 +49,8 @@ if(useImageDataset):
 	trainNumberOfEpochsHigh = False	#default: False
 else:
 	useTabularDataset = True
-	
+
+useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
@@ -78,11 +79,13 @@ if(useDynamicGeneratedHiddenConnections):
 else:
 	hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
 	initialiseSANIlayerWeightsUsingCPU = False 	#optional
-		
+	
 if(useDefaultSegmentSizeParam):
 	numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 	segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
 	useActiveBias = True	#bias positive (ceil) for odd k
+	if(not useInhibition):
+		numberOfSynapsesPerSegment = numberOfSynapsesPerSegment-1
 else:
 	numberOfSynapsesPerSegment = 3	#default: 3
 	segmentActivationThreshold = 2	#default: 2 #allowing for 1 non inhibited mismatch redundancy

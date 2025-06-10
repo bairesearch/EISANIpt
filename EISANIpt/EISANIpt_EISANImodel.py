@@ -140,12 +140,20 @@ class EISANImodel(nn.Module):
 
 		for layerIdx in range(self.numberUniqueLayers): # Modified
 			if useEIneurons: # Corrected: use useEIneurons
-				excitSize = config.hiddenLayerSize // 2
-				inhibSize = config.hiddenLayerSize - excitSize
+				if useInhibition:
+					excitSize = config.hiddenLayerSize // 2
+					inhibSize = config.hiddenLayerSize - excitSize
+				else:
+					excitSize = config.hiddenLayerSize  # All neurons are excitatory
+					inhibSize = 0
 				excMat = self._initialise_layer_weights(excitSize, prevSize, layerIdx) # Corrected: added layerIdx
-				inhMat = self._initialise_layer_weights(inhibSize, prevSize, layerIdx) # Corrected: added layerIdx
 				self.hiddenConnectionMatrixExcitatory.append(excMat)
-				self.hiddenConnectionMatrixInhibitory.append(inhMat)
+				if useInhibition and inhibSize > 0:
+					inhMat = self._initialise_layer_weights(inhibSize, prevSize, layerIdx) # Corrected: added layerIdx
+					self.hiddenConnectionMatrixInhibitory.append(inhMat)
+				else:
+					# Create empty inhibitory matrix when inhibition is disabled
+					self.hiddenConnectionMatrixInhibitory.append(torch.empty(0, numberOfSegmentsPerNeuron, prevSize, device=device))
 			else:
 				mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, layerIdx) # Corrected: added layerIdx
 				self.hiddenConnectionMatrix.append(mat)
@@ -620,11 +628,16 @@ class EISANImodel(nn.Module):
 		# prevActivation is torch.int8 (0 or 1), shape [B, prevSize]
 		dev  = prevActivation.device
 		wExc_3d = self.hiddenConnectionMatrixExcitatory[layerIdx].to(dev) # [numExcNeurons, numSegments, prevSize]
-		wInh_3d = self.hiddenConnectionMatrixInhibitory[layerIdx].to(dev) # [numInhNeurons, numSegments, prevSize]
 		
 		B = prevActivation.shape[0]
 		numExcNeurons, numSegments, _ = wExc_3d.shape
-		numInhNeurons, _, _ = wInh_3d.shape
+		
+		if useInhibition and self.hiddenConnectionMatrixInhibitory[layerIdx].numel() > 0:
+			wInh_3d = self.hiddenConnectionMatrixInhibitory[layerIdx].to(dev) # [numInhNeurons, numSegments, prevSize]
+			numInhNeurons, _, _ = wInh_3d.shape
+		else:
+			wInh_3d = None
+			numInhNeurons = 0
 
 		# Excitatory
 		if wExc_3d.is_sparse:
@@ -654,34 +667,39 @@ class EISANImodel(nn.Module):
 		aExc = self._neuronActivationFunction(zExc_float_all_segments).to(torch.int8)  # [B, numExcNeurons] (0 or 1)
 		
 		# Inhibitory
-		if wInh_3d.is_sparse:
-			segment_activations_list_inh = []
-			wInh_3d_coalesced = wInh_3d.coalesce()
-			indices_3d_inh = wInh_3d_coalesced.indices()
-			values_3d_inh = wInh_3d_coalesced.values()
-			for s_idx in range(numSegments):
-				mask_segment_inh = indices_3d_inh[1] == s_idx
-				if mask_segment_inh.any():
-					indices_2d_segment_inh = indices_3d_inh[[0, 2]][:, mask_segment_inh]
-					values_2d_segment_inh = values_3d_inh[mask_segment_inh]
-					indices_2d_segment_inh[0] = torch.clamp(indices_2d_segment_inh[0], 0, numInhNeurons -1)
-					indices_2d_segment_inh[1] = torch.clamp(indices_2d_segment_inh[1], 0, prevActivation.shape[1] -1)
+		if useInhibition and wInh_3d is not None:
+			if wInh_3d.is_sparse:
+				segment_activations_list_inh = []
+				wInh_3d_coalesced = wInh_3d.coalesce()
+				indices_3d_inh = wInh_3d_coalesced.indices()
+				values_3d_inh = wInh_3d_coalesced.values()
+				for s_idx in range(numSegments):
+					mask_segment_inh = indices_3d_inh[1] == s_idx
+					if mask_segment_inh.any():
+						indices_2d_segment_inh = indices_3d_inh[[0, 2]][:, mask_segment_inh]
+						values_2d_segment_inh = values_3d_inh[mask_segment_inh]
+						indices_2d_segment_inh[0] = torch.clamp(indices_2d_segment_inh[0], 0, numInhNeurons -1)
+						indices_2d_segment_inh[1] = torch.clamp(indices_2d_segment_inh[1], 0, prevActivation.shape[1] -1)
 
-					wInh_segment_sparse = torch.sparse_coo_tensor(indices_2d_segment_inh, values_2d_segment_inh, size=(numInhNeurons, prevActivation.shape[1]), device=dev, dtype=wInh_3d.dtype).coalesce()
-					numeric_values_inh_float = wInh_segment_sparse.values().to(torch.float32)
-					wInh_eff_float = torch.sparse_coo_tensor(wInh_segment_sparse.indices(), numeric_values_inh_float, wInh_segment_sparse.shape, device=dev, dtype=torch.float32).coalesce()
-					zInh_segment_float = torch.sparse.mm(wInh_eff_float, prevActivation.float().t()).t()
-				else:
-					zInh_segment_float = torch.zeros(B, numInhNeurons, device=dev, dtype=torch.float32)
-				segment_activations_list_inh.append(zInh_segment_float.unsqueeze(2))
-			zInh_float_all_segments = torch.cat(segment_activations_list_inh, dim=2) # [B, numInhNeurons, numSegments]
-		else: # dense
-			zInh_float_all_segments = torch.einsum('bp,nsp->bns', prevActivation.float(), wInh_3d.float()) # [B, numInhNeurons, numSegments]
+						wInh_segment_sparse = torch.sparse_coo_tensor(indices_2d_segment_inh, values_2d_segment_inh, size=(numInhNeurons, prevActivation.shape[1]), device=dev, dtype=wInh_3d.dtype).coalesce()
+						numeric_values_inh_float = wInh_segment_sparse.values().to(torch.float32)
+						wInh_eff_float = torch.sparse_coo_tensor(wInh_segment_sparse.indices(), numeric_values_inh_float, wInh_segment_sparse.shape, device=dev, dtype=torch.float32).coalesce()
+						zInh_segment_float = torch.sparse.mm(wInh_eff_float, prevActivation.float().t()).t()
+					else:
+						zInh_segment_float = torch.zeros(B, numInhNeurons, device=dev, dtype=torch.float32)
+					segment_activations_list_inh.append(zInh_segment_float.unsqueeze(2))
+				zInh_float_all_segments = torch.cat(segment_activations_list_inh, dim=2) # [B, numInhNeurons, numSegments]
+			else: # dense
+				zInh_float_all_segments = torch.einsum('bp,nsp->bns', prevActivation.float(), wInh_3d.float()) # [B, numInhNeurons, numSegments]
 
-		firesInh_neuron = self._neuronActivationFunction(zInh_float_all_segments) # [B, numInhNeurons] (bool)
+			firesInh_neuron = self._neuronActivationFunction(zInh_float_all_segments) # [B, numInhNeurons] (bool)
+			
+			aInh = torch.zeros(B, numInhNeurons, dtype=torch.int8, device=dev) # Initialize with correct shape, device and int8 type
+			aInh[firesInh_neuron] = -1
+		else:
+			# No inhibitory neurons when inhibition is disabled
+			aInh = torch.zeros(B, 0, dtype=torch.int8, device=dev)
 		
-		aInh = torch.zeros(B, numInhNeurons, dtype=torch.int8, device=dev) # Initialize with correct shape, device and int8 type
-		aInh[firesInh_neuron] = -1
 		return aExc, aInh
 
 	def _segmentActivationFunction(self, z_all_segments):
@@ -909,12 +927,16 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 
 	# ---- prune hidden - hidden weight matrices ----
 	if useEIneurons:
-		H_exc = H_total // 2
-		ex_rm = hiddenNeuronsRemoved[:H_exc]
-		ih_rm = hiddenNeuronsRemoved[H_exc:]
+		if useInhibition:
+			H_exc = H_total // 2
+			ex_rm = hiddenNeuronsRemoved[:H_exc]
+			ih_rm = hiddenNeuronsRemoved[H_exc:]
+			self.hiddenConnectionMatrixInhibitory[layerIndex] = _prune_rows(self.hiddenConnectionMatrixInhibitory[layerIndex], ih_rm)
+		else:
+			H_exc = H_total  # All neurons are excitatory
+			ex_rm = hiddenNeuronsRemoved
 
 		self.hiddenConnectionMatrixExcitatory[layerIndex] = _prune_rows(self.hiddenConnectionMatrixExcitatory[layerIndex], ex_rm)
-		self.hiddenConnectionMatrixInhibitory[layerIndex] = _prune_rows(self.hiddenConnectionMatrixInhibitory[layerIndex], ih_rm)
 	else:
 		self.hiddenConnectionMatrix[layerIndex] = _prune_rows(self.hiddenConnectionMatrix[layerIndex], hiddenNeuronsRemoved)
 
@@ -924,8 +946,11 @@ def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
 		if useEIneurons:
-			H_exc = H_total // 2
-			_purge_sigs(self.hiddenNeuronSignaturesExc[layerIndex], hiddenNeuronsRemoved[:H_exc])
-			_purge_sigs(self.hiddenNeuronSignaturesInh[layerIndex], hiddenNeuronsRemoved[H_exc:])
+			if useInhibition:
+				H_exc = H_total // 2
+				_purge_sigs(self.hiddenNeuronSignaturesExc[layerIndex], hiddenNeuronsRemoved[:H_exc])
+				_purge_sigs(self.hiddenNeuronSignaturesInh[layerIndex], hiddenNeuronsRemoved[H_exc:])
+			else:
+				_purge_sigs(self.hiddenNeuronSignaturesExc[layerIndex], hiddenNeuronsRemoved)
 		else:
 			_purge_sigs(self.hiddenNeuronSignatures[layerIndex], hiddenNeuronsRemoved)

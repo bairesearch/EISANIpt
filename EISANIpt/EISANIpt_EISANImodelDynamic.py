@@ -20,6 +20,7 @@ EISANIpt model dynamic neuron segment connection assignment
 import torch
 from ANNpt_globalDefs import *
 import EISANIpt_EISANImodelDynamic
+from EISANIpt_EISANI_globalDefs import useInhibition
 
 
 # ---------------------------------------------------------
@@ -180,11 +181,15 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, seg
 	sig_new = _build_signature(self, randIdx, weights)
 
 	if useEIneurons:
-		half = cfg.hiddenLayerSize // 2
-		if newNeuronIdx < half:
-			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+		if useInhibition:
+			half = cfg.hiddenLayerSize // 2
+			if newNeuronIdx < half:
+				sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+			else:
+				sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
 		else:
-			sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
+			# All neurons are excitatory when inhibition is disabled
+			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
 	else:
 		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
 
@@ -207,19 +212,30 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 	keep_list = []
 	
 	if useEIneurons:
-		half = cfg.hiddenLayerSize // 2
-		# keep_mask = [] # Original comment, assuming keep_list is used
-		for r, sig in zip(newRows.tolist(), batchSigs):
-			if r < half:
-				sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
-			else:
-				sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
-			if sig in sigDict:
-				keep_list.append(False)
-				dup_found = True
-			else:
-				keep_list.append(True)
-				sigDict[sig] = True			# record & keep
+		if useInhibition:
+			half = cfg.hiddenLayerSize // 2
+			# keep_mask = [] # Original comment, assuming keep_list is used
+			for r, sig in zip(newRows.tolist(), batchSigs):
+				if r < half:
+					sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+				else:
+					sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
+				if sig in sigDict:
+					keep_list.append(False)
+					dup_found = True
+				else:
+					keep_list.append(True)
+					sigDict[sig] = True			# record & keep
+		else:
+			# All neurons are excitatory when inhibition is disabled
+			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+			for sig in batchSigs:
+				if sig in sigDict:
+					keep_list.append(False)
+					dup_found = True
+				else:
+					keep_list.append(True)
+					sigDict[sig] = True
 	else:
 		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
 		for sig in batchSigs:
@@ -310,45 +326,67 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		# - the inhibitory neuron segment connections should be defined based on 50% inactive presynaptic layer excitatory neurons, and 50% active presynaptic layer inhibitory neurons.
 		# -------------------------------------------------------
 
-		# ---------- EI-specific pools ----------
-		halfPrev = presyn.numel() // 2
-		isExcPresyn = torch.arange(presyn.numel(), device=device) < halfPrev
-		isInhPresyn = ~isExcPresyn
+		if useInhibition:
+			# ---------- EI-specific pools ----------
+			halfPrev = presyn.numel() // 2
+			isExcPresyn = torch.arange(presyn.numel(), device=device) < halfPrev
+			isInhPresyn = ~isExcPresyn
 
-		excActiveIdx = (isExcPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
-		excInactiveIdx = (isExcPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
-		inhActiveIdx = (isInhPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
-		inhInactiveIdx = (isInhPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
+			excActiveIdx = (isExcPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
+			excInactiveIdx = (isExcPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
+			inhActiveIdx = (isInhPresyn & (presyn > 0)).nonzero(as_tuple=True)[0]
+			inhInactiveIdx = (isInhPresyn & (presyn == 0)).nonzero(as_tuple=True)[0]
 
-		halfThis = self.config.hiddenLayerSize // 2
-		isExcNeur = newNeuronIdx < halfThis
+			halfThis = self.config.hiddenLayerSize // 2
+			isExcNeur = newNeuronIdx < halfThis
 
-		if isExcNeur:
-			activePool   = excActiveIdx	  # active E
-			inactivePool = inhInactiveIdx	# inactive I
+			if isExcNeur:
+				activePool   = excActiveIdx	  # active E
+				inactivePool = inhInactiveIdx	# inactive I
+			else:
+				activePool   = inhActiveIdx	  # active I
+				inactivePool = excInactiveIdx	# inactive E
+
+			# --- decide how many active / inactive synapses we need
+			if useActiveBias:
+				numActive   = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k	# allocate counts (ceil for odd k)
+			else:
+				numActive   = numSyn // 2	#orig
+			numInactive = numSyn - numActive
+
+			chooseA = torch.randperm(activePool.numel(),   device=device)[:numActive]
+			chooseI = torch.randperm(inactivePool.numel(), device=device)[:numInactive]
+
+			randIdx = torch.cat([activePool[chooseA], inactivePool[chooseI]], dim=0)
+			# make sure we have exactly `numSyn` indices
+			shortfall = numSyn - randIdx.numel()
+			if shortfall > 0:
+				# borrow from the other pool (wraps around if needed)
+				filler = inactivePool if activePool.numel() >= inactivePool.numel() else activePool
+				extra  = filler[torch.randperm(filler.numel(), device=device)[:shortfall]]
+				randIdx = torch.cat([randIdx, extra], dim=0)
+			randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]  #shuffle - permute so the order is still random
 		else:
-			activePool   = inhActiveIdx	  # active I
-			inactivePool = excInactiveIdx	# inactive E
-
-		# --- decide how many active / inactive synapses we need
-		if useActiveBias:
-			numActive   = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k	# allocate counts (ceil for odd k)
-		else:
-			numActive   = numSyn // 2	#orig
-		numInactive = numSyn - numActive
-
-		chooseA = torch.randperm(activePool.numel(),   device=device)[:numActive]
-		chooseI = torch.randperm(inactivePool.numel(), device=device)[:numInactive]
-
-		randIdx = torch.cat([activePool[chooseA], inactivePool[chooseI]], dim=0)
-		# make sure we have exactly `numSyn` indices
-		shortfall = numSyn - randIdx.numel()
-		if shortfall > 0:
-			# borrow from the other pool (wraps around if needed)
-			filler = inactivePool if activePool.numel() >= inactivePool.numel() else activePool
-			extra  = filler[torch.randperm(filler.numel(), device=device)[:shortfall]]
-			randIdx = torch.cat([randIdx, extra], dim=0)
-		randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]  #shuffle - permute so the order is still random
+			# When inhibition is disabled, all neurons are excitatory - sample from all available presynaptic neurons
+			activeIdx = (presyn > 0).nonzero(as_tuple=True)[0]
+			allIdx = torch.arange(presyn.numel(), device=device)
+			
+			# Sample all synapses from available neurons (bias towards active if useActiveBias)
+			if useActiveBias and activeIdx.numel() > 0:
+				# Prefer active neurons
+				if activeIdx.numel() >= numSyn:
+					choose = torch.randperm(activeIdx.numel(), device=device)[:numSyn]
+					randIdx = activeIdx[choose]
+				else:
+					# Take all active, fill remainder from all neurons
+					need = numSyn - activeIdx.numel()
+					fill_idx = torch.randperm(allIdx.numel(), device=device)[:need]
+					randIdx = torch.cat([activeIdx, allIdx[fill_idx]], dim=0)
+					randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]
+			else:
+				# Random sampling from all neurons
+				choose = torch.randperm(allIdx.numel(), device=device)[:numSyn]
+				randIdx = allIdx[choose]
 
 		# EI mode -> all weights are +1
 		#weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)	#orig
@@ -369,10 +407,13 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 		inactiveIdx = (presyn == 0).nonzero(as_tuple=True)[0]	 # off-bits
 
 		# --- decide how many active / inactive synapses we need
-		if useActiveBias:
-			numActive = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k
+		if useInhibition:
+			if useActiveBias:
+				numActive = (numSyn + 1) // 2		# ceiling - bias positive	# bias for odd k
+			else:
+				numActive = numSyn // 2	#orig
 		else:
-			numActive = numSyn // 2	#orig
+			numActive = numSyn
 		numInactive = numSyn - numActive
 
 		# guard against edge cases where pool size is smaller than desired
@@ -387,16 +428,28 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 			else:
 				numInactive += shortfall
 
-		chooseA = torch.randperm(activeIdx.numel(),   device=device)[:numActive]
-		chooseI = torch.randperm(inactiveIdx.numel(), device=device)[:numInactive]
+		chooseA = torch.randperm(activeIdx.numel(),   device=device)[:numActive] if numActive > 0 else torch.empty(0, dtype=torch.long, device=device)
+		chooseI = torch.randperm(inactiveIdx.numel(), device=device)[:numInactive] if numInactive > 0 else torch.empty(0, dtype=torch.long, device=device)
 
-		randIdx = torch.cat([activeIdx[chooseA], inactiveIdx[chooseI]], dim=0)
+		# Concatenate only non-empty tensors
+		randIdx_parts = []
+		if chooseA.numel() > 0:
+			randIdx_parts.append(activeIdx[chooseA])
+		if chooseI.numel() > 0:
+			randIdx_parts.append(inactiveIdx[chooseI])
+		
+		if randIdx_parts:
+			randIdx = torch.cat(randIdx_parts, dim=0)
+		else:
+			# Fallback to random selection if both pools are empty
+			randIdx = torch.randperm(presyn.numel(), device=device)[:numSyn]
+
 		# make sure we have exactly `numSyn` indices
 		shortfall = numSyn - randIdx.numel()
 		if shortfall > 0:
-			# borrow from the other pool (wraps around if needed)
-			filler = inactivePool if activePool.numel() >= inactivePool.numel() else activePool
-			extra  = filler[torch.randperm(filler.numel(), device=device)[:shortfall]]
+			# borrow from all available indices
+			allIdx = torch.arange(presyn.numel(), device=device)
+			extra = allIdx[torch.randperm(allIdx.numel(), device=device)[:shortfall]]
 			randIdx = torch.cat([randIdx, extra], dim=0)
 		randIdx = randIdx[torch.randperm(randIdx.numel(), device=device)]	#shuffle - permute so the order is still random
 			
@@ -419,9 +472,9 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 	if useEIneurons:
 		# Decide whether the new neuron is excitatory or inhibitory based on index
 		half = self.config.hiddenLayerSize // 2
-		if newNeuronIdx < half:
+		if newNeuronIdx < half or not useInhibition:
 			mat = self.hiddenConnectionMatrixExcitatory[layerIdx]
-			relativeIdx = newNeuronIdx
+			relativeIdx = newNeuronIdx if not useInhibition else newNeuronIdx
 		else:
 			mat = self.hiddenConnectionMatrixInhibitory[layerIdx]
 			relativeIdx = newNeuronIdx - half
@@ -454,7 +507,7 @@ def _dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cu
 			mat[relativeIdx, segmentIndexToUpdate, randIdx] = weights # Modified for 3D dense
 		matNew = mat
 
-	if useEIneurons and newNeuronIdx >= half:
+	if useEIneurons and newNeuronIdx >= half and useInhibition:
 		self.hiddenConnectionMatrixInhibitory[layerIdx] = matNew.to(device) #ensure device consistency
 	elif useEIneurons:
 		self.hiddenConnectionMatrixExcitatory[layerIdx] = matNew.to(device) #ensure device consistency
@@ -507,10 +560,13 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 	offMask	 = ~onMask
 
 	# decide counts
-	if getattr(self, "useActiveBias", True):
-		nA = (k + 1) // 2	# ceil(k/2)
+	if useInhibition:
+		if useActiveBias:
+			nA = (k + 1) // 2	# ceil(k/2)
+		else:
+			nA = k // 2
 	else:
-		nA = k // 2
+		nA = k
 	nI = k - nA
 
 	# EI-aware pools -----------------------------------------------------------
@@ -527,14 +583,17 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 
 		# neuron type for each new row
 		halfThis  = cfg.hiddenLayerSize // 2
-		isExcNeur = newRows < halfThis						   # [G] bool
+		if useInhibition:
+			isExcNeur = newRows < halfThis						   # [G] bool
+		else:
+			isExcNeur = torch.ones_like(newRows, dtype=torch.bool)   # All neurons are excitatory when inhibition is disabled
 
 		# choose pools per neuron in vectorised form
-		activePool   = torch.where(isExcNeur.unsqueeze(1), excOn,  inhOn)
-		inactivePool = torch.where(isExcNeur.unsqueeze(1), inhOff, excOff)
+		activePool   = torch.where(isExcNeur.unsqueeze(1), excOn,  inhOn if useInhibition else excOn)
+		inactivePool = torch.where(isExcNeur.unsqueeze(1), inhOff, excOff if useInhibition else excOff)
 
-		actIdx = draw_indices(activePool,   nA)				 # [G, nA]
-		inIdx = draw_indices(inactivePool, nI)				 # [G, nI]
+		actIdx = draw_indices(activePool,   nA) if nA > 0 else torch.empty(G, 0, dtype=torch.long, device=device)				 # [G, nA]
+		inIdx = draw_indices(inactivePool, nI) if nI > 0 else torch.empty(G, 0, dtype=torch.long, device=device)				 # [G, nI]
 		colIdx = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
 		#weights = torch.ones(G, k, device=device)				# all +1	#orig
 		if self.hiddenConnectionMatrixExcitatory[layerIdx].is_sparse: #assuming E/I matrices have same dtype
@@ -543,8 +602,8 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 			weights = torch.ones(G, k, device=device, dtype=torch.float32)
 	else:
 		# non-EI: 50 / 50 active / inactive
-		actIdx = draw_indices(onMask,  nA)					  # [G, nA]
-		inIdx = draw_indices(offMask, nI)					  # [G, nI]
+		actIdx = draw_indices(onMask,  nA) if nA > 0 else torch.empty(G, 0, dtype=torch.long, device=device)					  # [G, nA]
+		inIdx = draw_indices(offMask, nI) if nI > 0 else torch.empty(G, 0, dtype=torch.long, device=device)					  # [G, nI]
 		colIdx = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
 
 		presynPicked = presynBatch.gather(1, colIdx)			 # 0./1., [G,k]
@@ -640,20 +699,31 @@ def _dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch
 		flatPrevNeuronIndices_exc = flatPrevNeuronIndices[isExcEntry]
 		flatVals_exc = flatVals[isExcEntry]
 
-		# Inhibitory neuron updates
-		flatNeuronIndices_inh = flatNeuronIndices[~isExcEntry]
-		flatPrevNeuronIndices_inh = flatPrevNeuronIndices[~isExcEntry]
-		flatVals_inh = flatVals[~isExcEntry]
+		# Inhibitory neuron updates (only if inhibition is enabled)
+		if useInhibition:
+			flatNeuronIndices_inh = flatNeuronIndices[~isExcEntry]
+			flatPrevNeuronIndices_inh = flatPrevNeuronIndices[~isExcEntry]
+			flatVals_inh = flatVals[~isExcEntry]
+		else:
+			# When inhibition is disabled, all entries are excitatory
+			if not isExcEntry.all():
+				# Add any remaining entries to excitatory
+				flatNeuronIndices_exc = flatNeuronIndices
+				flatPrevNeuronIndices_exc = flatPrevNeuronIndices
+				flatVals_exc = flatVals
+			flatNeuronIndices_inh = torch.empty(0, dtype=flatNeuronIndices.dtype, device=device)
+			flatPrevNeuronIndices_inh = torch.empty(0, dtype=flatPrevNeuronIndices.dtype, device=device)
+			flatVals_inh = torch.empty(0, dtype=flatVals.dtype, device=device)
 
 		# merge into respective matrices
 		Emat = self.hiddenConnectionMatrixExcitatory[layerIdx]
-		Imat = self.hiddenConnectionMatrixInhibitory[layerIdx]
-
 		Emat = merge_into(Emat, flatNeuronIndices_exc, flatPrevNeuronIndices_exc, flatVals_exc, True, segmentIndexToUpdate) # Added segmentIndexToUpdate
-		Imat = merge_into(Imat, flatNeuronIndices_inh, flatPrevNeuronIndices_inh, flatVals_inh, False, segmentIndexToUpdate) # Added segmentIndexToUpdate
-
 		self.hiddenConnectionMatrixExcitatory[layerIdx] = Emat
-		self.hiddenConnectionMatrixInhibitory[layerIdx] = Imat
+
+		if useInhibition:
+			Imat = self.hiddenConnectionMatrixInhibitory[layerIdx]
+			Imat = merge_into(Imat, flatNeuronIndices_inh, flatPrevNeuronIndices_inh, flatVals_inh, False, segmentIndexToUpdate) # Added segmentIndexToUpdate
+			self.hiddenConnectionMatrixInhibitory[layerIdx] = Imat
 	else:
 		# ---------- 5. write to weight matrix (sparse or dense) for standard (non-EI) ------------------
 		mat = self.hiddenConnectionMatrix[layerIdx]
@@ -700,6 +770,10 @@ def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:
 	idx : (G, n) int64     \u2013 sampled column indices.
 	"""
 	G, C = onMask.shape
+
+	# Handle case when n=0
+	if n == 0:
+		return torch.empty(G, 0, dtype=torch.long, device=onMask.device)
 
 	if C <= (1 << 24):
 		# normal path \u2013 multinomial is safe
