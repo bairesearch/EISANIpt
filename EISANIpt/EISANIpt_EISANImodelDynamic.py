@@ -20,7 +20,6 @@ EISANIpt model dynamic neuron segment connection assignment
 import torch
 from ANNpt_globalDefs import *
 import EISANIpt_EISANImodelDynamic
-from EISANIpt_EISANI_globalDefs import useInhibition
 
 
 # ---------------------------------------------------------

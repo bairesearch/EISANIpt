@@ -21,13 +21,20 @@ ANNpt data
 import torch as pt
 from datasets import load_dataset, Value
 from ANNpt_globalDefs import *
+import ANNpt_globalDefs
 import numpy as np
 import random
-if(useImageDataset):
+if(useTabularDataset):
+	pass
+elif(useImageDataset):
 	import torchvision
 	import torchvision.transforms as transforms
-import pyarrow as pa
-
+elif(useNLPDataset):
+	from transformers import AutoTokenizer, DataCollatorWithPadding
+	from torch.utils.data import IterableDataset as TorchIterableDataset, DataLoader
+	from datasets import Dataset, IterableDataset as HFDIterable, get_dataset_config_info, DatasetDict
+	tok = None
+	
 if(disableDatasetCache):
 	import datasets
 	from datasets import disable_caching
@@ -43,509 +50,84 @@ def loadDataset():
 		return loadDatasetTabular()
 	elif(useImageDataset):
 		return loadDatasetImage()
+	elif(useNLPDataset):
+		return loadDatasetNLP()
 
 def saveDatasetToCSV(dataset):
 	for split in dataset.keys():  # Usually 'train', 'test', etc.
 		output_file = f"{datasetName}_{split}.csv"
 		dataset[split].to_csv(output_file)
 		print(f"Saved {split} split to {output_file}")
-				
-def loadDatasetTabular():
-	if(datasetLocalFile):
-		trainFileNameFull = dataPathName + '/' + trainFileName
-		if(datasetHasTestSplit):
-			testFileNameFull = dataPathName + '/' +  testFileName
-			dataset = load_dataset('csv', data_files={"train":trainFileNameFull, "test":testFileNameFull})
-		else:
-			dataset = load_dataset('csv', data_files={"train":trainFileNameFull})
-	else:
-		if(datasetSpecifyDataFiles):
-			if(datasetHasTestSplit):
-				dataset = load_dataset(datasetNameFull, data_files={"train":trainFileName, "test":testFileName})
-			else:
-				dataset = load_dataset(datasetNameFull, data_files={"train":trainFileName})
-		elif(datasetHasSubsetType):
-			dataset = load_dataset(datasetNameFull, datasetSubsetName)
-		else:
-			dataset = load_dataset(datasetNameFull)
-
-	if(debugCullDatasetSamples):
-		dataset['train'] = dataset['train'].select(range(100))
-		if(datasetHasTestSplit):
-			dataset['test'] = dataset['test'].select(range(100))
-
-	if(debugSaveRawDatasetToCSV):
-		saveDatasetToCSV(dataset)
-		
-	if(datasetConvertFeatureValues):
-		dataset[datasetSplitNameTrain] = convertFeatureValues(dataset[datasetSplitNameTrain])
-		if(datasetHasTestSplit):
-			dataset[datasetSplitNameTest] = convertFeatureValues(dataset[datasetSplitNameTest])
-	if(datasetConvertClassValues):
-		dataset[datasetSplitNameTrain] = convertClassValues(dataset[datasetSplitNameTrain])
-		if(datasetHasTestSplit):
-			dataset[datasetSplitNameTest] = convertClassValues(dataset[datasetSplitNameTest])
-	else:
-		if(datasetConvertClassTargetColumnFloatToInt):
-			dataset[datasetSplitNameTrain] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTrain])
-			if(datasetHasTestSplit):
-				dataset[datasetSplitNameTest] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTest])
-
-	if(not datasetHasTestSplit):
-		dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize, shuffle=datasetTestSplitShuffle, seed=datasetTestSplitSeed)
-
-	if(debugSaveSplitDatasetToCSV):
-		saveDatasetToCSV(dataset)
-		
-	if(datasetEqualiseClassSamples):
-		dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
-		if(datasetHasTestSplit and datasetEqualiseClassSamplesTest):
-			dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
-	if(datasetNormalise):
-		dataset[datasetSplitNameTrain] = normaliseDataset(dataset[datasetSplitNameTrain])
-		dataset[datasetSplitNameTest] = normaliseDataset(dataset[datasetSplitNameTest])
-	if(datasetRepeat):
-		dataset[datasetSplitNameTrain] = repeatDataset(dataset[datasetSplitNameTrain])
-		dataset[datasetSplitNameTest] = repeatDataset(dataset[datasetSplitNameTest])
-	if(datasetShuffle):
-		dataset[datasetSplitNameTrain] = shuffleDataset(dataset[datasetSplitNameTrain])
-		dataset[datasetSplitNameTest] = shuffleDataset(dataset[datasetSplitNameTest])
-	if(datasetOrderByClass):
-		dataset[datasetSplitNameTrain] = orderDatasetByClass(dataset[datasetSplitNameTrain])
-		dataset[datasetSplitNameTest] = orderDatasetByClass(dataset[datasetSplitNameTest])
-		#dataset = orderDatasetByClass(dataset)
-	
-	dataset[datasetSplitNameTrain] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTrain])
-	dataset[datasetSplitNameTest] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTest])
-
-	if(debugSaveNormalisedDatasetToCSV):
-		saveDatasetToCSV(dataset)
-		
-	return dataset
-
-def equaliseClassSamples(dataset):
-	#Equalises the number of samples across each class by repeating class samples as necessary.
-
-	_, numberOfClassSamples = countNumberClasses(dataset) #dict: {class_label: count}
-	if not numberOfClassSamples: # Handles empty or single-class datasets gracefully
-		printe("No classes found in the dataset.")
-
-	max_samples = 0
-	if numberOfClassSamples: # Ensure there's at least one class to avoid error with max() on empty sequence
-		max_samples = max(numberOfClassSamples.values())
-	if max_samples == 0: # All classes have 0 samples or no classes
-		printe("No samples found in any class.")
-
-	class_specific_indices = {class_val: [] for class_val in numberOfClassSamples.keys()}
-	for i in range(getDatasetSize(dataset)):
-		row = dataset[i]
-		# Assuming classFieldName holds the key to the class label and it's convertible to int
-		# This part might need adjustment based on how class labels are stored/accessed
-		try:
-			target = int(row[classFieldName])
-			if target in class_specific_indices:
-				class_specific_indices[target].append(i)
-		except (KeyError, ValueError) as e:
-			print(f"Warning: Could not process class label for row {i}: {e}")
-			continue # Skip rows where class label is problematic
-
-	all_new_indices = []
-	for class_val, count in numberOfClassSamples.items():
-		current_indices = class_specific_indices.get(class_val, [])
-		all_new_indices.extend(current_indices) # Add existing samples
-
-		num_to_add = max_samples - count
-		if num_to_add > 0 and current_indices: # Check if samples need to be added and if source samples exist
-			repeated_indices = random.choices(current_indices, k=num_to_add)
-			all_new_indices.extend(repeated_indices)
-	
-	if all_new_indices:
-		# Shuffle to mix original and repeated samples, then select.
-		# random.shuffle(all_new_indices) # Optional: shuffle before select if desired, otherwise select preserves order then shuffleDataset handles it later
-		dataset = dataset.select(all_new_indices)
-	
-	return dataset
-
-def repositionClassFieldToLastColumn(dataset):
-	classDataList = dataset[classFieldName]
-	dataset = dataset.remove_columns(classFieldName)
-	dataset = dataset.add_column(classFieldName, classDataList)
-	return dataset
-			
-def convertClassTargetColumnFloatToInt(dataset):
-	classDataList = dataset[classFieldName]
-	classDataList = [int(value) for value in classDataList]
-	dataset = dataset.remove_columns(classFieldName)
-	dataset = dataset.add_column(classFieldName, classDataList)
-	return dataset
 
 
-def normaliseDataset(dataset):
-	print("normaliseDataset:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
-	datasetSize = getDatasetSize(dataset)
-	for featureIndex, featureName in enumerate(list(dataset.features)):
-		#print("featureIndex = ", featureIndex)
-		if(featureName != classFieldName):
-			fieldType = dataset.features[featureName]
-			if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
-				continue #skip normalisation for boolean fields
-			if(datasetCorrectMissingValues):
-				featureDataList = []
-				for i in range(datasetSize):
-					row = dataset[i]
-					featureCell = row[featureName]
-					if(featureCell == None):
-						featureCell = 0
-					featureDataList.append(featureCell)
-			else:
-				featureDataList = dataset[featureName]
-			featureData = np.array(featureDataList)
-			#print("featureData = ", featureData)
-			if(datasetNormaliseMinMax):
-				featureMin = np.amin(featureData)
-				featureMax = np.amax(featureData)
-				#if(featureMax - featureMin == 0):
-				#	print("warning: (featureMax - featureMin == 0)")
-				featureData = (featureData - featureMin) / (featureMax - featureMin + 1e-8) #featureData/featureMax
-			elif(datasetNormaliseStdAvg):
-				featureMean = np.mean(featureData)
-				featureStd = np.std(featureData)
-				featureData = featureData-featureMean
-				featureData = featureData/featureStd
-			featureDataList = featureData.tolist()
-			dataset = dataset.remove_columns(featureName)
-			dataset = dataset.add_column(featureName, featureDataList)
-	return dataset
-
-def repeatDataset(dataset):
-	datasetSize = getDatasetSize(dataset)
-	repeatIndices = list(range(datasetSize))
-	repeatIndices = repeatIndices*datasetRepeatSize
-	dataset = dataset.select(repeatIndices)
-	return dataset
-
-def shuffleDataset(dataset):
-	datasetSize = getDatasetSize(dataset)
-	dataset = dataset.shuffle()
-	return dataset
-	
-def orderDatasetByClass(dataset):
-	dataset = dataset.sort(classFieldName)
-	return dataset
-
-def convertFeatureValues(dataset):
-	print("convertFeatureValues:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
-	for fieldName, fieldType in dataset.features.items():
-		#print("convertFeatureValues: fieldName = ", fieldName)
-		if fieldType.dtype == 'string':
-			dataset = convertCategoricalFieldValues(dataset, fieldName, dataType=float)
-		#elif fieldType.dtype == 'bool':
-		#	dataset = dataset.cast_column(fieldName, Value('float32'))
-	return dataset
-
-def bool_to_float(example):
-    example[fieldName] = float(example[fieldName])
-    return example
-
-	
-def convertClassValues(dataset):
-	return convertCategoricalFieldValues(dataset, classFieldName, dataType=int)
-
-def convertCategoricalFieldValues(dataset, fieldName, dataType=float):
-	if(not (dataType==float or dataType==int)):
-		printe("convertCategoricalFieldValues error: not (dataType==float or dataType==int)")
-		
-	#print("convertCategoricalFieldValues: fieldName = ", fieldName)
-	fieldIndex = 0
-	fieldIndexDict = {}
-	fieldNew = []
-	datasetSize = getDatasetSize(dataset)
-	#print("datasetSize = ", datasetSize)
-	numberOfClasses = 0
-
-	for i in range(datasetSize):
-		row = dataset[i]
-		targetString = row[fieldName]
-		if(targetString not in fieldIndexDict):
-			fieldIndexDict[targetString] = fieldIndex
-			fieldIndex = fieldIndex + 1		
-	
-	booleanCategoryDetected = False
-	if(fieldIndex == 2):
-		booleanCategoryDetected = True
-		
-	for i in range(datasetSize):
-		row = dataset[i]
-		targetString = row[fieldName]
-		target = fieldIndexDict[targetString]
-		if(dataType==int):	#always store class target as int (never bool)
-			target = int(target)	#keep as int (redundant)
-		elif(booleanCategoryDetected):
-			target = bool(target)
-		elif(dataType==float):
-			target = float(target)
-		fieldNew.append(target)
-		
-	dataset = dataset.remove_columns(fieldName)
-	dataset = dataset.add_column(fieldName, fieldNew)
-
-	return dataset
-
-def normaliseBooleanFieldValues(dataset, fieldName, dataType=float):
-	if(not (dataType==float or dataType==int)):
-		printe("normaliseBooleanFieldValues error: not (dataType==float or dataType==int)")
-
-	fieldNew = []
-	datasetSize = getDatasetSize(dataset)
-	for i in range(datasetSize):
-		row = dataset[i]
-		print("i = ", i)
-		targetBool = row[fieldName]
-		if(targetBool == True):
-			target = 1
-		elif(targetBool == False):
-			target = 0
-		if(dataType==float):
-			target = float(target)
-		fieldNew.append(target)
-		
-	dataset = dataset.remove_columns(fieldName)
-	dataset = dataset.add_column(fieldName, fieldNew)
-
-	return dataset
-	
 def countNumberClasses(dataset, printSize=False):
 	numberOfClassSamples = {}
 	datasetSize = getDatasetSize(dataset)
-	numberOfClasses = 0
-	for i in range(datasetSize):
-		if useImageDataset:
-			# For PyTorch datasets (e.g., CIFAR10), the label is the second element of the dataset tuple
-			_, target = dataset[i]
-		elif useTabularDataset:
-			# For Hugging Face datasets, the label is accessed via the classFieldName
-			row = dataset[i]
-			target = int(row[classFieldName])
-		else:
-			raise AttributeError("Unsupported dataset type: Unable to count classes.")
-			
-		if(target in numberOfClassSamples):
-			numberOfClassSamples[target] = numberOfClassSamples[target] + 1
-		else:
-			numberOfClassSamples[target] = 0
-			
-		#print("target = ", target)
-		if(target > numberOfClasses):
-			numberOfClasses = target
-	numberOfClasses = numberOfClasses+1
-	
+	if(useTabularDataset):
+		numberOfClasses = 0
+		for i in range(datasetSize):
+			if useTabularDataset:
+				# For Hugging Face datasets, the label is accessed via the classFieldName
+				row = dataset[i]
+				target = int(row[classFieldName])
+			elif useImageDataset:
+				# For PyTorch datasets (e.g., CIFAR10), the label is the second element of the dataset tuple
+				_, target = dataset[i]
+			else:
+				raise AttributeError("Unsupported dataset type: Unable to count classes.")
+
+			if(target in numberOfClassSamples):
+				numberOfClassSamples[target] = numberOfClassSamples[target] + 1
+			else:
+				numberOfClassSamples[target] = 0
+
+			#print("target = ", target)
+			if(target > numberOfClasses):
+				numberOfClasses = target
+		numberOfClasses = numberOfClasses+1
+	elif(useImageDataset):
+		numberOfClasses = ANNpt_globalDefs.numberOfClasses
+		numberOfClassSamples = None	#not used
+	elif(useNLPDataset):
+		numberOfClasses = ANNpt_globalDefs.numberOfClasses
+		numberOfClassSamples = None	#not used
+
 	#if(printSize):
 	#print("numberOfClasses = ", numberOfClasses)
 	return numberOfClasses, numberOfClassSamples
 
 def countNumberFeatures(dataset, printSize=False):
-	if useImageDataset:
+	if useTabularDataset:
+		# For tabular datasets, use the features attribute
+		numberOfFeatures = len(dataset.features) - 1  # -1 to ignore class targets
+	elif useImageDataset:
 		# For image datasets, infer the number of features from the image shape
 		sample_image, _ = dataset[0]  # Get the first sample (image, label)
 		numberOfFeatures = sample_image.shape[0]*sample_image.shape[1]*sample_image.shape[2]
-	elif useTabularDataset:
-		# For tabular datasets, use the features attribute
-		numberOfFeatures = len(dataset.features) - 1  # -1 to ignore class targets
+	elif useNLPDataset:
+		numberOfFeatures = contextSizeMax * embeddingSize	#not used
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
-	
+
 	if(printSize):
 		print("numberOfFeatures = ", numberOfFeatures)
 	return numberOfFeatures
-	
+
 def getDatasetSize(dataset, printSize=False):
-	if useImageDataset:
-		# Check if the dataset is a PyTorch dataset (e.g., CIFAR10)
-		datasetSize = len(dataset)
-	elif useTabularDataset:
+	if useTabularDataset:
 		# Otherwise, assume it's a Hugging Face dataset
 		datasetSize = dataset.num_rows
+	elif useImageDataset:
+		# Check if the dataset is a PyTorch dataset (e.g., CIFAR10)
+		datasetSize = len(dataset)
+	elif useNLPDataset:
+		datasetSize = datasetSizeRecord
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
-	
+
 	if(printSize):
 		print("datasetSize = ", datasetSize)
 	return datasetSize
-	
-def createDataLoader(dataset):
-	return createDataLoaderTabular(dataset)
-	
-def createDataLoaderTabular(dataset):
-	dataLoaderDataset = DataloaderDatasetTabular(dataset)	
-	maintainEvenBatchSizes = True
-	if(dataloaderRepeatSampler):
-		numberOfSamples = getDatasetSize(dataset)*dataloaderRepeatSize
-		if(dataloaderRepeatSamplerCustom):
-			sampler = CustomRandomSampler(dataset, shuffle=True, num_samples=numberOfSamples)
-		else:
-			sampler = pt.utils.data.RandomSampler(dataset, replacement=True, num_samples=numberOfSamples)
-		loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, drop_last=dataloaderMaintainBatchSize, sampler=sampler)
-	else:
-		loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, shuffle=dataloaderShuffle, drop_last=dataloaderMaintainBatchSize)
-	return loader
-	
-def createDataLoaderTabularPaired(dataset1, dataset2):
-	dataLoaderDataset = DataloaderDatasetTabularPaired(dataset1, dataset2)	
-	if(dataloaderRepeatSampler):
-		numberOfSamples = getDatasetSize(dataset1)*dataloaderRepeatSize
-		if(dataloaderRepeatSamplerCustom):
-			sampler = CustomRandomSampler(dataset1, shuffle=True, num_samples=numberOfSamples)
-		else:
-			sampler = pt.utils.data.RandomSampler(dataset1, replacement=True, num_samples=numberOfSamples)
-		loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, drop_last=dataloaderMaintainBatchSize, sampler=sampler)
-	else:
-		loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, shuffle=dataloaderShuffle, drop_last=dataloaderMaintainBatchSize)
-	return loader
-
-class DataloaderDatasetTabular(pt.utils.data.Dataset):
-	def __init__(self, dataset):
-		self.datasetSize = getDatasetSize(dataset)
-		self.dataset = dataset
-		self.datasetIterator = iter(dataset)
-			
-	def __len__(self):
-		return self.datasetSize
-
-	def __getitem__(self, i):
-		if(dataloaderRepeatSampler):
-			#index = i % self.datasetSize
-			#document = self.dataset[index]
-			try:
-				document = next(self.datasetIterator)	#does not support dataloaderShuffle
-			except StopIteration:
-				self.datasetIterator = iter(self.dataset)
-				document = next(self.datasetIterator)	#does not support dataloaderShuffle
-		else:
-			 document = self.dataset[i]	
-			 #document = next(self.datasetIterator) #does not support dataloaderShuffle
-		documentList = list(document.values())
-		if(datasetReplaceNoneValues):
-			documentList = [x if x is not None else 0 for x in documentList]
-		#print("documentList = ", documentList)
-		x = documentList[0:-1]
-		y = documentList[-1]
-		x = pt.Tensor(x).float()
-		batchSample = (x, y)
-		return batchSample
-		
-class DataloaderDatasetTabularPaired(pt.utils.data.Dataset):
-	def __init__(self, dataset1, dataset2):
-		self.datasetSize = getDatasetSize(dataset1)
-		self.dataset1 = dataset1
-		self.dataset2 = dataset2
-		self.datasetIterator1 = iter(dataset1)
-		self.datasetIterator2 = iter(dataset2)
-
-	def __len__(self):
-		return self.datasetSize
-
-	def __getitem__(self, i):
-		if(dataloaderRepeatSampler):
-			#index = i % self.datasetSize
-			#document1 = self.dataset1[index]
-			#document2 = self.dataset2[index]
-			try:
-				document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-				document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
-			except StopIteration:
-				self.datasetIterator1 = iter(self.dataset1)
-				self.datasetIterator2 = iter(self.dataset2)
-				document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-				document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
-		else:
-			document1 = self.dataset1[i]
-			document2 = self.dataset2[i]	
-			#document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-			#document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
-		documentList1 = list(document1.values())
-		documentList2 = list(document2.values())
-		if(datasetReplaceNoneValues):
-			documentList1 = [x if x is not None else 0 for x in documentList1]
-			documentList2 = [x if x is not None else 0 for x in documentList2]
-		#print("documentList = ", documentList)
-		x1 = documentList1[0:-1]
-		x2 = documentList2[0:-1]
-		x1 = pt.Tensor(x1).float()
-		x2 = pt.Tensor(x2).float()
-		x1 = pt.unsqueeze(x1, dim=0)
-		x2 = pt.unsqueeze(x2, dim=0)
-		x = pt.concat([x1, x2], dim=0)
-		y1 = documentList1[-1]
-		y2 = documentList2[-1]
-		#print("y1 = ", y1, ", y2 = ", y2)	#verify they are equal
-		y = y1
-		batchSample = (x, y)
-		return batchSample
-		
-class CustomRandomSampler(pt.utils.data.Sampler):
-	def __init__(self, dataset, shuffle, num_samples):
-		self.dataset = dataset
-		self.shuffle = shuffle
-		self.num_samples = num_samples
-
-	def __iter__(self):
-		order = list(range((getDatasetSize(self.dataset))))
-		idx = 0
-		sampleIndex = 0
-		while sampleIndex < self.num_samples:
-			#print("idx = ", idx)
-			#print("order[idx] = ", order[idx])
-			yield order[idx]
-			idx += 1
-			if idx == len(order):
-				if self.shuffle:
-					random.shuffle(order)
-				idx = 0
-			sampleIndex += 1
-
-def loadDatasetImage():
-	# Load the CIFAR-10 dataset with optional augmentation
-	if imageDatasetAugment:
-		train_transform = transforms.Compose([
-			transforms.RandomCrop(32, padding=4),
-			transforms.RandomHorizontalFlip(),
-			transforms.ToTensor(),
-			transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5)),
-			transforms.Lambda(lambda img: cutout(img))
-		])
-	else:
-		train_transform = transforms.Compose([
-			transforms.ToTensor(),
-			transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
-		])
-	test_transform = transforms.Compose([
-		transforms.ToTensor(),
-		transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-	])
-	dataset = {}
-	dataset[datasetSplitNameTrain] = torchvision.datasets.CIFAR10(root=dataPathName, train=True, download=True, transform=train_transform)
-	dataset[datasetSplitNameTest] = torchvision.datasets.CIFAR10(root=dataPathName, train=False, download=True, transform=test_transform)
-	return dataset
-
-def createDataLoaderImage(dataset):
-	loader = pt.utils.data.DataLoader(dataset, batch_size=batchSize, shuffle=True)
-	return loader
-
-def cutout(img, n_holes=1, length=16):
-	"""Apply cutout augmentation to a tensor image."""
-	h, w = img.size(1), img.size(2)
-	mask = np.ones((h, w), np.float32)
-	for _ in range(n_holes):
-		y = random.randrange(h)
-		x = random.randrange(w)
-		y1 = max(0, y - length//2)
-		y2 = min(h, y + length//2)
-		x1 = max(0, x - length//2)
-		x2 = min(w, x + length//2)
-		mask[y1:y2, x1:x2] = 0.
-	mask = pt.from_numpy(mask)
-	mask = mask.expand_as(img)
-	return img * mask
 
 def createFieldTypeList(dataset):
 	if(useTabularDataset):
@@ -553,3 +135,552 @@ def createFieldTypeList(dataset):
 	else:
 		fieldTypeList = None
 	return fieldTypeList
+	
+
+if(useTabularDataset):
+
+	def loadDatasetTabular():
+		if(datasetLocalFile):
+			trainFileNameFull = dataPathName + '/' + trainFileName
+			if(datasetHasTestSplit):
+				testFileNameFull = dataPathName + '/' +  testFileName
+				dataset = load_dataset('csv', data_files={"train":trainFileNameFull, "test":testFileNameFull})
+			else:
+				dataset = load_dataset('csv', data_files={"train":trainFileNameFull})
+		else:
+			if(datasetSpecifyDataFiles):
+				if(datasetHasTestSplit):
+					dataset = load_dataset(datasetNameFull, data_files={"train":trainFileName, "test":testFileName})
+				else:
+					dataset = load_dataset(datasetNameFull, data_files={"train":trainFileName})
+			elif(datasetHasSubsetType):
+				dataset = load_dataset(datasetNameFull, datasetSubsetName)
+			else:
+				dataset = load_dataset(datasetNameFull)
+
+		if(debugCullDatasetSamples):
+			dataset['train'] = dataset['train'].select(range(100))
+			if(datasetHasTestSplit):
+				dataset['test'] = dataset['test'].select(range(100))
+
+		if(debugSaveRawDatasetToCSV):
+			saveDatasetToCSV(dataset)
+
+		if(datasetConvertFeatureValues):
+			dataset[datasetSplitNameTrain] = convertFeatureValues(dataset[datasetSplitNameTrain])
+			if(datasetHasTestSplit):
+				dataset[datasetSplitNameTest] = convertFeatureValues(dataset[datasetSplitNameTest])
+		if(datasetConvertClassValues):
+			dataset[datasetSplitNameTrain] = convertClassValues(dataset[datasetSplitNameTrain])
+			if(datasetHasTestSplit):
+				dataset[datasetSplitNameTest] = convertClassValues(dataset[datasetSplitNameTest])
+		else:
+			if(datasetConvertClassTargetColumnFloatToInt):
+				dataset[datasetSplitNameTrain] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTrain])
+				if(datasetHasTestSplit):
+					dataset[datasetSplitNameTest] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTest])
+
+		if(not datasetHasTestSplit):
+			dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize, shuffle=datasetTestSplitShuffle, seed=datasetTestSplitSeed)
+
+		if(debugSaveSplitDatasetToCSV):
+			saveDatasetToCSV(dataset)
+
+		if(datasetEqualiseClassSamples):
+			dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
+			if(datasetHasTestSplit and datasetEqualiseClassSamplesTest):
+				dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
+		if(datasetNormalise):
+			dataset[datasetSplitNameTrain] = normaliseDataset(dataset[datasetSplitNameTrain])
+			dataset[datasetSplitNameTest] = normaliseDataset(dataset[datasetSplitNameTest])
+		if(datasetRepeat):
+			dataset[datasetSplitNameTrain] = repeatDataset(dataset[datasetSplitNameTrain])
+			dataset[datasetSplitNameTest] = repeatDataset(dataset[datasetSplitNameTest])
+		if(datasetShuffle):
+			dataset[datasetSplitNameTrain] = shuffleDataset(dataset[datasetSplitNameTrain])
+			dataset[datasetSplitNameTest] = shuffleDataset(dataset[datasetSplitNameTest])
+		if(datasetOrderByClass):
+			dataset[datasetSplitNameTrain] = orderDatasetByClass(dataset[datasetSplitNameTrain])
+			dataset[datasetSplitNameTest] = orderDatasetByClass(dataset[datasetSplitNameTest])
+			#dataset = orderDatasetByClass(dataset)
+
+		dataset[datasetSplitNameTrain] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTrain])
+		dataset[datasetSplitNameTest] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTest])
+
+		if(debugSaveNormalisedDatasetToCSV):
+			saveDatasetToCSV(dataset)
+
+		return dataset
+
+	def equaliseClassSamples(dataset):
+		#Equalises the number of samples across each class by repeating class samples as necessary.
+
+		_, numberOfClassSamples = countNumberClasses(dataset) #dict: {class_label: count}
+		if not numberOfClassSamples: # Handles empty or single-class datasets gracefully
+			printe("No classes found in the dataset.")
+
+		max_samples = 0
+		if numberOfClassSamples: # Ensure there's at least one class to avoid error with max() on empty sequence
+			max_samples = max(numberOfClassSamples.values())
+		if max_samples == 0: # All classes have 0 samples or no classes
+			printe("No samples found in any class.")
+
+		class_specific_indices = {class_val: [] for class_val in numberOfClassSamples.keys()}
+		for i in range(getDatasetSize(dataset)):
+			row = dataset[i]
+			# Assuming classFieldName holds the key to the class label and it's convertible to int
+			# This part might need adjustment based on how class labels are stored/accessed
+			try:
+				target = int(row[classFieldName])
+				if target in class_specific_indices:
+					class_specific_indices[target].append(i)
+			except (KeyError, ValueError) as e:
+				print(f"Warning: Could not process class label for row {i}: {e}")
+				continue # Skip rows where class label is problematic
+
+		all_new_indices = []
+		for class_val, count in numberOfClassSamples.items():
+			current_indices = class_specific_indices.get(class_val, [])
+			all_new_indices.extend(current_indices) # Add existing samples
+
+			num_to_add = max_samples - count
+			if num_to_add > 0 and current_indices: # Check if samples need to be added and if source samples exist
+				repeated_indices = random.choices(current_indices, k=num_to_add)
+				all_new_indices.extend(repeated_indices)
+
+		if all_new_indices:
+			# Shuffle to mix original and repeated samples, then select.
+			# random.shuffle(all_new_indices) # Optional: shuffle before select if desired, otherwise select preserves order then shuffleDataset handles it later
+			dataset = dataset.select(all_new_indices)
+
+		return dataset
+
+	def repositionClassFieldToLastColumn(dataset):
+		classDataList = dataset[classFieldName]
+		dataset = dataset.remove_columns(classFieldName)
+		dataset = dataset.add_column(classFieldName, classDataList)
+		return dataset
+
+	def convertClassTargetColumnFloatToInt(dataset):
+		classDataList = dataset[classFieldName]
+		classDataList = [int(value) for value in classDataList]
+		dataset = dataset.remove_columns(classFieldName)
+		dataset = dataset.add_column(classFieldName, classDataList)
+		return dataset
+
+	def normaliseDataset(dataset):
+		print("normaliseDataset:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
+		datasetSize = getDatasetSize(dataset)
+		for featureIndex, featureName in enumerate(list(dataset.features)):
+			#print("featureIndex = ", featureIndex)
+			if(featureName != classFieldName):
+				fieldType = dataset.features[featureName]
+				if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
+					continue #skip normalisation for boolean fields
+				if(datasetCorrectMissingValues):
+					featureDataList = []
+					for i in range(datasetSize):
+						row = dataset[i]
+						featureCell = row[featureName]
+						if(featureCell == None):
+							featureCell = 0
+						featureDataList.append(featureCell)
+				else:
+					featureDataList = dataset[featureName]
+				featureData = np.array(featureDataList)
+				#print("featureData = ", featureData)
+				if(datasetNormaliseMinMax):
+					featureMin = np.amin(featureData)
+					featureMax = np.amax(featureData)
+					#if(featureMax - featureMin == 0):
+					#	print("warning: (featureMax - featureMin == 0)")
+					featureData = (featureData - featureMin) / (featureMax - featureMin + 1e-8) #featureData/featureMax
+				elif(datasetNormaliseStdAvg):
+					featureMean = np.mean(featureData)
+					featureStd = np.std(featureData)
+					featureData = featureData-featureMean
+					featureData = featureData/featureStd
+				featureDataList = featureData.tolist()
+				dataset = dataset.remove_columns(featureName)
+				dataset = dataset.add_column(featureName, featureDataList)
+		return dataset
+
+	def repeatDataset(dataset):
+		datasetSize = getDatasetSize(dataset)
+		repeatIndices = list(range(datasetSize))
+		repeatIndices = repeatIndices*datasetRepeatSize
+		dataset = dataset.select(repeatIndices)
+		return dataset
+
+	def shuffleDataset(dataset):
+		datasetSize = getDatasetSize(dataset)
+		dataset = dataset.shuffle()
+		return dataset
+
+	def orderDatasetByClass(dataset):
+		dataset = dataset.sort(classFieldName)
+		return dataset
+
+	def convertFeatureValues(dataset):
+		print("convertFeatureValues:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
+		for fieldName, fieldType in dataset.features.items():
+			#print("convertFeatureValues: fieldName = ", fieldName)
+			if fieldType.dtype == 'string':
+				dataset = convertCategoricalFieldValues(dataset, fieldName, dataType=float)
+			#elif fieldType.dtype == 'bool':
+			#	dataset = dataset.cast_column(fieldName, Value('float32'))
+		return dataset
+
+	def bool_to_float(example):
+		example[fieldName] = float(example[fieldName])
+		return example
+
+	def convertClassValues(dataset):
+		return convertCategoricalFieldValues(dataset, classFieldName, dataType=int)
+
+	def convertCategoricalFieldValues(dataset, fieldName, dataType=float):
+		if(not (dataType==float or dataType==int)):
+			printe("convertCategoricalFieldValues error: not (dataType==float or dataType==int)")
+
+		#print("convertCategoricalFieldValues: fieldName = ", fieldName)
+		fieldIndex = 0
+		fieldIndexDict = {}
+		fieldNew = []
+		datasetSize = getDatasetSize(dataset)
+		#print("datasetSize = ", datasetSize)
+		numberOfClasses = 0
+
+		for i in range(datasetSize):
+			row = dataset[i]
+			targetString = row[fieldName]
+			if(targetString not in fieldIndexDict):
+				fieldIndexDict[targetString] = fieldIndex
+				fieldIndex = fieldIndex + 1		
+
+		booleanCategoryDetected = False
+		if(fieldIndex == 2):
+			booleanCategoryDetected = True
+
+		for i in range(datasetSize):
+			row = dataset[i]
+			targetString = row[fieldName]
+			target = fieldIndexDict[targetString]
+			if(dataType==int):	#always store class target as int (never bool)
+				target = int(target)	#keep as int (redundant)
+			elif(booleanCategoryDetected):
+				target = bool(target)
+			elif(dataType==float):
+				target = float(target)
+			fieldNew.append(target)
+
+		dataset = dataset.remove_columns(fieldName)
+		dataset = dataset.add_column(fieldName, fieldNew)
+
+		return dataset
+
+	def normaliseBooleanFieldValues(dataset, fieldName, dataType=float):
+		if(not (dataType==float or dataType==int)):
+			printe("normaliseBooleanFieldValues error: not (dataType==float or dataType==int)")
+
+		fieldNew = []
+		datasetSize = getDatasetSize(dataset)
+		for i in range(datasetSize):
+			row = dataset[i]
+			print("i = ", i)
+			targetBool = row[fieldName]
+			if(targetBool == True):
+				target = 1
+			elif(targetBool == False):
+				target = 0
+			if(dataType==float):
+				target = float(target)
+			fieldNew.append(target)
+
+		dataset = dataset.remove_columns(fieldName)
+		dataset = dataset.add_column(fieldName, fieldNew)
+
+		return dataset
+
+	def createDataLoader(dataset):
+		return createDataLoaderTabular(dataset)
+
+	def createDataLoaderTabular(dataset):
+		dataLoaderDataset = DataloaderDatasetTabular(dataset)	
+		maintainEvenBatchSizes = True
+		if(dataloaderRepeatSampler):
+			numberOfSamples = getDatasetSize(dataset)*dataloaderRepeatSize
+			if(dataloaderRepeatSamplerCustom):
+				sampler = CustomRandomSampler(dataset, shuffle=True, num_samples=numberOfSamples)
+			else:
+				sampler = pt.utils.data.RandomSampler(dataset, replacement=True, num_samples=numberOfSamples)
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, drop_last=dataloaderMaintainBatchSize, sampler=sampler)
+		else:
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, shuffle=dataloaderShuffle, drop_last=dataloaderMaintainBatchSize)
+		return loader
+
+	def createDataLoaderTabularPaired(dataset1, dataset2):
+		dataLoaderDataset = DataloaderDatasetTabularPaired(dataset1, dataset2)	
+		if(dataloaderRepeatSampler):
+			numberOfSamples = getDatasetSize(dataset1)*dataloaderRepeatSize
+			if(dataloaderRepeatSamplerCustom):
+				sampler = CustomRandomSampler(dataset1, shuffle=True, num_samples=numberOfSamples)
+			else:
+				sampler = pt.utils.data.RandomSampler(dataset1, replacement=True, num_samples=numberOfSamples)
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, drop_last=dataloaderMaintainBatchSize, sampler=sampler)
+		else:
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, shuffle=dataloaderShuffle, drop_last=dataloaderMaintainBatchSize)
+		return loader
+
+	class DataloaderDatasetTabular(pt.utils.data.Dataset):
+		def __init__(self, dataset):
+			self.datasetSize = getDatasetSize(dataset)
+			self.dataset = dataset
+			self.datasetIterator = iter(dataset)
+
+		def __len__(self):
+			return self.datasetSize
+
+		def __getitem__(self, i):
+			if(dataloaderRepeatSampler):
+				#index = i % self.datasetSize
+				#document = self.dataset[index]
+				try:
+					document = next(self.datasetIterator)	#does not support dataloaderShuffle
+				except StopIteration:
+					self.datasetIterator = iter(self.dataset)
+					document = next(self.datasetIterator)	#does not support dataloaderShuffle
+			else:
+				 document = self.dataset[i]	
+				 #document = next(self.datasetIterator) #does not support dataloaderShuffle
+			documentList = list(document.values())
+			if(datasetReplaceNoneValues):
+				documentList = [x if x is not None else 0 for x in documentList]
+			#print("documentList = ", documentList)
+			x = documentList[0:-1]
+			y = documentList[-1]
+			x = pt.Tensor(x).float()
+			batchSample = (x, y)
+			return batchSample
+
+	class DataloaderDatasetTabularPaired(pt.utils.data.Dataset):
+		def __init__(self, dataset1, dataset2):
+			self.datasetSize = getDatasetSize(dataset1)
+			self.dataset1 = dataset1
+			self.dataset2 = dataset2
+			self.datasetIterator1 = iter(dataset1)
+			self.datasetIterator2 = iter(dataset2)
+
+		def __len__(self):
+			return self.datasetSize
+
+		def __getitem__(self, i):
+			if(dataloaderRepeatSampler):
+				#index = i % self.datasetSize
+				#document1 = self.dataset1[index]
+				#document2 = self.dataset2[index]
+				try:
+					document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
+					document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
+				except StopIteration:
+					self.datasetIterator1 = iter(self.dataset1)
+					self.datasetIterator2 = iter(self.dataset2)
+					document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
+					document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
+			else:
+				document1 = self.dataset1[i]
+				document2 = self.dataset2[i]	
+				#document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
+				#document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
+			documentList1 = list(document1.values())
+			documentList2 = list(document2.values())
+			if(datasetReplaceNoneValues):
+				documentList1 = [x if x is not None else 0 for x in documentList1]
+				documentList2 = [x if x is not None else 0 for x in documentList2]
+			#print("documentList = ", documentList)
+			x1 = documentList1[0:-1]
+			x2 = documentList2[0:-1]
+			x1 = pt.Tensor(x1).float()
+			x2 = pt.Tensor(x2).float()
+			x1 = pt.unsqueeze(x1, dim=0)
+			x2 = pt.unsqueeze(x2, dim=0)
+			x = pt.concat([x1, x2], dim=0)
+			y1 = documentList1[-1]
+			y2 = documentList2[-1]
+			#print("y1 = ", y1, ", y2 = ", y2)	#verify they are equal
+			y = y1
+			batchSample = (x, y)
+			return batchSample
+
+	class CustomRandomSampler(pt.utils.data.Sampler):
+		def __init__(self, dataset, shuffle, num_samples):
+			self.dataset = dataset
+			self.shuffle = shuffle
+			self.num_samples = num_samples
+
+		def __iter__(self):
+			order = list(range((getDatasetSize(self.dataset))))
+			idx = 0
+			sampleIndex = 0
+			while sampleIndex < self.num_samples:
+				#print("idx = ", idx)
+				#print("order[idx] = ", order[idx])
+				yield order[idx]
+				idx += 1
+				if idx == len(order):
+					if self.shuffle:
+						random.shuffle(order)
+					idx = 0
+				sampleIndex += 1
+
+elif(useImageDataset):
+
+	def loadDatasetImage():
+		# Load the CIFAR-10 dataset with optional augmentation
+		if imageDatasetAugment:
+			train_transform = transforms.Compose([
+				transforms.RandomCrop(32, padding=4),
+				transforms.RandomHorizontalFlip(),
+				transforms.ToTensor(),
+				transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5)),
+				transforms.Lambda(lambda img: cutout(img))
+			])
+		else:
+			train_transform = transforms.Compose([
+				transforms.ToTensor(),
+				transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+			])
+		test_transform = transforms.Compose([
+			transforms.ToTensor(),
+			transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+		])
+		dataset = {}
+		if(datasetName=="CIFAR10"):
+			dataset[datasetSplitNameTrain] = torchvision.datasets.CIFAR10(root=dataPathName, train=True, download=True, transform=train_transform)
+			dataset[datasetSplitNameTest] = torchvision.datasets.CIFAR10(root=dataPathName, train=False, download=True, transform=test_transform)
+		else:
+			printe("loadDatasetImage currently requires datasetName==CIFAR10")
+
+		return dataset
+
+	def createDataLoaderImage(dataset):
+		loader = pt.utils.data.DataLoader(dataset, batch_size=batchSize, shuffle=True)
+		return loader
+
+	def cutout(img, n_holes=1, length=16):
+		"""Apply cutout augmentation to a tensor image."""
+		h, w = img.size(1), img.size(2)
+		mask = np.ones((h, w), np.float32)
+		for _ in range(n_holes):
+			y = random.randrange(h)
+			x = random.randrange(w)
+			y1 = max(0, y - length//2)
+			y2 = min(h, y + length//2)
+			x1 = max(0, x - length//2)
+			x2 = min(w, x + length//2)
+			mask[y1:y2, x1:x2] = 0.
+		mask = pt.from_numpy(mask)
+		mask = mask.expand_as(img)
+		return img * mask
+
+elif(useNLPDataset):
+
+	def loadDatasetNLP():
+		dataset = load_dataset(datasetName, datasetCfg, split="train", streaming=True)
+		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",})	#does not support streaming
+
+		if(datasetShuffle):
+			dataset = dataset.shuffle(buffer_size=10_000, seed=42)
+			
+		if(useDatasetSubset):
+			dataset = dataset.take(datasetSizeSubset)
+			datasetSize = datasetSizeSubset	#do not train all samples
+		else:
+			info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
+			datasetSize = info.splits["train"].num_examples
+			print(f"{datasetCfg} contains {train_rows:,} articles")
+					
+		train_rows = int(datasetSize*(1-datasetTestSplitSize))
+		eval_rows = int(datasetSize*datasetTestSplitSize)
+		print(f"Train size: {train_rows:,}")
+		print(f"Eval size: {eval_rows:,}")
+		global datasetSizeRecord
+		datasetSizeRecord = datasetSize
+
+		test_stream = dataset.take(eval_rows)   # ~50k examples for evaluation
+		train_stream = dataset.skip(eval_rows)   # everything else
+		dataset = DatasetDict({"train": train_stream, "test": test_stream})
+
+		'''
+		# (optional) reshuffle each epoch
+		for epoch in range(num_epochs):
+			dataset["train"].set_epoch(epoch)
+		'''	
+		return dataset
+
+	# Encode raw text on-the-fly (no padding yet, just truncation)
+	def encode(batch):
+		#return tok(batch["text"], truncation=True,  max_length=contextSizeMax, padding=False)
+		return tok(batch["text"], truncation=True, max_length=contextSizeMax, padding=False)
+
+	# Collate -> (x_batch, y_batch)  --------------------------------
+	def collate(batch):
+		x = pt.stack([item[0] for item in batch], dim=0)      # [B, ctx]
+		y = pt.stack([item[1] for item in batch], dim=0)      # [B]
+		return x, y
+
+	# Expand each article into many (x, y) samples  -----------------
+	class ShiftedSampleDataset(TorchIterableDataset):
+		def __init__(self, hf_iterable, pad_token_id: int, ctx: int):
+			super().__init__()
+			self.hf_ds = hf_iterable
+			self.pad   = pad_token_id
+			self.ctx   = ctx
+
+		def _generate_samples(self, input_ids: pt.Tensor):
+			"""Yield (x, y) per non-pad token."""
+			# Strip trailing pads so maxNonPaddedTokenIndex is easy
+			non_pad = (input_ids != self.pad)
+			if not pt.any(non_pad):
+				return
+
+			max_idx = pt.nonzero(non_pad, as_tuple=True)[0][-1].item()
+			real_tokens = input_ids[:max_idx + 1]           # length L
+			extra_shift = self.ctx - max_idx                # >= 1
+
+			for i in range(max_idx + 1):                    # 0...max_idx
+				shift = i + extra_shift
+				seq  = pt.full((self.ctx,), self.pad, dtype=input_ids.dtype)
+				copy_len = min(real_tokens.size(0), self.ctx - shift)
+				if copy_len > 0:
+					seq[shift:shift + copy_len] = real_tokens[:copy_len]
+				yield (seq, seq[-1])        # x, y
+
+		def __iter__(self):
+			for art in self.hf_ds:
+				input_ids = art["input_ids"]
+				for sample in self._generate_samples(input_ids):
+					yield sample
+
+	def createDataLoaderNLP(dataset: "Dataset | HFDIterable"):
+		"""Return DataLoader that yields (x, y) batches per the spec above."""
+		# Tokeniser
+		global tok
+		tok = AutoTokenizer.from_pretrained(bertModelName, use_fast=True)
+		pad_id = tok.pad_token_id
+
+		ds_tok = dataset.map(encode, batched=True, remove_columns=dataset.column_names)
+
+		# Convert to PyTorch tensors so we can slice with fancy indexing
+		ds_tok = ds_tok.with_format("torch")
+
+		# If the result is map-style convert it, otherwise keep it as-is
+		if isinstance(ds_tok, HFDIterable):
+			ds_iter = ds_tok                      # already iterable -> nothing to do
+		else:
+			ds_iter = ds_tok.to_iterable_dataset()   # map-style -> convert
+
+		shift_ds = ShiftedSampleDataset(ds_iter, pad_id, contextSizeMax)
+
+		loader = DataLoader(shift_ds, batch_size=batchSize, collate_fn=collate, num_workers=numWorkers, pin_memory=pt.cuda.is_available())
+
+		return loader

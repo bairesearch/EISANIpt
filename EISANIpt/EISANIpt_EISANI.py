@@ -48,7 +48,7 @@ def createModel(dataset):
 	print("\t useBinaryOutputConnections = ", useBinaryOutputConnections)
 	print("\t useDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
 	print("\t useEIneurons = ", useEIneurons)
-	print("\t continuousVarEncodingNumBits = ", continuousVarEncodingNumBits)
+	print("\t EISANITABcontinuousVarEncodingNumBits = ", EISANITABcontinuousVarEncodingNumBits)
 	print("\t numberNeuronsGeneratedPerSample = ", numberNeuronsGeneratedPerSample)
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)

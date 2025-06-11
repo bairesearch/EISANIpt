@@ -65,6 +65,7 @@ pip install torchvision
 pip install torchsummary
 pip install networkx
 pip install matplotlib
+pip install transformers
 ```
 
 ### Execution

@@ -31,8 +31,14 @@ useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num 
 useDefaultNumLayersParam = True	#default: True (use low num layers)
 useInitOrigParam = False	#use original test parameters
 
+useTabularDataset = True
 useImageDataset = False
-if(useImageDataset):
+useNLPDataset = False
+
+if(useTabularDataset):
+	useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
+elif(useImageDataset):
+	useGrayCode = True
 	CNNkernelSize = 3
 	CNNstride = 1
 	CNNkernelThreshold = 5 #(ie sum of applied kernel is >= 5)
@@ -47,16 +53,18 @@ if(useImageDataset):
 	else:
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 	trainNumberOfEpochsHigh = False	#default: False
-else:
-	useTabularDataset = True
-
+elif(useNLPDataset):
+	useGrayCode = False	#use thermometer encoding (as already endoded)
+	EISANINLPcontinuousVarEncodingNumBits = 3	#-1, 0, +1
+	useDefaultSegmentSizeParam = False	#currently use smaller number of requisite active connections
+	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
+	
 useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 if(useDynamicGeneratedHiddenConnections):
 	useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
 useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
-useGrayCode = True	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
 
@@ -65,16 +73,16 @@ segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based 
 
 targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 if(useDefaultNumNeuronsParam):
-	continuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
+	EISANITABcontinuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
 	numberNeuronsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
 else:
-	continuousVarEncodingNumBits = 16	#default: 16
+	EISANITABcontinuousVarEncodingNumBits = 16	#default: 16
 	numberNeuronsGeneratedPerSample = 50
 if(useEIneurons):
 	EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 	#if(EIneuronsMatchComputation): numberNeuronsGeneratedPerSample *= 2
 if(useDynamicGeneratedHiddenConnections):
-	hiddenLayerSizeSANIbase = numberNeuronsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * continuousVarEncodingNumBits
+	hiddenLayerSizeSANIbase = numberNeuronsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
 	initialiseSANIlayerWeightsUsingCPU = False
 else:
 	hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
@@ -91,7 +99,7 @@ else:
 	segmentActivationThreshold = 2	#default: 2 #allowing for 1 non inhibited mismatch redundancy
 	useActiveBias = False
 	numberNeuronsGeneratedPerSample = numberNeuronsGeneratedPerSample*2
-	useDefaultNumLayersParam = False	#disable to increase number of layers
+	#useDefaultNumLayersParam = False	#disable to increase number of layers
 
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons

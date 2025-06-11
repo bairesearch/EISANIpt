@@ -16,6 +16,9 @@ pip install lovely-tensors
 pip install torchmetrics
 pip install torchvision
 pip install torchsummary
+pip install networkx
+pip install matplotlib
+pip install transformers
 
 # Usage:
 source activate pytorchsenv
@@ -172,13 +175,18 @@ def processDataset(trainOrTest, dataset, model):
 			else:
 				numberOfDataloaderIterations = 1
 			for dataLoaderIteration in range(numberOfDataloaderIterations):
+			
+				#required to reset dataloader and still support tqdm modification;
 				if(useTabularDataset):
 					if(usePairedDataset):
-						loader = ANNpt_data.createDataLoaderTabularPaired(dataset1, dataset2)	#required to reset dataloader and still support tqdm modification
+						loader = ANNpt_data.createDataLoaderTabularPaired(dataset1, dataset2)
 					else:
-						loader = ANNpt_data.createDataLoaderTabular(dataset)	#required to reset dataloader and still support tqdm modification
+						loader = ANNpt_data.createDataLoaderTabular(dataset)
 				elif(useImageDataset):
-					loader = ANNpt_data.createDataLoaderImage(dataset)	#required to reset dataloader and still support tqdm modification
+					loader = ANNpt_data.createDataLoaderImage(dataset)
+				elif(useNLPDataset):
+					loader = ANNpt_data.createDataLoaderNLP(dataset)
+				
 				loop = tqdm(loader, leave=True)
 				for batchIndex, batch in enumerate(loop):
 

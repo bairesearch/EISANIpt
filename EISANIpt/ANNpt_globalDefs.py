@@ -128,6 +128,7 @@ datasetHasTestSplit = True
 datasetHasSubsetType = False
 datasetEqualiseClassSamples = False
 datasetEqualiseClassSamplesTest = False 
+disableDatasetCache = False
 
 datasetLocalFileOptimise = False
 datasetCorrectMissingValues = False	
@@ -140,6 +141,7 @@ debugCullDatasetSamples = False
 #import algorithm specific globalDefs;
 useTabularDataset = False
 useImageDataset = False
+useNLPDataset = False
 if(useAlgorithmVICRegANN):
 	from VICRegANNpt_globalDefs import *
 	useTabularDataset = True
@@ -343,8 +345,6 @@ if(useTabularDataset):
 		datasetShuffle = True	#default: True	#required for high dataloader initialisation efficiency with large datasets
 		dataloaderShuffle = False	#default: False	#required for high dataloader initialisation efficiency with large datasets
 		disableDatasetCache = True	#default: False #requires high CPU ram	#prevents large cache from being created on disk #only suitable with datasetLocalFile
-	else:
-		disableDatasetCache = False
 		
 	if(dataloaderRepeat):
 		dataloaderRepeatSize = 10	#number of repetitions
@@ -354,7 +354,8 @@ if(useTabularDataset):
 			dataloaderRepeatSamplerCustom = False	#no tqdm visualisation
 			assert not dataloaderShuffle	#dataloaderShuffle is not supported by dataloaderRepeatSampler
 elif(useImageDataset):
-	#currently assume CIFAR-10 dataset	#expected test accuracy: ~91%
+	datasetName = "CIFAR10"	#currently assume CIFAR-10 dataset	#expected test accuracy: ~91%
+	numberOfClasses = 10
 	warmupEpochs = 5 	#default: 5	#orig: 0
 	learningRate = 0.001	#default: 0.001 (or 0.01)	#orig: 0.005
 	momentum = 0.9     #default: 0.9	#orig: 0.0
@@ -386,7 +387,6 @@ elif(useImageDataset):
 	else:
 		CNNconvergeEveryEvenLayer = False
 	hiddenLayerSize = 1024
-	disableDatasetCache = False
 	imageDatasetAugment = True
 	if(imageDatasetAugment):
 		trainNumberOfEpochs = 100	#default: 100
@@ -398,7 +398,24 @@ elif(useImageDataset):
 	batchNormFC = False	#optional	#batch norm for fully connected layers
 	dropout = False	#default: False
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
-
+elif(useNLPDataset):
+	useDatasetSubset = True
+	if(useDatasetSubset):
+		datasetSizeSubset = 160	#debug: 160	#do not train all samples	#currently this is severely limited (to limit generateHiddenLayerSizeSANI:hiddenLayerSizeSANI and hence outConnShape etc)
+	numWorkers = 2
+	batchSize = 1	#default: 1	#debug: 1
+	contextSizeMax = 128	#default: 512	#debug: 2
+	sequenceLength = contextSizeMax
+	datasetName = "wikipedia"
+	datasetCfg = "20220301.en"	#not available in conda; "20231101.en", not available in huggingface; "20240501.en"
+	datasetHasTestSplit = False
+	bertModelName = "bert-base-uncased"
+	embeddingSize = 768
+	#bertModelName = "bert-large-uncased"
+	#embeddingSize = 1024	
+	bertNumberTokenTypes = 30522
+	numberOfClasses = bertNumberTokenTypes
+	
 def round_up_to_power_of_2(x: float) -> int:
 	if x <= 0:
 		raise ValueError("x must be positive")
@@ -413,7 +430,6 @@ if(not datasetHasTestSplit):
 		datasetTestSplitSeed = None
 
 if(useAlgorithmEISANI):
-	batchSize = 64
 	if(useEIneurons and EIneuronsMatchComputation and not useImageDataset):
 		numberOfLayers += 1
 	if(trainNumberOfEpochsHigh):
