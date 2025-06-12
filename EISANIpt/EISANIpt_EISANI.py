@@ -25,7 +25,7 @@ import ANNpt_data
 
 def createModel(dataset):
 	datasetSize = ANNpt_data.getDatasetSize(dataset, printSize=False)
-	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)
+	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)	#note "numberOfFeatures" is the raw continuous var input (without x-bit encoding)	#not used
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
 	hiddenLayerSizeSANI = EISANIpt_EISANImodel.generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers)
@@ -49,7 +49,7 @@ def createModel(dataset):
 	print("\t useDynamicGeneratedHiddenConnections = ", useDynamicGeneratedHiddenConnections)
 	print("\t useEIneurons = ", useEIneurons)
 	print("\t EISANITABcontinuousVarEncodingNumBits = ", EISANITABcontinuousVarEncodingNumBits)
-	print("\t numberNeuronsGeneratedPerSample = ", numberNeuronsGeneratedPerSample)
+	print("\t numberNeuronSegmentsGeneratedPerSample = ", numberNeuronSegmentsGeneratedPerSample)
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
 	print("\t useOutputConnectionsNormalised = ", useOutputConnectionsNormalised)

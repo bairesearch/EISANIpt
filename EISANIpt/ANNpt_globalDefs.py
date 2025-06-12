@@ -404,17 +404,9 @@ elif(useNLPDataset):
 		datasetSizeSubset = 160	#debug: 160	#do not train all samples	#currently this is severely limited (to limit generateHiddenLayerSizeSANI:hiddenLayerSizeSANI and hence outConnShape etc)
 	numWorkers = 2
 	batchSize = 1	#default: 1	#debug: 1
-	contextSizeMax = 128	#default: 512	#debug: 2
-	sequenceLength = contextSizeMax
 	datasetName = "wikipedia"
 	datasetCfg = "20220301.en"	#not available in conda; "20231101.en", not available in huggingface; "20240501.en"
 	datasetHasTestSplit = False
-	bertModelName = "bert-base-uncased"
-	embeddingSize = 768
-	#bertModelName = "bert-large-uncased"
-	#embeddingSize = 1024	
-	bertNumberTokenTypes = 30522
-	numberOfClasses = bertNumberTokenTypes
 	
 def round_up_to_power_of_2(x: float) -> int:
 	if x <= 0:

@@ -33,7 +33,9 @@ elif(useNLPDataset):
 	from transformers import AutoTokenizer, DataCollatorWithPadding
 	from torch.utils.data import IterableDataset as TorchIterableDataset, DataLoader
 	from datasets import Dataset, IterableDataset as HFDIterable, get_dataset_config_info, DatasetDict
-	tok = None
+	bert_pad_id = None
+	bert_tokenizer = None
+	import string
 	
 if(disableDatasetCache):
 	import datasets
@@ -105,7 +107,10 @@ def countNumberFeatures(dataset, printSize=False):
 		sample_image, _ = dataset[0]  # Get the first sample (image, label)
 		numberOfFeatures = sample_image.shape[0]*sample_image.shape[1]*sample_image.shape[2]
 	elif useNLPDataset:
-		numberOfFeatures = contextSizeMax * embeddingSize	#not used
+		if(useNLPcharacterInput):
+			numberOfFeatures = contextSizeMax
+		else:
+			numberOfFeatures = contextSizeMax * embeddingSize
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
 
@@ -617,60 +622,107 @@ elif(useNLPDataset):
 		'''	
 		return dataset
 
-	# Encode raw text on-the-fly (no padding yet, just truncation)
 	def encode(batch):
-		#return tok(batch["text"], truncation=True,  max_length=contextSizeMax, padding=False)
-		return tok(batch["text"], truncation=True, max_length=contextSizeMax, padding=False)
+		texts = batch["text"]
+		if useNLPcharacterInput:
+			out_ids = []
+			for txt in texts:
+				if useNLPcharacterInputBasic:
+					txt = txt.lower()
+				ids = []
+				for ch in txt:
+					if ch in _CHAR2ID:
+						ids.append(_CHAR2ID[ch])
+				out_ids.append(ids[:contextSizeMax])   # truncate, no pad yet
+			return {"input_ids": out_ids}
+		else:	
+			global bert_tokenizer, bert_pad_id   # only used in BERT mode
+			if bert_tokenizer is None:
+				bert_tokenizer = AutoTokenizer.from_pretrained(bertModelName, use_fast=True)
+				bert_pad_id	= bert_tokenizer.pad_token_id
+				assert bert_pad_id == NLPcharacterInputPadTokenID
+			enc = bert_tokenizer(texts, truncation=True, max_length=contextSizeMax, padding=False)
+			return enc   # already {"input_ids": [...], ...}
+			
+	if(useNeuronActivationMemory):
+		def collate(batch):
+			# batch_size==1 in your new set-up but keep it generic
+			seqs   = [item for item in batch]
+			pad_id = NLPcharacterInputPadTokenID
+			max_L  = max(len(s) for s in seqs)
+			padded = pt.full((len(seqs), max_L), pad_id, dtype=pt.long)
+			for i, s in enumerate(seqs):
+				padded[i, : len(s)] = s
+			x = padded
+			y = padded	 # no target yet (redundant)
+			return x, y
 
-	# Collate -> (x_batch, y_batch)  --------------------------------
-	def collate(batch):
-		x = pt.stack([item[0] for item in batch], dim=0)      # [B, ctx]
-		y = pt.stack([item[1] for item in batch], dim=0)      # [B]
-		return x, y
+		class RawSampleDataset(TorchIterableDataset):
+			 """
+			 Pass-through: yields one dict {'input_ids': Tensor[seq_len]} per article.
+			 No left-shift / crop logic here any more.
+			 """
+			 def __init__(self, hf_iterable):
+				 super().__init__()
+				 self.hf_ds = hf_iterable
 
-	# Expand each article into many (x, y) samples  -----------------
-	class ShiftedSampleDataset(TorchIterableDataset):
-		def __init__(self, hf_iterable, pad_token_id: int, ctx: int):
-			super().__init__()
-			self.hf_ds = hf_iterable
-			self.pad   = pad_token_id
-			self.ctx   = ctx
+			 def __iter__(self):
+				 for art in self.hf_ds:
+					 ids = art["input_ids"]
+					 if not isinstance(ids, pt.Tensor):
+						 ids = pt.tensor(ids, dtype=pt.long)
+					 yield ids
+	else:
+		def collate(batch):
+			x = pt.stack([b[0] for b in batch])
+			y = pt.stack([b[1] for b in batch])
+			return x, y
 
-		def _generate_samples(self, input_ids: pt.Tensor):
-			"""Yield (x, y) per non-pad token."""
-			# Strip trailing pads so maxNonPaddedTokenIndex is easy
-			non_pad = (input_ids != self.pad)
-			if not pt.any(non_pad):
-				return
+		# Expand each article into many (x, y) samples  -----------------
+		class ShiftedSampleDataset(TorchIterableDataset):
+			def __init__(self, hf_iterable, pad_token_id: int, ctx: int):
+				super().__init__()
+				self.hf_ds = hf_iterable
+				self.pad   = pad_token_id
+				self.ctx   = ctx
 
-			max_idx = pt.nonzero(non_pad, as_tuple=True)[0][-1].item()
-			real_tokens = input_ids[:max_idx + 1]           # length L
-			extra_shift = self.ctx - max_idx                # >= 1
+			def _generate_samples(self, input_ids: pt.Tensor):
+				"""Yield (x, y) per non-pad token."""
+				# Strip trailing pads so maxNonPaddedTokenIndex is easy
+				non_pad = (input_ids != self.pad)
+				if not pt.any(non_pad):
+					return
 
-			for i in range(max_idx + 1):                    # 0...max_idx
-				shift = i + extra_shift
-				seq  = pt.full((self.ctx,), self.pad, dtype=input_ids.dtype)
-				copy_len = min(real_tokens.size(0), self.ctx - shift)
-				if copy_len > 0:
-					seq[shift:shift + copy_len] = real_tokens[:copy_len]
-				yield (seq, seq[-1])        # x, y
+				max_idx = pt.nonzero(non_pad, as_tuple=True)[0][-1].item()
+				real_tokens = input_ids[:max_idx + 1]           # length L
+				extra_shift = self.ctx - max_idx                # >= 1
 
-		def __iter__(self):
-			for art in self.hf_ds:
-				input_ids = art["input_ids"]
-				for sample in self._generate_samples(input_ids):
-					yield sample
+				for i in range(max_idx + 1):                    # 0...max_idx
+					shift = i + extra_shift
+					seq  = pt.full((self.ctx,), self.pad, dtype=input_ids.dtype)
+					copy_len = min(real_tokens.size(0), self.ctx - shift)
+					if copy_len > 0:
+						seq[shift:shift + copy_len] = real_tokens[:copy_len]
+					yield (seq, seq[-1])        # x, y
 
+			def __iter__(self):
+				for art in self.hf_ds:
+					ids = art["input_ids"]
+
+					# new;
+					# HF delivers lists when padding=False -> convert once
+					if not isinstance(ids, pt.Tensor):
+						ids = pt.tensor(ids, dtype=pt.long)
+					# Add a trailing PAD to guarantee len >= 1
+					ids = pt.cat([ids, pt.tensor([self.pad])])
+
+					for sample in self._generate_samples(ids):
+						yield sample	
+	
 	def createDataLoaderNLP(dataset: "Dataset | HFDIterable"):
 		"""Return DataLoader that yields (x, y) batches per the spec above."""
-		# Tokeniser
-		global tok
-		tok = AutoTokenizer.from_pretrained(bertModelName, use_fast=True)
-		pad_id = tok.pad_token_id
-
+		
 		ds_tok = dataset.map(encode, batched=True, remove_columns=dataset.column_names)
-
-		# Convert to PyTorch tensors so we can slice with fancy indexing
 		ds_tok = ds_tok.with_format("torch")
 
 		# If the result is map-style convert it, otherwise keep it as-is
@@ -679,8 +731,46 @@ elif(useNLPDataset):
 		else:
 			ds_iter = ds_tok.to_iterable_dataset()   # map-style -> convert
 
-		shift_ds = ShiftedSampleDataset(ds_iter, pad_id, contextSizeMax)
-
-		loader = DataLoader(shift_ds, batch_size=batchSize, collate_fn=collate, num_workers=numWorkers, pin_memory=pt.cuda.is_available())
+		if(useNeuronActivationMemory):
+			ds = RawSampleDataset(ds_iter)
+		else:
+			ds = ShiftedSampleDataset(ds_iter, NLPcharacterInputPadTokenID, contextSizeMax)
+		
+		loader = DataLoader(ds, batch_size=batchSize, collate_fn=collate, num_workers=numWorkers, pin_memory=pt.cuda.is_available())
 
 		return loader
+
+	if(useNLPcharacterInput):
+	
+		def ascii_printable_with_whitespace() -> list[str]:
+			"""
+			Return ASCII chars 0-127 with all control codes removed
+			except the standard whitespace set:
+				e.g. space (32), TAB (9), LF (10), [CR (13), VT (11), FF (12)]
+			The order is stable: whitespace first, then 32-126 printable.
+			"""
+			# whitelist the whitespace control chars you want to keep
+			whitespace_keep = {' ', '\t', '\n'}		#{' ', '\t', '\n', '\r', '\v', '\f'}
+
+			chars = []
+			# 0-127 inclusive
+			for code in range(128):
+				ch = chr(code)
+				# keep if printable or whitelisted whitespace
+				if ch.isprintable() or ch in whitespace_keep:
+					chars.append(ch)
+			return chars
+
+		def _build_char_tables():
+			if useNLPcharacterInputBasic:
+				table = {c: i+1 for i, c in enumerate(NLPcharacterInputBasicSet)}  # 0 reserved for PAD (NLPcharacterInputPadTokenID)
+				rev   = {i+1: c for i, c in enumerate(NLPcharacterInputBasicSet)}
+			else:
+				# Drop all control codes (0-31, 127) but keep whitespace
+				allowed = ascii_printable_with_whitespace()
+				assert len(allowed) == NLPcharacterInputSetLen-1	# -1 explanation; 0 reserved for PAD (NLPcharacterInputPadTokenID)
+				table = {c: idx+1 for idx, c in enumerate(allowed)}	 #0 reserved for PAD (NLPcharacterInputPadTokenID)
+				rev   = {idx+1: c for idx, c in enumerate(allowed)}
+			return table, rev
+
+		_CHAR2ID, _ID2CHAR = _build_char_tables()
