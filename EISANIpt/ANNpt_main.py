@@ -268,8 +268,8 @@ def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None, fieldTy
 		print("x = ", x)
 		print("y = ", y)
 	
-	if(supportFieldTypeList):
-		loss, accuracy = model(trainOrTest, x, y, optim, l, fieldTypeList)
+	if(useAlgorithmEISANI):
+		loss, accuracy = model(trainOrTest, x, y, optim, l, batchIndex, fieldTypeList)
 	else:
 		loss, accuracy = model(trainOrTest, x, y, optim, l)
 	return loss, accuracy

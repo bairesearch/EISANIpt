@@ -422,7 +422,7 @@ if(not datasetHasTestSplit):
 		datasetTestSplitSeed = None
 
 if(useAlgorithmEISANI):
-	if(useEIneurons and EIneuronsMatchComputation and not useImageDataset):
+	if(useEIneurons and EIneuronsMatchComputation and useTabularDataset):
 		numberOfLayers += 1
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = 100

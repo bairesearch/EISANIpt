@@ -24,6 +24,85 @@ from transformers import AutoModel
 if(not useNLPcharacterInput):
 	model = AutoModel.from_pretrained(bertModelName).eval().to(device)   # embeddingSize-dim vectors
 
+if(useSequentialSANI):
+
+	def _sequentialSANI_dynamic_hidden_growth(self, batchIndex, initActivation):
+		#only generate neurons for based on currently activated (activationTime=now) neurons in each layer, and previously activated neurons time contiguous with these
+		#TODO
+		
+	
+	def _sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, initActivation):
+		for layerIdx in range(self.config.numberOfHiddenLayers):
+
+			layerActivated = torch.zeros(config.hiddenLayerSize, dtype=torch.bool, device=device)
+
+			#segment 1 activations;
+			currentActivationTime = calculateTime(batchIndex)
+			layerSegment0Activated = _compute_layer_sequentialSANI(self, layerIdx, SANIsegmentIndexProximal, currentActivationTime, initActivation, device)
+
+			#segment 2 activations;
+			maxActivationTimeSegment0 = currentActivationTime
+			minActivationTimeSegment1 = max(0, currentActivationTime-maxActivationRecallTime)
+			for timeIndex in range(minActivationTimeSegment0, minActivationTimeSegment1):
+				layerSegment2ActivatedTimeIndex = _compute_layer_sequentialSANI(self, layerIdx, SANIsegmentIndexDistal, timeIndex, initActivation, device)
+				layerActivatedTimeIndex = torch.logical_and(layerSegment1ActivatedTimeIndex, layerSegment0Activated)
+				layerActivated = torch.logical_and(layerActivated, layerActivatedTimeIndex)
+
+			#update neuron activations
+			layerActivatedNot = torch.logical_not(layerActivated)
+			self.layerActivations[layerIdx] = torch.logical_or(self.layerActivations[layerIdx], layerActivated)
+			self.lastActivationTime[layerIdx] = self.lastActivationTime[layerIdx]*layerActivatedNot.int()	#reset the time values for current neuron activations
+			self.lastActivationTime[layerIdx] = self.lastActivationTime[layerIdx]*(layerActivated.int()*currentActivationTime)
+
+			if(trainOrTest and useDynamicGeneratedHiddenConnections):
+				EISANIpt_EISANImodelNLP._sequentialSANI_dynamic_hidden_growth(self, batchIndex, layerIdx, initActivation)
+					
+		layerActivationsList = list(self.layerActivations)
+		return layerActivationsList
+
+	def calculateTime(batchIndex):
+		currentTime = batchIndex
+		return currentTime
+
+	#returns binary activations
+	def _compute_layer_sequentialSANI(self, layerIdx: int, segmentIdx: int, timeIndex: int, initActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:	
+		if(layerIdx == 0):
+			prevActivation = initActivation
+		else:	
+			#first hidden layer recieves input from input layer (input layer does not have activation times as it is completely activated for every token)
+			prevlayerIdx = layerIdx-1
+			prevActivation = self.layerActivations[layerIdx, segmentIdx]
+			timeMask = (self.lastActivationTime[layerIdx, segmentIdx] == timeIndex).float()
+			prevActivation = prevActivation*timeMask	#filter previous activation for same time (at timeIndex)
+
+		# prevActivation is torch.int8 (0 or 1)
+		weight = self.hiddenConnectionMatrix[layerIdx][segmentIdx].to(device)
+
+		dev	= prevActivation.device
+		# weight = self.hiddenConnectionMatrix[layerIdx].to(dev) # Already done above
+
+		if useSparseMatrix:
+			# Called only when self.useEIneurons is False.
+			# Sparse bool weights: True is +1, False is -1.
+			weight = weight.coalesce()
+			indices = weight.indices()
+			values = weight.values() # bool
+			numeric_values_float = torch.where(values, torch.tensor(1.0, device=dev, dtype=torch.float32), torch.tensor(-1.0, device=dev, dtype=torch.float32))
+			weight_eff_float = torch.sparse_coo_tensor(indices, numeric_values_float, weight.shape, device=dev, dtype=torch.float32).coalesce()
+			z_float = torch.sparse.mm(weight_eff_float, prevActivation.float().t()).t()
+		else: # dense
+			# Dense weights are int8: +1, -1, or 0.
+			z_float = prevActivation.float() @ weight.float().t() # Cast both to float for matmul
+
+		activated = self._segmentActivationFunction(layerIdx, segmentIdx, z_float)
+		return activated
+
+	def _segmentActivationFunction(self, layerIdx, segmentIdx, z_float):
+		segmentActivationThreshold = int((layerIdx+1)*segmentActivationFractionThreshold)	#round down
+		self.layerSegmentActivations[layerIdx][segmentIdx] = z_float > segmentActivationThreshold
+		return self.layerSegmentActivations[layerIdx][segmentIdx]
+
+
 def getEncodedFeatureSize():
 	if(useNLPcharacterInput):
 		encodedFeatureSize = sequenceLength*EISANINLPcontinuousVarEncodingNumBits

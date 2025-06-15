@@ -209,3 +209,5 @@ Please update this code to perform a softer max (instead of argmax) to determine
 Please upgrade EISANIpt_EISANImodel.py and EISANIpt_EISANImodelDynamic.py to support option useInhibition=False;
 Do not create or assign any inhibitory neurons (if useEIneurons=True) or synapses (if useEIneurons=False).
 
+
+
