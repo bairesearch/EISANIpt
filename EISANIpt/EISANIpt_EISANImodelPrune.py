@@ -117,7 +117,7 @@ def prune_output_connections_and_hidden_neurons(self) -> None:
 		dev = self.outputConnectionMatrix.device
 		used = torch.zeros(H, dtype=torch.bool, device=dev)
 
-		for upper in range(layer_idx + 1, self.numberUniqueLayers):
+		for upper in range(layer_idx + 1, self.numberUniqueHiddenLayers):
 			if useEIneurons:
 				mats = (self.hiddenConnectionMatrixExcitatory[upper], self.hiddenConnectionMatrixInhibitory[upper])
 			else:
@@ -134,18 +134,18 @@ def prune_output_connections_and_hidden_neurons(self) -> None:
 	if useOutputConnectionsLastLayer:
 		# -------- Case A: only final hidden layer owns output connections ---
 		oc   = self.outputConnectionMatrix                     # [hidden, C]
-		keep = _keep_mask(self.numberUniqueLayers-1, oc)
+		keep = _keep_mask(self.numberUniqueHiddenLayers-1, oc)
 		_set_kept(oc, keep)
 
 		removed = ~(oc != 0).any(dim=1)                        # neurons now dead
-		pruneHiddenNeurons(self, self.numberUniqueLayers - 1, removed)
+		pruneHiddenNeurons(self, self.numberUniqueHiddenLayers - 1, removed)
 	else:
 		# -------- Case B: every hidden layer owns output connections --------
-		for l in reversed(range(self.numberUniqueLayers)):
+		for l in reversed(range(self.numberUniqueHiddenLayers)):
 			oc_layer = self.outputConnectionMatrix[l]              # [hidden, C]
 			keep = _keep_mask(l, oc_layer)
 
-			if l < self.numberUniqueLayers - 1:                    # not topmost
+			if l < self.numberUniqueHiddenLayers - 1:                    # not topmost
 				keep |= _still_used(l).unsqueeze(1)                # retain required ones
 
 			_set_kept(oc_layer, keep)

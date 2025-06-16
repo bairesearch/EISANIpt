@@ -55,7 +55,7 @@ elif(useImageDataset):
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 	trainNumberOfEpochsHigh = False	#default: False
 elif(useNLPDataset):
-	useSequentialSANI = False	#sequentially activated neuronal input (else use summation activated neuronal input)
+	useSequentialSANI = True	#sequentially activated neuronal input (else use summation activated neuronal input)
 	useNeuronActivationMemory = True	#FUTURE: emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#incomplete
 	#enforceSequenceContiguity = True	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
 	useDefaultSegmentSizeParam = False	#currently use smaller number of requisite active connections
@@ -76,12 +76,17 @@ elif(useNLPDataset):
 		contextSizeMax = 128*4	#default: 512	#production: 512*4	#assume approx 4 characters per BERT token
 		numberOfClasses = NLPcharacterInputSetLen
 	else:	
-		useContinuousVarEncodeMethod = "thermometer"	#use thermometer encoding (as already encoded)
-		EISANINLPcontinuousVarEncodingNumBits = 3	#default: 3; -1.0, 0, +1.0	#alternative eg 5; -1, -0.5, 0, 0.5, 1.0
-
 		bertModelName = "bert-base-uncased"	#bertModelName = "bert-large-uncased"
-		embeddingSize = 768	#embeddingSize = 1024
 		bertNumberTokenTypes = 30522	#tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")	print(len(tokenizer))
+		if(useSequentialSANI):
+			useTokenEmbedding = False
+			useContinuousVarEncodeMethod = "onehot"	#use thermometer encoding (as already encoded)
+			EISANINLPcontinuousVarEncodingNumBits = bertNumberTokenTypes
+		else:
+			useTokenEmbedding = True
+			useContinuousVarEncodeMethod = "thermometer"	#use thermometer encoding (as already encoded)
+			EISANINLPcontinuousVarEncodingNumBits = 3	#default: 3; -1.0, 0, +1.0	#alternative eg 5; -1, -0.5, 0, 0.5, 1.0
+			embeddingSize = 768	#embeddingSize = 1024
 		
 		contextSizeMax = 128	#default: 128	#production: 512 
 		numberOfClasses = bertNumberTokenTypes
@@ -90,12 +95,29 @@ elif(useNLPDataset):
 
 if(useSequentialSANI):
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
-	numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	segmentActivationFractionThreshold = 0.75	#proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active
+	numberOfSynapsesPerSegment = 1	#mandatory: 1
+	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
+	sequentialSANIsegmentsConnectedToMultipleLayers = False	#FUTURE (not yet coded) #segment0 is connected to every node in every layer below it at the same timeIndex - enables redundancy (not every segment needs to be completely represented; some can only contain the more immediate tokens, closer to timeIndex of the last token in the segment)
+	if(sequentialSANIsegmentsConnectedToMultipleLayers):
+		segmentActivationFractionThreshold = 0.75	#FUTURE: requires segments to support multiple layers of inputs #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active
+	else:
+		segmentActivationThreshold = 1
 	numberOfSegmentsPerNeuron = 2
 	SANIsegmentIndexProximal = 0
 	SANIsegmentIndexDistal = 1
 	maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
+	useEIneurons = False	#mandatory: False
+	useDynamicGeneratedHiddenConnections = True	#mandatory: True
+	initialiseSANIlayerWeightsUsingCPU = False
+	useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	hiddenLayerSizeSANIbase = bertNumberTokenTypes*2	#default: #heuristic: number of 5-grams=1.18 billion (see Google ngrams) 	#max = bertNumberTokenTypes^numberOfLayers (not all permutations are valid)	
+	
+	#for print only;
+	EISANITABcontinuousVarEncodingNumBits = -1	#not used
+	numberNeuronSegmentsGeneratedPerSample = -1	#not used
+	recursiveLayers = False	#not used
+	recursiveSuperblocksNumber = 1	#not used
+	useCPU = True
 else:
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 	useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)

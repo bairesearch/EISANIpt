@@ -107,10 +107,10 @@ def countNumberFeatures(dataset, printSize=False):
 		sample_image, _ = dataset[0]  # Get the first sample (image, label)
 		numberOfFeatures = sample_image.shape[0]*sample_image.shape[1]*sample_image.shape[2]
 	elif useNLPDataset:
-		if(useNLPcharacterInput):
-			numberOfFeatures = contextSizeMax
-		else:
+		if(useTokenEmbedding):
 			numberOfFeatures = contextSizeMax * embeddingSize
+		else:
+			numberOfFeatures = contextSizeMax
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
 

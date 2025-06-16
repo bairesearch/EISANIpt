@@ -53,26 +53,29 @@ def generateNumberHiddenLayers(numberOfLayers: int, numberOfConvlayers: int) -> 
 		numberOfHiddenLayers = numberOfLayers - 1
 	return numberOfHiddenLayers
 
-def getNumberUniqueLayers(recursiveLayers, recursiveSuperblocksNumber, numberOfHiddenLayers):
+def getNumberUniqueHiddenLayers(recursiveLayers, recursiveSuperblocksNumber, numberOfHiddenLayers):
 	if(recursiveLayers):
-		numberUniqueLayers = recursiveSuperblocksNumber*2
+		numberUniqueHiddenLayers = recursiveSuperblocksNumber*2
 		#*2 explanation: the first forward propagated layer in a superblock always uses unique weights:
 		#	- for the first superblock this will comprise unique weights between the input layer and the first hidden layer of the superblock
 		#	- for the all other superblocks this will comprise unique weights between the previous superblock and the first hidden layer of the superblock
 	else:
-		numberUniqueLayers = numberOfHiddenLayers
-	return numberUniqueLayers
+		numberUniqueHiddenLayers = numberOfHiddenLayers
+	return numberUniqueHiddenLayers
 
 def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers):
 	numberOfHiddenLayers = generateNumberHiddenLayers(numberOfLayers, numberOfConvlayers)
-	if(useDynamicGeneratedHiddenConnections):
-		datasetSizeRounded = round_up_to_power_of_2(datasetSize)
-		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+	if(useSequentialSANI):
+		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase
 	else:
-		hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
-	if(recursiveLayers):
-		maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
-		hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer
+		if(useDynamicGeneratedHiddenConnections):
+			datasetSizeRounded = round_up_to_power_of_2(datasetSize)
+			hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+		else:
+			hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+		if(recursiveLayers):
+			maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
+			hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer
 	return hiddenLayerSizeSANI
 		
 class EISANIconfig():
@@ -116,7 +119,7 @@ class EISANImodel(nn.Module):
 		# Derived sizes
 		# -----------------------------
 
-		self.numberUniqueLayers = getNumberUniqueLayers(recursiveLayers, recursiveSuperblocksNumber, config.numberOfHiddenLayers)
+		self.numberUniqueHiddenLayers = getNumberUniqueHiddenLayers(recursiveLayers, recursiveSuperblocksNumber, config.numberOfHiddenLayers)
 
 		if useTabularDataset:
 			# self.encodedFeatureSize = config.numberOfFeatures * EISANITABcontinuousVarEncodingNumBits # Old
@@ -145,11 +148,11 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# Hidden connection matrices
 		# -----------------------------
-		self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueLayers)]
-		self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueLayers)]
-		self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueLayers)]
+		self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+		self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+		self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
 
-		for layerIdx in range(self.numberUniqueLayers): # Modified
+		for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
 			for segmentIdx in range(numberOfSegmentsPerNeuron):
 				if useEIneurons: # Corrected: use useEIneurons
 					if useInhibition:
@@ -158,26 +161,28 @@ class EISANImodel(nn.Module):
 					else:
 						excitSize = config.hiddenLayerSize  # All neurons are excitatory
 						inhibSize = 0
-					excMat = self._initialise_layer_weights(excitSize, prevSize, layerIdx) # Corrected: added layerIdx
-					self.hiddenConnectionMatrixExcitatory[layerIdx].append(excMat)
+					excMat = self._initialise_layer_weights(excitSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+					self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
 					if useInhibition and inhibSize > 0:
-						inhMat = self._initialise_layer_weights(inhibSize, prevSize, layerIdx) # Corrected: added layerIdx
-						self.hiddenConnectionMatrixInhibitory[layerIdx].append(inhMat)
+						inhMat = self._initialise_layer_weights(inhibSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+						self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
 					else:
 						# Create empty inhibitory matrix when inhibition is disabled
-						self.hiddenConnectionMatrixInhibitory[layerIdx].append(torch.empty(0, prevSize, device=device))
+						self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(torch.empty(0, prevSize, device=device))
 				else:
-					mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, layerIdx) # Corrected: added layerIdx
-					self.hiddenConnectionMatrix[layerIdx].append(mat)
+					mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+					self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
 			prevSize = config.hiddenLayerSize
 
 		if(useSequentialSANI):
-			self.layerActivations = torch.zeros(self.numberUniqueLayers, config.hiddenLayerSize, dtype=torch.bool, device=device)
-			#self.layerSegmentActivations = torch.zeros(self.numberUniqueLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device)	#not currently used
-			self.lastActivationTime = torch.zeros(self.numberUniqueLayers, config.hiddenLayerSize, dtype=torch.int, device=device)
-				
+			self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
+			numberUniqueLayers = self.numberUniqueHiddenLayers+1	#these arrays contain both input and hidden neurons (not only hidden neurons)
+			self.layerActivations = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.bool, device=device)
+			#self.layerSegmentActivations = torch.zeros(numberUniqueLayers, config.batchSize, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device)	#not currently used
+			self.lastActivationTime = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)
+			
 		if useDynamicGeneratedHiddenConnections:
-			self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
+			self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
 
 		# -----------------------------
 		# Output connection matrix
@@ -185,7 +190,7 @@ class EISANImodel(nn.Module):
 		if useOutputConnectionsLastLayer:
 			outConnShape = (config.hiddenLayerSize, config.numberOfClasses,)
 		else:
-			outConnShape = (self.numberUniqueLayers, config.hiddenLayerSize, config.numberOfClasses,) # Modified
+			outConnShape = (self.numberUniqueHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,) # Modified
 		if useBinaryOutputConnections:
 			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.bool, device=device) # Added device=device
 		else:
@@ -197,13 +202,13 @@ class EISANImodel(nn.Module):
 		#   dim-2: 0 -> #correct, 1 -> #total
 		# -------------------------------------------------------------
 		if(limitOutputConnectionsBasedOnAccuracy):
-			self.hiddenNeuronPredictionAccuracy = torch.zeros(self.numberUniqueLayers, config.hiddenLayerSize, 2, dtype=torch.int64, device=device,)	#2: (correct, total)
+			self.hiddenNeuronPredictionAccuracy = torch.zeros(self.numberUniqueHiddenLayers, config.hiddenLayerSize, 2, dtype=torch.int64, device=device,)	#2: (correct, total)
 
 		# -----------------------------
 		# verify neuron uniqueness
 		# -----------------------------
 		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
-			L = self.numberUniqueLayers # Modified
+			L = self.numberUniqueHiddenLayers # Modified
 			S = numberOfSegmentsPerNeuron # Added
 			'''
 			self.hiddenHashes       = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
@@ -231,7 +236,7 @@ class EISANImodel(nn.Module):
 			uniqueLayerIndex = layerIdHidden
 		return uniqueLayerIndex
 
-	def _initialise_layer_weights(self, numNeurons: int, prevSize: int, layerIdx: int,) -> torch.Tensor:
+	def _initialise_layer_weights(self, numNeurons: int, prevSize: int, hiddenLayerIdx: int,) -> torch.Tensor:
 		"""
 		Create the hidden connection matrix for a single layer.
 
@@ -323,43 +328,50 @@ class EISANImodel(nn.Module):
 			predictions, outputActivations (both shape (batch, classes)).
 		"""
 		batchSize = x.size(0)
+		#print("x.shape = ", x.shape)
 		#assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
 		#print("device = ", device)
 
 		if(useNLPDataset):
 			if(useNeuronActivationMemory):
-				assert batchSize == 1
-				numSubsamples = sequenceLength
-				seq = x[0]               # Tensor [sequenceLength]
-				non_pad = (seq != NLPcharacterInputPadTokenID)
+				# --- updated for full-batch processing ---
+				seq	= x	# Tensor [batchSize, sequenceLength]
+				non_pad	= (seq != NLPcharacterInputPadTokenID)		# [B, L]
 				if not pt.any(non_pad):
 					return
-				max_idx = pt.nonzero(non_pad, as_tuple=True)[0][-1].item()
-				numSubsamples = max_idx+1
-				seqReal = seq[: max_idx + 1]
-				extra = contextSizeMax - max_idx      # spec guarantees > 0
-				print("numSubsamples = ", numSubsamples)
+				lengths	= non_pad.sum(-1)							# [B]
+				numSubsamples = int(lengths.max().item())			# global max
+				extra = contextSizeMax - lengths					# [B]
 			else:
 				numSubsamples = 1
 		else:
 			numSubsamples = 1
 			
-		for subsampleIndex in range(numSubsamples):
-
+		accuracyAllWindows = 0
+		for slidingWindowIndex in range(numSubsamples):
+			if(numSubsamples > 1):
+				print("slidingWindowIndex = ", slidingWindowIndex)
+			
 			# -----------------------------
 			# Apply sliding window (sequence input only)
 			# -----------------------------
 			if(useNLPDataset and useNeuronActivationMemory):
-				shift = subsampleIndex + extra
-				x_shift  = pt.full((contextSizeMax,), NLPcharacterInputPadTokenID, dtype=seq.dtype, device=seq.device)
-				copy_len = min(seqReal.size(0), contextSizeMax - shift)
-				if copy_len > 0:
-					x_shift[shift : shift + copy_len] = seqReal[: copy_len]
-				y_shift = x_shift[-1]
-				x = x_shift.unsqueeze(0)	#add redundant batch dim
-				y = y_shift.unsqueeze(0)	#add redundant batch dim
-				
+				# --- one-token sliding window: output shape = [B,1] ---
+				token_idx = slidingWindowIndex								# scalar int
+				idx = pt.full((batchSize, 1), token_idx, dtype=pt.long, device=device)
+				gather_idx = idx.clamp(max=seq.size(1) - 1)					# stay in-bounds
+
+				x_shift = seq.gather(1, gather_idx)						# [B,1]
+
+				# mask out positions beyond each sequence\u2019s true length
+				invalid		= (token_idx >= lengths).unsqueeze(1)			# [B,1]
+				x_shift[invalid] = NLPcharacterInputPadTokenID
+
+				y_shift = x_shift.squeeze(1)						# [B]
+				x = x_shift											# [B,1]
+				y = y_shift											# [B]
+				 
 			# -----------------------------
 			# Continuous var encoding as bits
 			# -----------------------------
@@ -386,7 +398,10 @@ class EISANImodel(nn.Module):
 			# count how many are exactly correct
 			correct = (predictions == y).sum().item()
 			accuracy = correct / y.size(0)
-			loss = Loss(0.0)
+			accuracyAllWindows += accuracy
+			
+		accuracyAllWindows = accuracyAllWindows / numSubsamples
+		loss = Loss(0.0)
 		
 		return loss, accuracy
 
@@ -403,12 +418,11 @@ class EISANImodel(nn.Module):
 			encoded = self._encodeContinuousVarsAsBits(x)
 			initActivation = EISANIpt_EISANImodelCNN._propagate_conv_layers(self, encoded)	# (batch, encodedFeatureSize) int8
 		elif useNLPDataset:
-			print("x.shape = ", x.shape)
-			print("x = ", x)
+			#print("x.shape = ", x.shape)
+			#print("x = ", x)
 			embedding = EISANIpt_EISANImodelNLP.encodeTokensInputIDs(self, x)	# (batch, sequenceLength, embeddingSize) float32
 			#print("embedding.shape = ", embedding.shape)
 			encoded = self._encodeContinuousVarsAsBits(embedding)	#int8	#[batchSize, sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
-			#print("encoded.shape = ", encoded.shape)
 			#print("encoded = ", encoded)
 			initActivation = encoded.to(torch.int8)
 			#encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()	#sequenceLength*embeddingSize*EISANINLPcontinuousVarEncodingNumBits
@@ -425,12 +439,12 @@ class EISANImodel(nn.Module):
 			x = x.view(B, C * H * W)  # Flatten pixel dimensions
 		elif(useNLPDataset):
 			numBits = EISANINLPcontinuousVarEncodingNumBits
-			if(useNLPcharacterInput):
-				B, L = x.shape
-				x = x.view(B, L)
-			else:
+			if(useTokenEmbedding):
 				B, L, E = x.shape
 				x = x.view(B, L * E)
+			else:
+				B, L = x.shape
+				x = x.view(B, L)
 
 		if useContinuousVarEncodeMethod=="grayCode":
 			encoded_bits_list = self._gray_code_encode(x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
@@ -557,15 +571,15 @@ class EISANImodel(nn.Module):
 				prevActivation = currentActivation
 		return layerActivations
 
-	def _compute_layer_standard(self, layerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:
+	def _compute_layer_standard(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:
 		activatedAllSegments = []
 		
 		for segmentIdx in range(numberOfSegmentsPerNeuron):
 			# prevActivation is torch.int8 (0 or 1)
-			weight = self.hiddenConnectionMatrix[layerIdx][segmentIdx].to(device)
+			weight = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIdx].to(device)
 			
 			dev	= prevActivation.device
-			# weight = self.hiddenConnectionMatrix[layerIdx].to(dev) # Already done above
+			# weight = self.hiddenConnectionMatrix[hiddenLayerIdx].to(dev) # Already done above
 
 			if useSparseMatrix:
 				# Called only when self.useEIneurons is False.
@@ -584,14 +598,14 @@ class EISANImodel(nn.Module):
 		activated = self._neuronActivationFunction(activatedAllSegments)
 		return activated
 
-	def _compute_layer_EI(self, layerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> Tuple[torch.Tensor, torch.Tensor]:
+	def _compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> Tuple[torch.Tensor, torch.Tensor]:
 		aExcAllSegments = []
 		aInhAllSegments = []
 		for segmentIdx in range(numberOfSegmentsPerNeuron):
 			# prevActivation is torch.int8 (0 or 1)
 			dev  = prevActivation.device
-			wExc = self.hiddenConnectionMatrixExcitatory[layerIdx][segmentIdx].to(dev)
-			wInh = self.hiddenConnectionMatrixInhibitory[layerIdx][segmentIdx].to(dev)
+			wExc = self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIdx].to(dev)
+			wInh = self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIdx].to(dev)
 
 			# Excitatory
 			if useSparseMatrix:
@@ -693,7 +707,7 @@ class EISANImodel(nn.Module):
 			weights = weights
 		return weights
 	
-	def _update_output_connections(self, layerIdx: int, activation: torch.Tensor, y: torch.Tensor, device: torch.device,) -> None:
+	def _update_output_connections(self, hiddenLayerIdx: int, activation: torch.Tensor, y: torch.Tensor, device: torch.device,) -> None:
 		batchSize = activation.size(0)
 		activeMask = activation != 0.0  # (batch, hidden)
 		for sampleIdx in range(batchSize):
@@ -708,9 +722,9 @@ class EISANImodel(nn.Module):
 					self.outputConnectionMatrix[activeNeurons, targetClass] += 1.0
 			else:
 				if useBinaryOutputConnections:
-					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] = True
+					self.outputConnectionMatrix[hiddenLayerIdx, activeNeurons, targetClass] = True
 				else:
-					self.outputConnectionMatrix[layerIdx, activeNeurons, targetClass] += 1.0
+					self.outputConnectionMatrix[hiddenLayerIdx, activeNeurons, targetClass] += 1.0
 						
 	# -----------------------------------------------------------------
 	# Update hidden-neuron accuracy statistics (soft-max vote)

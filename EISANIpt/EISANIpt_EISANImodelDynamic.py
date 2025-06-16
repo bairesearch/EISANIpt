@@ -67,7 +67,7 @@ def _hash_connections(cols: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 # ------------------------------------------------------------------
 
 def perform_uniqueness_check(
-		self, layerIdx: int,
+		self, hiddenLayerIdx: int,
 		newNeuronIdx: int,            # scalar index within hidden layer
 		cols: torch.Tensor,           # (k,)  presynaptic indices
 		w: torch.Tensor               # (k,)  weights 1
@@ -84,33 +84,33 @@ def perform_uniqueness_check(
 	if useEIneurons:
 		half = self.config.hiddenLayerSize // 2
 		if newNeuronIdx < half:
-			bank = self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] # Modified
+			bank = self.hiddenHashesExc[hiddenLayerIdx][segmentIndexToUpdate] # Modified
 		else:
-			bank = self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] # Modified
+			bank = self.hiddenHashesInh[hiddenLayerIdx][segmentIndexToUpdate] # Modified
 	else:
-		bank = self.hiddenHashes[layerIdx][segmentIndexToUpdate] # Modified
+		bank = self.hiddenHashes[hiddenLayerIdx][segmentIndexToUpdate] # Modified
 
 	is_dup = torch.isin(h, bank)
 
 	if is_dup:
 		# abort growth for this neuron segment
-		self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, newNeuronIdx] = False # Modified
+		self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, newNeuronIdx] = False # Modified
 		return False
 
 	# record new hash
 	if useEIneurons:
 		if newNeuronIdx < half:
-			self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
+			self.hiddenHashesExc[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 		else:
-			self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
+			self.hiddenHashesInh[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 	else:
-		self.hiddenHashes[layerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
+		self.hiddenHashes[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat([bank, h.unsqueeze(0)]) # Modified
 
 	return True
 
 
 def perform_uniqueness_check_vectorised(
-		self, layerIdx: int, colsBatch: torch.Tensor, wBatch: torch.Tensor,
+		self, hiddenLayerIdx: int, colsBatch: torch.Tensor, wBatch: torch.Tensor,
 		newRows: torch.Tensor,
 		segmentIndexToUpdate: int # Added: segment index to update
 ):
@@ -131,31 +131,31 @@ def perform_uniqueness_check_vectorised(
 		isExc = newRows < half
 
 		# -------- excitatory ---------------
-		exc_keep = ~torch.isin(hashes[isExc], self.hiddenHashesExc[layerIdx][segmentIndexToUpdate]) # Modified
+		exc_keep = ~torch.isin(hashes[isExc], self.hiddenHashesExc[hiddenLayerIdx][segmentIndexToUpdate]) # Modified
 		if exc_keep.any():
-			self.hiddenHashesExc[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
-				[self.hiddenHashesExc[layerIdx][segmentIndexToUpdate], hashes[isExc][exc_keep]])
+			self.hiddenHashesExc[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashesExc[hiddenLayerIdx][segmentIndexToUpdate], hashes[isExc][exc_keep]])
 
 		# -------- inhibitory ---------------
-		inh_keep = ~torch.isin(hashes[~isExc], self.hiddenHashesInh[layerIdx][segmentIndexToUpdate]) # Modified
+		inh_keep = ~torch.isin(hashes[~isExc], self.hiddenHashesInh[hiddenLayerIdx][segmentIndexToUpdate]) # Modified
 		if inh_keep.any():
-			self.hiddenHashesInh[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
-				[self.hiddenHashesInh[layerIdx][segmentIndexToUpdate], hashes[~isExc][inh_keep]])
+			self.hiddenHashesInh[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashesInh[hiddenLayerIdx][segmentIndexToUpdate], hashes[~isExc][inh_keep]])
 
 		# stitch back together
 		keep_mask = torch.empty_like(hashes, dtype=torch.bool)
 		keep_mask[isExc] = exc_keep
 		keep_mask[~isExc] = inh_keep
 	else:
-		keep_mask = ~torch.isin(hashes, self.hiddenHashes[layerIdx][segmentIndexToUpdate]) # Modified
+		keep_mask = ~torch.isin(hashes, self.hiddenHashes[hiddenLayerIdx][segmentIndexToUpdate]) # Modified
 		if keep_mask.any():
-			self.hiddenHashes[layerIdx][segmentIndexToUpdate] = torch.cat( # Modified
-				[self.hiddenHashes[layerIdx][segmentIndexToUpdate], hashes[keep_mask]])
+			self.hiddenHashes[hiddenLayerIdx][segmentIndexToUpdate] = torch.cat( # Modified
+				[self.hiddenHashes[hiddenLayerIdx][segmentIndexToUpdate], hashes[keep_mask]])
 
 	# Abort growth for duplicate neuron segments by updating neuronSegmentAssignedMask
 	if (~keep_mask).any():
 		duplicate_rows = newRows[~keep_mask]
-		self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, duplicate_rows] = False # Modified
+		self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, duplicate_rows] = False # Modified
 
 	dup_found = (~keep_mask).any().item()
 	return keep_mask, dup_found
@@ -173,7 +173,7 @@ def _build_signature_vectorised(self, colsBatch: torch.Tensor, wBatch: torch.Ten
 		sigs.append(_build_signature(self, cols, w))
 	return sigs
 
-def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate):
+def perform_uniqueness_check(self, hiddenLayerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate):
 	unique = True
 	cfg	= self.config
 	
@@ -183,18 +183,18 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, seg
 		if useInhibition:
 			half = cfg.hiddenLayerSize // 2
 			if newNeuronIdx < half:
-				sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+				sigDict = self.hiddenNeuronSignaturesExc[hiddenLayerIdx][segmentIndexToUpdate]
 			else:
-				sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
+				sigDict = self.hiddenNeuronSignaturesInh[hiddenLayerIdx][segmentIndexToUpdate]
 		else:
 			# All neurons are excitatory when inhibition is disabled
-			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+			sigDict = self.hiddenNeuronSignaturesExc[hiddenLayerIdx][segmentIndexToUpdate]
 	else:
-		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
+		sigDict = self.hiddenNeuronSignatures[hiddenLayerIdx][segmentIndexToUpdate]
 
 	if sig_new in sigDict:
 		# duplicate -> abort growth
-		self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, newNeuronIdx] = False
+		self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, newNeuronIdx] = False
 		unique = False
 	else:
 		# record signature (will keep dict small and incremental)
@@ -202,7 +202,7 @@ def perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, seg
 
 	return unique
 
-def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows, segmentIndexToUpdate):
+def perform_uniqueness_check_vectorised(self, hiddenLayerIdx, colIdx, weights, newRows, segmentIndexToUpdate):
 	unique = True
 	cfg	= self.config
 
@@ -216,9 +216,9 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 			# keep_mask = [] # Original comment, assuming keep_list is used
 			for r, sig in zip(newRows.tolist(), batchSigs):
 				if r < half:
-					sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+					sigDict = self.hiddenNeuronSignaturesExc[hiddenLayerIdx][segmentIndexToUpdate]
 				else:
-					sigDict = self.hiddenNeuronSignaturesInh[layerIdx][segmentIndexToUpdate]
+					sigDict = self.hiddenNeuronSignaturesInh[hiddenLayerIdx][segmentIndexToUpdate]
 				if sig in sigDict:
 					keep_list.append(False)
 					dup_found = True
@@ -227,7 +227,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 					sigDict[sig] = True			# record & keep
 		else:
 			# All neurons are excitatory when inhibition is disabled
-			sigDict = self.hiddenNeuronSignaturesExc[layerIdx][segmentIndexToUpdate]
+			sigDict = self.hiddenNeuronSignaturesExc[hiddenLayerIdx][segmentIndexToUpdate]
 			for sig in batchSigs:
 				if sig in sigDict:
 					keep_list.append(False)
@@ -236,7 +236,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 					keep_list.append(True)
 					sigDict[sig] = True
 	else:
-		sigDict = self.hiddenNeuronSignatures[layerIdx][segmentIndexToUpdate]
+		sigDict = self.hiddenNeuronSignatures[hiddenLayerIdx][segmentIndexToUpdate]
 		for sig in batchSigs:
 			if sig in sigDict:
 				keep_list.append(False)
@@ -250,7 +250,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 	# Abort growth for duplicate neurons by updating neuronSegmentAssignedMask
 	if (~keep_mask).any():
 		duplicate_rows = newRows[~keep_mask]
-		self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, duplicate_rows] = False
+		self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, duplicate_rows] = False
 	
 	return keep_mask, dup_found
 
@@ -259,8 +259,7 @@ def perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows
 # Dynamic hidden growth helper
 # ---------------------------------------------------------
 
-@torch.no_grad()
-def dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
+def dynamic_hidden_growth(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, currentActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
 	batchActiveMask = currentActivation != 0.0
 	fractionActive = batchActiveMask.float().mean().item()
 	if(debugEISANIfractionActivated):
@@ -269,15 +268,15 @@ def dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cur
 		return  # sparsity satisfied
 
 	# Need to activate a new neuron (one per call)
-	available = (~self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, :]).nonzero(as_tuple=True)[0] # Modified
+	available = (~self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, :]).nonzero(as_tuple=True)[0] # Modified
 	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask available.numel() = ", available.numel())
 	if available.numel() == 0:
 		if self.training:
-			print(f"Warning: no more available neurons in hidden layer {layerIdx} for segment {segmentIndexToUpdate}") # Modified
+			print(f"Warning: no more available neurons in hidden layer {hiddenLayerIdx} for segment {segmentIndexToUpdate}") # Modified
 		return
 	newNeuronIdx = available[0].item()
-	self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, newNeuronIdx] = True # Modified
+	self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, newNeuronIdx] = True # Modified
 
 
 	"""
@@ -462,7 +461,7 @@ def dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cur
 
 
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
-		if not perform_uniqueness_check(self, layerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate): # Added segmentIndexToUpdate
+		if not perform_uniqueness_check(self, hiddenLayerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate): # Added segmentIndexToUpdate
 			#if(debugEISANIdynamicUsage):
 			#	printf("dynamic_hidden_growth warning: generated neuron segment not unique")
 			return
@@ -472,13 +471,13 @@ def dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cur
 		# Decide whether the new neuron is excitatory or inhibitory based on index
 		half = self.config.hiddenLayerSize // 2
 		if newNeuronIdx < half or not useInhibition:
-			mat = self.hiddenConnectionMatrixExcitatory[layerIdx][segmentIndexToUpdate]
+			mat = self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIndexToUpdate]
 			relativeIdx = newNeuronIdx if not useInhibition else newNeuronIdx
 		else:
-			mat = self.hiddenConnectionMatrixInhibitory[layerIdx][segmentIndexToUpdate]
+			mat = self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIndexToUpdate]
 			relativeIdx = newNeuronIdx - half
 	else:
-		mat = self.hiddenConnectionMatrix[layerIdx][segmentIndexToUpdate]
+		mat = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate]
 		relativeIdx = newNeuronIdx
 
 	if useSparseMatrix:
@@ -500,20 +499,17 @@ def dynamic_hidden_growth(self, layerIdx: int, prevActivation: torch.Tensor, cur
 
 		matNew = torch.sparse_coo_tensor(torch.cat([existing_indices, new_indices], dim=1), torch.cat([existing_values, new_values]), mat.size(), device=dev,).coalesce()
 	else:
-		# structural update - do NOT track in autograd
-		with torch.no_grad():
-			mat[relativeIdx, randIdx] = weights # Modified for 3D dense
+		mat[relativeIdx, randIdx] = weights
 		matNew = mat
 
 	if useEIneurons and newNeuronIdx >= half and useInhibition:
-		self.hiddenConnectionMatrixInhibitory[layerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
+		self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
 	elif useEIneurons:
-		self.hiddenConnectionMatrixExcitatory[layerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
+		self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
 	else:
-		self.hiddenConnectionMatrix[layerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
+		self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate] = matNew.to(device) #ensure device consistency
 
-@torch.no_grad()
-def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
+def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, currActivation: torch.Tensor, device: torch.device, segmentIndexToUpdate: int) -> None: # Added segmentIndexToUpdate
 	"""
 	Vectorised growth: handles an entire batch, but creates at most ONE new
 	neuron per *sample* that is below the sparsity target.  Exactly follows
@@ -538,7 +534,7 @@ def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.
 	G = growSamples.numel()
 
 	# ---------- 2. reserve G unused neuron slots for the specified segment -----------------------------
-	avail = (~self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, :]).nonzero(as_tuple=True)[0] # Modified
+	avail = (~self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, :]).nonzero(as_tuple=True)[0] # Modified
 	if(debugEISANIdynamicUsage):
 		printf("neuronSegmentAssignedMask avail.numel() = ", avail.numel())
 	if avail.numel() < G:
@@ -546,10 +542,10 @@ def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.
 		growSamples = growSamples[:G]
 		if G == 0:
 			if self.training:
-				print(f"Warning: no free neurons in layer {layerIdx} for segment {segmentIndexToUpdate}") # Modified
+				print(f"Warning: no free neurons in layer {hiddenLayerIdx} for segment {segmentIndexToUpdate}") # Modified
 			return
 	newRows = avail[:G] # [G] neuron indices
-	self.neuronSegmentAssignedMask[layerIdx, segmentIndexToUpdate, newRows] = True # Modified
+	self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, newRows] = True # Modified
 
 	# ---------- 3. vectorised synapse sampling -------------------------------
 	# presynBatch: [G, P] float {0,1}
@@ -612,7 +608,7 @@ def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.
 			weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))
 	
 	if useDynamicGeneratedHiddenConnectionsUniquenessChecks:
-		keep_mask, dup_found = perform_uniqueness_check_vectorised(self, layerIdx, colIdx, weights, newRows, segmentIndexToUpdate) # Added segmentIndexToUpdate
+		keep_mask, dup_found = perform_uniqueness_check_vectorised(self, hiddenLayerIdx, colIdx, weights, newRows, segmentIndexToUpdate) # Added segmentIndexToUpdate
 		if keep_mask.any():
 			#filter out rows whose signature already exists
 			newRows = newRows[keep_mask]
@@ -709,17 +705,17 @@ def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.
 			flatVals_inh = torch.empty(0, dtype=flatVals.dtype, device=device)
 
 		# merge into respective matrices
-		Emat = self.hiddenConnectionMatrixExcitatory[layerIdx][segmentIndexToUpdate]
+		Emat = self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIndexToUpdate]
 		Emat = merge_into(Emat, flatNeuronIndices_exc, flatPrevNeuronIndices_exc, flatVals_exc, True) # Added segmentIndexToUpdate
-		self.hiddenConnectionMatrixExcitatory[layerIdx][segmentIndexToUpdate] = Emat
+		self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIndexToUpdate] = Emat
 
 		if useInhibition:
-			Imat = self.hiddenConnectionMatrixInhibitory[layerIdx][segmentIndexToUpdate]
+			Imat = self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIndexToUpdate]
 			Imat = merge_into(Imat, flatNeuronIndices_inh, flatPrevNeuronIndices_inh, flatVals_inh, False) # Added segmentIndexToUpdate
-			self.hiddenConnectionMatrixInhibitory[layerIdx][segmentIndexToUpdate] = Imat
+			self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIndexToUpdate] = Imat
 	else:
 		# ---------- 5. write to weight matrix (sparse or dense) for standard (non-EI) ------------------
-		mat = self.hiddenConnectionMatrix[layerIdx][segmentIndexToUpdate]
+		mat = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate]
 
 		if useSparseMatrix:
 			# For 3D sparse: indices are [neuron_idx, segment_idx, prev_neuron_idx]
@@ -742,7 +738,7 @@ def dynamic_hidden_growth_vectorised(self, layerIdx: int, prevActivation: torch.
 				mat_new[flatNeuronIndices, flatPrevNeuronIndices] = flatVals # Modified
 
 		# ---------- 6. store back -------------------------------------------------
-		self.hiddenConnectionMatrix[layerIdx][segmentIndexToUpdate] = mat_new.to(device) #ensure device consistency
+		self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate] = mat_new.to(device) #ensure device consistency
 
 
 def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:

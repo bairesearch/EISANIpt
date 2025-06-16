@@ -62,6 +62,7 @@ useCustomBiasInitialisation = False
 useCustomBiasNoTrain = False
 useSignedWeights = False
 usePositiveWeightsClampModel = False
+useCPU = False
 
 debugSmallBatchSize = False	#small batch size for debugging matrix output
 debugDataNormalisation = False
@@ -514,7 +515,10 @@ else:
 
 #pt.autograd.set_detect_anomaly(True)
 
-device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
+if(useCPU):
+	device = pt.device('cpu')
+else:
+	device = pt.device('cuda') if pt.cuda.is_available() else pt.device('cpu')
 	
 def printf(*args, filePath="log.txt", sep=" ", end="\n"):
 	if(useCloudExecution):
