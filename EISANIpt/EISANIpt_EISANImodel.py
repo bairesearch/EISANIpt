@@ -177,10 +177,13 @@ class EISANImodel(nn.Module):
 		if(useSequentialSANI):
 			self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
 			numberUniqueLayers = self.numberUniqueHiddenLayers+1	#these arrays contain both input and hidden neurons (not only hidden neurons)
-			self.layerActivations = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.bool, device=device)
-			#self.layerSegmentActivations = torch.zeros(numberUniqueLayers, config.batchSize, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device)	#not currently used
-			self.lastActivationTime = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)
-			
+			self.layerActivation = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.bool, device=device)
+			self.layerActivationTime = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)
+			if(sequentialSANIweightedActivations):
+				self.layerActivationDistance = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)	#distance between neuron segments (additive recursive)
+				self.layerActivationCount = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)	#count number of subneurons which were activated
+				#self.layerActivationStrength = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.float, device=device)	#not currently used (it is a derived parameter)
+
 		if useDynamicGeneratedHiddenConnections:
 			self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
 
@@ -381,7 +384,7 @@ class EISANImodel(nn.Module):
 			# Hidden layers
 			# -----------------------------
 			if(useSequentialSANI):
-				layerActivations = EISANIpt_EISANImodelNLP._sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, initActivation)
+				layerActivations = EISANIpt_EISANImodelNLP.sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation)
 			else:
 				layerActivations = self._summationSANIpassHiddenLayers(trainOrTest, initActivation)
 

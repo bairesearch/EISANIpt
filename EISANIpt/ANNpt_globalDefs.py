@@ -505,7 +505,7 @@ def printe(str):
 
 
 import torch as pt
-useLovelyTensors = False
+useLovelyTensors = True
 if(useLovelyTensors):
 	import lovely_tensors as lt
 	lt.monkey_patch()

@@ -35,7 +35,10 @@ useTabularDataset = True
 useImageDataset = False
 useNLPDataset = False	#aka useSequenceDataset
 
-useSequentialSANI = False	#derived param	#sequentially activated neuronal input
+#init derived params (do not modify here);
+useSequentialSANI = False
+sequentialSANIweightedActivations = False
+
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 elif(useImageDataset):
@@ -94,18 +97,21 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
+	sequentialSANIweightedActivations = True
+	debugSequentialSANIweightedActivations = True
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
-	numberOfSynapsesPerSegment = 1	#mandatory: 1
+	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	sequentialSANIsegmentsConnectedToMultipleLayers = False	#FUTURE (not yet coded) #segment0 is connected to every node in every layer below it at the same timeIndex - enables redundancy (not every segment needs to be completely represented; some can only contain the more immediate tokens, closer to timeIndex of the last token in the segment)
-	if(sequentialSANIsegmentsConnectedToMultipleLayers):
-		segmentActivationFractionThreshold = 0.75	#FUTURE: requires segments to support multiple layers of inputs #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active
-	else:
-		segmentActivationThreshold = 1
+	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
+	sequentialSANIsegmentsPartialActivation = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively)
+	if(sequentialSANItimeInvariance):
+		sequentialSANItimeInvarianceFactor = 2	#1 = no time invariance, 2 = time invariance equal to a segment complete token window width
+		#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
+	if(sequentialSANIsegmentsPartialActivation):
+		segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active
 	numberOfSegmentsPerNeuron = 2
-	SANIsegmentIndexProximal = 0
-	SANIsegmentIndexDistal = 1
-	maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
+	sequentialSANIsegmentIndexProximal = 0
+	sequentialSANIsegmentIndexDistal = 1
 	useEIneurons = False	#mandatory: False
 	useDynamicGeneratedHiddenConnections = True	#mandatory: True
 	initialiseSANIlayerWeightsUsingCPU = False
@@ -214,7 +220,9 @@ else:
 		useOutputConnectionsNormalised = True	#uses tanh to normalise output connection weights between 0 and 1
 		useOutputConnectionsNormalisationRange = 1.0	#divide tanh input by useOutputConnectionsNormalisationRange
 
-	
+if(sequentialSANIweightedActivations):
+	assert useBinaryOutputConnections == False
+
 trainLocal = True	#local learning rule	#required
 
 #sublayer paramters:	
