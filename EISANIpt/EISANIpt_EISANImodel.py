@@ -202,14 +202,14 @@ class EISANImodel(nn.Module):
 			
 			self.layerActivation: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.bool, device=device) for _ in range(numberUniqueLayers)]	#record of activation state at last activation time (recorded activations will grow over time)
 			self.layerActivationTime: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]	#last activation time
-			if(sequentialSANIweightedActivations):
+			if(useSequentialSANIactivationStrength):
 				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
 				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]		#count number of subneurons which were activated
 				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.float, device=device) for _ in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
 			
 			#first layer activations use static number abstract neurons (ie neuron activations/times recorded at time t);
 			self.layerActivation[0] = torch.zeros((config.batchSize, self.encodedFeatureSize,), dtype=torch.bool, device=device)
-			self.layerActivationTime[0] = torch.zeros((config.batchSize, self.encodedFeatureSize,), dtype=torch.bool, device=device)
+			self.layerActivationTime[0] = torch.zeros((config.batchSize, self.encodedFeatureSize,), dtype=torch.int, device=device)
 			
 		# -----------------------------
 		# Output connection matrix
@@ -354,7 +354,8 @@ class EISANImodel(nn.Module):
 		accuracyAllWindows = 0
 		for slidingWindowIndex in range(numSubsamples):
 			if(numSubsamples > 1):
-				print("slidingWindowIndex = ", slidingWindowIndex)
+				if(debugSequentialSANIactivations):
+					print("slidingWindowIndex = ", slidingWindowIndex)
 			
 			# -----------------------------
 			# Apply sliding window (sequence input only)
@@ -435,6 +436,9 @@ class EISANImodel(nn.Module):
 					uniqueLayerIndex = self._getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
 					weights = self.outputConnectionMatrix[uniqueLayerIndex]
 
+					#print("actLayerIndex = ", actLayerIndex)
+					#print("act.shape = ", act.shape)
+					#print("weights.shape = ", weights.shape)
 					if useBinaryOutputConnectionsEffective:
 						weights = weights.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
 					else:

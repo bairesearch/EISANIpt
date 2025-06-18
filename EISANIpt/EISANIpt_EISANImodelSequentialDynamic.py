@@ -171,20 +171,24 @@ else:
 		idxA    = activeA.nonzero(as_tuple=False).flatten()
 		idxB    = activeB.nonzero(as_tuple=False).flatten()
 		if idxA.numel() == 0 or idxB.numel() == 0:
+			#print("idxA.numel() == 0 or idxB.numel() == 0")
 			return
 
 		candidatePairs = torch.cartesian_prod(idxA, idxB)				# [P, 2]
-		uniqueMask     = self.perform_uniqueness_check(hiddenLayerIdx, candidatePairs)
+		uniqueMask     = perform_uniqueness_check(self, hiddenLayerIdx, candidatePairs)
 		newPairs       = candidatePairs[uniqueMask]
 		nNew           = newPairs.size(0)
 		if nNew == 0:
+			#print("nNew == 0")
 			return
 
 		# ensure capacity **for this layer only**
+		if(debugSequentialSANIactivations):
+			print("self.numAssignedNeuronSegments[hiddenLayerIdx] = ",  self.numAssignedNeuronSegments[hiddenLayerIdx])
 		start = self.numAssignedNeuronSegments[hiddenLayerIdx].item()
 		end   = start + nNew
 		if end > self.indexArrayA[hiddenLayerIdx].size(0):
-			self.expandArrays(hiddenLayerIdx, end - self.indexArrayA[hiddenLayerIdx].size(0))
+			expandArrays(self, hiddenLayerIdx, end - self.indexArrayA[hiddenLayerIdx].size(0))
 
 		self.indexArrayA[hiddenLayerIdx][start:end] = newPairs[:, 0]
 		self.indexArrayB[hiddenLayerIdx][start:end] = newPairs[:, 1]
@@ -214,8 +218,8 @@ else:
 		if additionalRequired <= 0:
 			return
 
-		nBlocks = (additionalRequired + self.blockExpansionSize - 1) // self.blockExpansionSize
-		growBy  = nBlocks * self.blockExpansionSize
+		nBlocks = (additionalRequired + blockExpansionSize - 1) // blockExpansionSize
+		growBy  = nBlocks * blockExpansionSize
 		device  = self.indexArrayA[hiddenLayerIdx].device
 
 		#expand connection arrays;
@@ -225,13 +229,13 @@ else:
 
 		#expand activation arrays;
 		layerIdx = hiddenLayerIdx+1
-		activationPadding = torch.zeros((config.batchSize, growBy,), dtype=torch.bool, device=device)
-		self.layerActivation[hiddenLayerIdx] = torch.cat([self.layerActivation[layerIdx], activationPadding.bool()], dim=0)
-		self.layerActivationTime[hiddenLayerIdx] = torch.cat([self.layerActivationTime[layerIdx], activationPadding.int()], dim=0)
-		if(sequentialSANIweightedActivations):
-			self.layerActivationDistance[hiddenLayerIdx] = torch.cat([self.layerActivationDistance[layerIdx], activationPadding.int()], dim=0)
-			self.layerActivationCount[hiddenLayerIdx] = torch.cat([self.layerActivationCount[layerIdx], activationPadding.int()], dim=0)
-			#self.layerActivationStrength[hiddenLayerIdx] = torch.cat([self.layerActivationStrength[layerIdx], activationPadding.float()], dim=0)
+		activationPadding = torch.zeros((self.config.batchSize, growBy,), dtype=torch.bool, device=device)
+		self.layerActivation[layerIdx] = torch.cat([self.layerActivation[layerIdx], activationPadding.bool()], dim=1)
+		self.layerActivationTime[layerIdx] = torch.cat([self.layerActivationTime[layerIdx], activationPadding.int()], dim=1)
+		if(useSequentialSANIactivationStrength):
+			self.layerActivationDistance[layerIdx] = torch.cat([self.layerActivationDistance[layerIdx], activationPadding.int()], dim=1)
+			self.layerActivationCount[layerIdx] = torch.cat([self.layerActivationCount[layerIdx], activationPadding.int()], dim=1)
+			#self.layerActivationStrength[layerIdx] = torch.cat([self.layerActivationStrength[layerIdx], activationPadding.float()], dim=1)
 
 		#expand output arrays;
 		if(not useOutputConnectionsLastLayer or hiddenLayerIdx==self.numberUniqueHiddenLayers-1):
@@ -241,7 +245,8 @@ else:
 			self.outputConnectionMatrix[hiddenLayerIdx] = torch.cat([self.outputConnectionMatrix[hiddenLayerIdx], outputConnectionPadding], dim=0)
 
 		#expand accuracy tracker arrays;
-		accPadding = torch.zeros((growBy, 2), dtype=torch.bool, device=device)
-		self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx] = torch.cat([self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx], accPadding], dim=0)
+		if(limitOutputConnectionsBasedOnAccuracy):
+			accPadding = torch.zeros((growBy, 2), dtype=torch.bool, device=device)
+			self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx] = torch.cat([self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx], accPadding], dim=0)
 
 
