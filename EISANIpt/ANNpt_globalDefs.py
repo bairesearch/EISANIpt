@@ -65,6 +65,7 @@ usePositiveWeightsClampModel = False
 useCPU = False
 
 debugSmallBatchSize = False	#small batch size for debugging matrix output
+debugSmallDataset = False	#small dataset (no datasetRepeat) for debugging matrix output
 debugDataNormalisation = False
 
 trainLocal = False
@@ -400,7 +401,10 @@ elif(useImageDataset):
 	dropout = False	#default: False
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 elif(useNLPDataset):
-	useDatasetSubset = True
+	if(useSequentialSANI):
+		useDatasetSubset = True	#default: False - hiddenLayerSizeSANI is dynamically grown, and is not dependent on datasetSize, however useDatasetSubset is still useful for fast debugging 
+	else:
+		useDatasetSubset = True
 	if(useDatasetSubset):
 		datasetSizeSubset = 160	#debug: 160	#do not train all samples	#currently this is severely limited (to limit generateHiddenLayerSizeSANI:hiddenLayerSizeSANI and hence outConnShape etc)
 	numWorkers = 2
@@ -438,6 +442,7 @@ if(useAlgorithmEISANI):
 else:
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = trainNumberOfEpochs*4
+		
 if(debugSmallBatchSize):
 	batchSize = 10
 if(debugSmallNetwork):
@@ -445,7 +450,9 @@ if(debugSmallNetwork):
 	numberOfLayers = 4
 	hiddenLayerSize = 5	
 	trainNumberOfEpochs = 1
-	
+if(debugSmallDataset):
+	datasetRepeat = False
+		
 printAccuracyRunningAverage = False
 if(printAccuracyRunningAverage):
 	runningAverageBatches = 10

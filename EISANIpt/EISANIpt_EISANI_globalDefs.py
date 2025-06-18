@@ -98,13 +98,14 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
+	debugSmallDataset = True
 	useConnectionWeights = False	#False: use 1D index tensors, True: use sparse or dense weight tensors
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000
 		blockExpansionSize = 1000
 		
 	sequentialSANIweightedActivations = True
-	debugSequentialSANIweightedActivations = True
+	debugSequentialSANIweightedActivations = False
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
@@ -122,7 +123,7 @@ if(useSequentialSANI):
 	useDynamicGeneratedHiddenConnections = True	#mandatory: True
 	initialiseSANIlayerWeightsUsingCPU = False
 	useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
-	hiddenLayerSizeSANIbase = bertNumberTokenTypes*2	#default: #heuristic: number of 5-grams=1.18 billion (see Google ngrams) 	#max = bertNumberTokenTypes^numberOfLayers (not all permutations are valid)	
+	#hiddenLayerSizeSANImax	#default: #heuristic: number of 5-grams=1.18 billion (see Google ngrams) 	#max = bertNumberTokenTypes^numberOfLayers (not all permutations are valid)		#bertNumberTokenTypes*2
 	
 	#for print only;
 	EISANITABcontinuousVarEncodingNumBits = -1	#not used

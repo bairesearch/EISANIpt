@@ -35,23 +35,13 @@ if(useDynamicGeneratedHiddenConnections):
 # -----------------------------
 # Hidden layers
 # -----------------------------
-
-def getUniqueLayerIndex(self, layerIdSuperblock: int, layerIdHidden: int) -> int:
-	if(recursiveLayers):
-		if(layerIdHidden==0):
-			uniqueLayerIndex = layerIdSuperblock*2
-		else:
-			uniqueLayerIndex = layerIdSuperblock*2+1
-	else:
-		uniqueLayerIndex = layerIdHidden
-	return uniqueLayerIndex
 		
 def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 	prevActivation = initActivation
 	layerActivations: List[torch.Tensor] = []
 	for layerIdSuperblock in range(recursiveSuperblocksNumber): # Modified
 		for layerIdHidden in range(self.config.numberOfHiddenLayers): # Modified
-			uniqueLayerIndex = getUniqueLayerIndex(self, layerIdSuperblock, layerIdHidden)
+			uniqueLayerIndex = self._getUniqueLayerIndex(layerIdSuperblock, layerIdHidden)
 			if useEIneurons:
 				aExc, aInh = compute_layer_EI(self, uniqueLayerIndex, prevActivation, device)
 				currentActivation = torch.cat([aExc, aInh], dim=1)

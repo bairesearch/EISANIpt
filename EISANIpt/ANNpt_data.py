@@ -602,7 +602,6 @@ elif(useNLPDataset):
 		else:
 			info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
 			datasetSize = info.splits["train"].num_examples
-			print(f"{datasetCfg} contains {train_rows:,} articles")
 					
 		train_rows = int(datasetSize*(1-datasetTestSplitSize))
 		eval_rows = int(datasetSize*datasetTestSplitSize)

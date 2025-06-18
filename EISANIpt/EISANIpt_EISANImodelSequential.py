@@ -22,6 +22,10 @@ from ANNpt_globalDefs import *
 if(useDynamicGeneratedHiddenConnections):	#mandatory
 	import EISANIpt_EISANImodelSequentialDynamic
 
+def getWindowSize(self):
+	windowSize = self.encodedFeatureSize//sequenceLength
+	return windowSize
+	
 def calculateSegmentCompleteTokenWindowWidth(layerIdx):
 	segmentCompleteTokenWindowWidth = layerIdx
 	return segmentCompleteTokenWindowWidth
@@ -67,10 +71,9 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 
 	device = initActivation.device
 	currentActivationTime = calculateTime(batchIndex, slidingWindowIndex)
-	print("currentActivationTime = ", currentActivationTime)
 
 	#shift init layer activations (by number input bits) - always place new initActivation units at start of activation/time tensors;
-	shiftUnits = windowSize = self.encodedFeatureSize
+	shiftUnits = getWindowSize(self)
 	self.layerActivation[0] = torch.cat((torch.zeros_like(self.layerActivation[0][..., :shiftUnits]), initActivation), dim=-1)
 	self.layerActivation[0][:, :shiftUnits] = initActivation
 	self.layerActivationTime[0][:, :shiftUnits] = currentActivationTime
@@ -82,7 +85,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 
 		#segment 1 activations;
 		layerSegment1Activation, layerSegment1Time, layerSegment1ActivationDistance, layerSegment1ActivationCount = compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime, hiddenLayerIdx, sequentialSANIsegmentIndexProximal, device, currentActivationTime)
-
+		
 		#segment 2 activations;
 		if(sequentialSANItimeInvariance):
 			maxActivationTimeSegment2 = currentActivationTime
@@ -111,9 +114,9 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			prevlayerIdx = layerIdx-1
 			prevActivationSeg0 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg0)
 			prevActivationSeg1 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg1)
-			sequentialSANI_dynamic_hidden_growth_pairwise(self, hiddenLayerIdx, prevActivationSeg0, prevActivationSeg1, device)
+			EISANIpt_EISANImodelSequentialDynamic.sequentialSANI_dynamic_hidden_growth_pairwise(self, hiddenLayerIdx, prevActivationSeg0, prevActivationSeg1)
 
-	layerActivationsList = list(self.layerActivation)
+	layerActivationsList = self.layerActivation[1:]	#do not add input layer
 	return layerActivationsList
 
 def calculateTime(batchIndex, slidingWindowIndex):
@@ -124,11 +127,10 @@ def calculateTime(batchIndex, slidingWindowIndex):
 def maskLayerDataByTime(self, currentActivationTime: int, layerIdx: int, propData: str, timeIndexMax: int, timeIndexMin=None):
 	if(layerIdx == 0):
 		#select subset of layerActivations at timeIndex (of windowSize)
-		print("timeIndexMax = ", timeIndexMax)
 		timeOffsetMin = currentActivationTime-timeIndexMax
 		if(timeIndexMin is None):
 			timeIndexMin = timeIndexMax
-		windowSize = self.encodedFeatureSize
+		windowSize = getWindowSize(self)
 
 		activation = self.layerActivation[layerIdx][:, timeOffsetMin:timeOffsetMin + (timeIndexMax-timeIndexMin+1)*windowSize]
 		activationTime = self.layerActivationTime[layerIdx][:, timeOffsetMin:timeOffsetMin + (timeIndexMax-timeIndexMin+1)*windowSize]
@@ -163,7 +165,6 @@ def maskLayerDataByTime(self, currentActivationTime: int, layerIdx: int, propDat
 	return result
 
 def compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime: int, hiddenLayerIdx: int, segmentIdx: int, device: torch.device, timeIndexMax = None, timeIndexMin = None) -> torch.Tensor:	
-	print("1 timeIndexMax = ", timeIndexMax)
 	layerSegmentXActivation, layerSegmentXTime, layerSegmentXActivationStrength, layerSegmentXActivationCount = (None, None, None, None)
 	layerSegmentXActivation = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activation", timeIndexMax, timeIndexMin)
 	if(sequentialSANIweightedActivations):
@@ -173,15 +174,14 @@ def compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime: int, 
 	return layerSegmentXActivation, layerSegmentXTime, layerSegmentXActivationDistance, layerSegmentXActivationCount
 
 def compute_layer_sequentialSANI(self, currentActivationTime: int, hiddenLayerIdx: int, segmentIdx: int, device: torch.device, propData: str, timeIndexMax = None, timeIndexMin = None) -> torch.Tensor:	
-	print("2 timeIndexMax = ", timeIndexMax)
 	layerIdx = hiddenLayerIdx+1
 	prevlayerIdx = layerIdx-1
 	prevActivation = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, propData, timeIndexMax, timeIndexMin)
 
 	if(useConnectionWeights):
-		z_float = forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx, device)
+		z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx, device)
 	else:
-		z_float = forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx)
+		z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx)
 
 	result = z_float
 	#if(propData=="activation"): result = z_float >= segmentActivationThreshold	#not required as segmentActivationThreshold = 1

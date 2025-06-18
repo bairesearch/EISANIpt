@@ -26,7 +26,7 @@ if(useTokenEmbedding):
 
 def getEncodedFeatureSize():
 	if(useSequentialSANI):
-		encodedFeatureSize = EISANINLPcontinuousVarEncodingNumBits
+		encodedFeatureSize = sequenceLength*EISANINLPcontinuousVarEncodingNumBits
 	else:
 		if(useTokenEmbedding):
 			encodedFeatureSize = sequenceLength*embeddingSize*EISANINLPcontinuousVarEncodingNumBits

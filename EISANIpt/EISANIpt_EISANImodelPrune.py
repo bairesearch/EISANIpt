@@ -15,6 +15,8 @@ see ANNpt_main.py
 # Description:
 EISANIpt model prune (output connections and hidden neurons)
 
+limitation: implementation currently requires useConnectionWeights
+
 """
 
 import torch

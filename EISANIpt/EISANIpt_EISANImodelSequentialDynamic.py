@@ -150,13 +150,15 @@ else:
 	# Forward propagation - slice to "used" portion only
 	# ----------------------------------------------------------------- #
 	def forwardProp(self, activationsLayer1: torch.Tensor, hiddenLayerIdx: int, pairId: int) -> torch.Tensor:
-		used        = self.numAssignedNeuronSegments[hiddenLayerIdx].item()	# how many entries are valid?
-		if used == 0:
-			# no downstream neurons yet - return an empty activation map
-			return activationsLayer1.new_zeros(activationsLayer1.size(0), 0, dtype=activationsLayer1.dtype)
+		indexArray  = (self.indexArrayA if pairId == 0 else self.indexArrayB)[hiddenLayerIdx]	# [capacity]
 
-		indexArray  = (self.indexArrayA if pairId == 0 else self.indexArrayB)[hiddenLayerIdx][:used]
-		activationsLayer2 = activationsLayer1.index_select(dim=1, index=indexArray)
+		# Gather - first replace "-1" placeholders by a safe 0 (any valid column)
+		safeIndex   = indexArray.clamp(min=0)
+		acts        = activationsLayer1.index_select(dim=1, index=safeIndex)				# [B, capacity]
+
+		# Zero-out columns that correspond to unassigned slots
+		mask        = indexArray.unsqueeze(0).ne(-1)										# [1, capacity]
+		activationsLayer2 = acts * mask.to(dtype=acts.dtype)
 		return activationsLayer2
 
 	# ----------------------------------------------------------------- #

@@ -57,7 +57,7 @@ def getNumberUniqueHiddenLayers(recursiveLayers, recursiveSuperblocksNumber, num
 def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers):
 	numberOfHiddenLayers = generateNumberHiddenLayers(numberOfLayers, numberOfConvlayers)
 	if(useSequentialSANI):
-		hiddenLayerSizeSANI = hiddenLayerSizeSANIbase
+		hiddenLayerSizeSANI = -1	#hidden layers are dynamically sized [input layer == encodedFeatureSize = sequenceLength*EISANINLPcontinuousVarEncodingNumBits]
 	else:
 		if(useDynamicGeneratedHiddenConnections):
 			datasetSizeRounded = round_up_to_power_of_2(datasetSize)
@@ -206,7 +206,11 @@ class EISANImodel(nn.Module):
 				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
 				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]		#count number of subneurons which were activated
 				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.float, device=device) for _ in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
-
+			
+			#first layer activations use static number abstract neurons (ie neuron activations/times recorded at time t);
+			self.layerActivation[0] = torch.zeros((config.batchSize, self.encodedFeatureSize,), dtype=torch.bool, device=device)
+			self.layerActivationTime[0] = torch.zeros((config.batchSize, self.encodedFeatureSize,), dtype=torch.bool, device=device)
+			
 		# -----------------------------
 		# Output connection matrix
 		# -----------------------------
@@ -329,10 +333,8 @@ class EISANImodel(nn.Module):
 			predictions, outputActivations (both shape (batch, classes)).
 		"""
 		batchSize = x.size(0)
-		#print("x.shape = ", x.shape)
 		#assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
-		#print("device = ", device)
 
 		if(useNLPDataset):
 			if(useNeuronActivationMemory):
@@ -406,11 +408,21 @@ class EISANImodel(nn.Module):
 		
 		return loss, accuracy
 
-
 	# -----------------------------
 	# Output layer
 	# -----------------------------
-							
+
+	def _getUniqueLayerIndex(self, layerIdSuperblock: int, layerIdHidden: int) -> int:
+		if(recursiveLayers):
+			if(layerIdHidden==0):
+				uniqueLayerIndex = layerIdSuperblock*2
+			else:
+				uniqueLayerIndex = layerIdSuperblock*2+1
+		else:
+			uniqueLayerIndex = layerIdHidden
+		return uniqueLayerIndex
+
+				
 	def _calculateOutputLayer(self, trainOrTest, layerActivations, y):
 		outputActivations = torch.zeros(batchSize, self.config.numberOfClasses, device=device)
 
@@ -420,7 +432,7 @@ class EISANImodel(nn.Module):
 				isLastLayer = (layerIdSuperblock==recursiveSuperblocksNumber-1) and (layerIdHidden==self.config.numberOfHiddenLayers-1)
 				if(not useOutputConnectionsLastLayer or isLastLayer):
 					act = layerActivations[actLayerIndex]
-					uniqueLayerIndex = EISANIpt_EISANImodelSummation.getUniqueLayerIndex(self, layerIdSuperblock, layerIdHidden) # Added
+					uniqueLayerIndex = self._getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
 					weights = self.outputConnectionMatrix[uniqueLayerIndex]
 
 					if useBinaryOutputConnectionsEffective:
