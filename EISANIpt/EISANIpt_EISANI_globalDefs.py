@@ -38,6 +38,7 @@ useNLPDataset = False	#aka useSequenceDataset
 #init derived params (do not modify here);
 useSequentialSANI = False
 sequentialSANIweightedActivations = False
+useConnectionWeights = True
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -97,6 +98,11 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
+	useConnectionWeights = False	#False: use 1D index tensors, True: use sparse or dense weight tensors
+	if(not useConnectionWeights):	
+		blockInitCapacity = 1000
+		blockExpansionSize = 1000
+		
 	sequentialSANIweightedActivations = True
 	debugSequentialSANIweightedActivations = True
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)

@@ -66,7 +66,7 @@ def _init_conv_layers(self) -> None:
 	else:
 		self.encodedFeatureSize = encodedFeatureSizeMax
 
-def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
+def propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 	"""
 	Full image pipeline:
 	 - threshold input channels at `EISANICNNinputChannelThreshold`
@@ -81,9 +81,9 @@ def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 	b_idx, c_idx, B, C = (None, None, None, None)
 	for convLayerIndex in range(self.config.numberOfConvlayers):
 		if EISANICNNoptimisationSparseConv and convLayerIndex > 0:
-			z, b_idx, c_idx, B, C = _sparse_conv(self, convLayerIndex, z, b_idx, c_idx, B, C)
+			z, b_idx, c_idx, B, C = sparse_conv(self, convLayerIndex, z, b_idx, c_idx, B, C)
 		else:
-			z, B, C = _dense_conv(self, z)
+			z, B, C = dense_conv(self, z)
 		if CNNmaxPool:
 			if EISANICNNoptimisationSparseConv and convLayerIndex > 0:
 				z = sparse_maxpool2d(self, z, kernel_size=2, stride=2)
@@ -104,9 +104,6 @@ def _propagate_conv_layers(self, x: torch.Tensor) -> torch.Tensor:
 			linearInput = z
 	linearInput = linearInput.view(linearInput.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
 	return linearInput
-
-
-
 
 
 def dynamicallyGenerateLinearInputFeaturesVectorised(				# pylint: disable=too-many-arguments
@@ -192,14 +189,14 @@ def dynamicallyGenerateLinearInputFeaturesVectorised(				# pylint: disable=too-m
 
 
 	
-def _sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
+def sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 
 	'''
 	select parts of the orig tensor x based on any result, returning xSubset, xSubsetIndices
 	'''
 		
 	if(convLayerIndex == 0):
-		print("_sparse_conv warning: convLayerIndex == 0, function designed for sparse input") 
+		print("sparse_conv warning: convLayerIndex == 0, function designed for sparse input") 
 	if(convLayerIndex <= 1):
 		prevConvOut = x
 		B, C, *spatial = prevConvOut.shape			# save spatial dims
@@ -376,7 +373,7 @@ def sparse_maxpool2d(self, x, kernel_size=2, stride=2):
 
 
 
-def _dense_conv(self, x: torch.Tensor) -> torch.Tensor:
+def dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	'''
 	Vectorised mask-match:
 	 - kernel bank shape ........ (K, 1, 3, 3)   (K = 511)

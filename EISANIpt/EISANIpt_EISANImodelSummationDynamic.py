@@ -1,4 +1,4 @@
-"""EISANIpt_EISANImodelDynamic.py
+"""EISANIpt_EISANImodelSummationDynamic.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,13 +13,12 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt model dynamic neuron segment connection assignment
+EISANIpt model Summation Dynamic neuron segment connection assignment
 
 """
 
 import torch
 from ANNpt_globalDefs import *
-import EISANIpt_EISANImodelDynamic
 
 
 # ---------------------------------------------------------
@@ -32,7 +31,7 @@ _MOD64 = 9223372036854775783
 # base for polynomial rolling hash (also prime)
 _BASE  = 1099511628211
 
-def _hash_connections(cols: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+def hash_connections(cols: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 	"""
 	Compute order-independent 64-bit hashes for a *batch* of neurons
 	fully vectorised (no Python loop).
@@ -79,7 +78,7 @@ def perform_uniqueness_check(
 	-------
 	unique : bool - True if neuron was not a duplicate.
 	"""
-	h = _hash_connections(cols.unsqueeze(0), w.unsqueeze(0))[0]   # int64
+	h = hash_connections(cols.unsqueeze(0), w.unsqueeze(0))[0]   # int64
 
 	if useEIneurons:
 		half = self.config.hiddenLayerSize // 2
@@ -124,7 +123,7 @@ def perform_uniqueness_check_vectorised(
 	keep_mask : (G,) bool - True = keep neuron
 	dup_found : bool      - True if any duplicate row detected
 	"""
-	hashes = _hash_connections(colsBatch, wBatch)        # (G,)
+	hashes = hash_connections(colsBatch, wBatch)        # (G,)
 
 	if useEIneurons:
 		half = self.config.hiddenLayerSize // 2
@@ -161,23 +160,23 @@ def perform_uniqueness_check_vectorised(
 	return keep_mask, dup_found
 '''
 
-def _build_signature(self, cols: torch.Tensor, w: torch.Tensor) -> str:
+def build_signature(self, cols: torch.Tensor, w: torch.Tensor) -> str:
 	# cols, w  are 1-D tensors length k  (on GPU)
 	# move to CPU (tiny) and build sorted signature
 	pairs = sorted(zip(cols.cpu().tolist(), w.cpu().tolist()))
 	return ''.join(f'{c}{int(v):+d}' for c, v in pairs)
 
-def _build_signature_vectorised(self, colsBatch: torch.Tensor, wBatch: torch.Tensor) -> list[str]:
+def build_signature_vectorised(self, colsBatch: torch.Tensor, wBatch: torch.Tensor) -> list[str]:
 	sigs = []
 	for cols, w in zip(colsBatch, wBatch):
-		sigs.append(_build_signature(self, cols, w))
+		sigs.append(build_signature(self, cols, w))
 	return sigs
 
 def perform_uniqueness_check(self, hiddenLayerIdx, newNeuronIdx, randIdx, weights, segmentIndexToUpdate):
 	unique = True
 	cfg	= self.config
 	
-	sig_new = _build_signature(self, randIdx, weights)
+	sig_new = build_signature(self, randIdx, weights)
 
 	if useEIneurons:
 		if useInhibition:
@@ -206,7 +205,7 @@ def perform_uniqueness_check_vectorised(self, hiddenLayerIdx, colIdx, weights, n
 	unique = True
 	cfg	= self.config
 
-	batchSigs = _build_signature_vectorised(self, colIdx, weights)	 # len G
+	batchSigs = build_signature_vectorised(self, colIdx, weights)	 # len G
 	dup_found = False
 	keep_list = []
 	

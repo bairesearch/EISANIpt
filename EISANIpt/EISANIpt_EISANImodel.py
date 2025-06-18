@@ -15,31 +15,22 @@ see ANNpt_main.py
 # Description:
 EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal input (SANI) network model
 
-The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways;
-a) tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
-b) both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
-The algorithm is equivalent to the original SANI specification otherwise (dynamic network generation etc).
-
-Implementation note:
-If useEIneurons=False: - a relU function is applied to every hidden neuron (so their output will always be 0 or +1), but connection weights to the next layer can either be positive (+1) or negative (-1).
-If useEIneurons=True: - a relU function is applied to both E and I neurons (so their output will always be 0 or +1), but I neurons output is multiplied by -1 before being propagated to next layer, and connection weights are always positive (+1).
-
 """
 
 import torch
 from torch import nn
+from typing import List, Optional, Tuple
 import EISANIpt_EISANI_globalDefs
 from ANNpt_globalDefs import *
-from typing import List, Optional, Tuple
-if(useDynamicGeneratedHiddenConnections):
-	import EISANIpt_EISANImodelDynamic
+import EISANIpt_EISANImodelContinuousVarEncoding
 if(useTabularDataset):
-	pass
+	import EISANIpt_EISANImodelSummation
 elif(useImageDataset):
 	import EISANIpt_EISANImodelCNN
+	import EISANIpt_EISANImodelSummation
 elif(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
-	import torch.nn.functional as F
+	import EISANIpt_EISANImodelSequential
 import EISANIpt_EISANImodelPrune
 
 
@@ -145,174 +136,181 @@ class EISANImodel(nn.Module):
 		prevSize = self.encodedFeatureSize
 		print("self.encodedFeatureSize = ", self.encodedFeatureSize)
 
-		# -----------------------------
-		# Hidden connection matrices
-		# -----------------------------
-		self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-		self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-		self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-
-		for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
-			for segmentIdx in range(numberOfSegmentsPerNeuron):
-				if useEIneurons: # Corrected: use useEIneurons
-					if useInhibition:
-						excitSize = config.hiddenLayerSize // 2
-						inhibSize = config.hiddenLayerSize - excitSize
+		if(useConnectionWeights):
+			# -----------------------------
+			# Hidden connection matrices
+			# -----------------------------
+			self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			
+			for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
+				for segmentIdx in range(numberOfSegmentsPerNeuron):
+					if useEIneurons: # Corrected: use useEIneurons
+						if useInhibition:
+							excitSize = config.hiddenLayerSize // 2
+							inhibSize = config.hiddenLayerSize - excitSize
+						else:
+							excitSize = config.hiddenLayerSize  # All neurons are excitatory
+							inhibSize = 0
+						excMat = self._initialise_layer_weights(excitSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+						self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
+						if useInhibition and inhibSize > 0:
+							inhMat = self._initialise_layer_weights(inhibSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+							self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
+						else:
+							# Create empty inhibitory matrix when inhibition is disabled
+							self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(torch.empty(0, prevSize, device=device))
 					else:
-						excitSize = config.hiddenLayerSize  # All neurons are excitatory
-						inhibSize = 0
-					excMat = self._initialise_layer_weights(excitSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-					self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
-					if useInhibition and inhibSize > 0:
-						inhMat = self._initialise_layer_weights(inhibSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-						self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
-					else:
-						# Create empty inhibitory matrix when inhibition is disabled
-						self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(torch.empty(0, prevSize, device=device))
-				else:
-					mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-					self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
-			prevSize = config.hiddenLayerSize
+						mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+						self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
+				prevSize = config.hiddenLayerSize
 
+			if useDynamicGeneratedHiddenConnections:
+				self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
+
+			# -----------------------------
+			# verify neuron uniqueness
+			# -----------------------------
+			if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
+				L = self.numberUniqueHiddenLayers # Modified
+				S = numberOfSegmentsPerNeuron # Added
+				'''
+				self.hiddenHashes       = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
+				if useEIneurons:
+					self.hiddenHashesExc = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
+					self.hiddenHashesInh = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
+				'''
+				self.hiddenNeuronSignatures = [[dict() for _ in range(S)] for _ in range(L+1)]
+				if useEIneurons:
+					self.hiddenNeuronSignaturesExc = [[dict() for _ in range(S)] for _ in range(L+1)]
+					self.hiddenNeuronSignaturesInh = [[dict() for _ in range(S)] for _ in range(L+1)]
+
+		if(useConnectionWeights):
+			hiddenLayerSizeStart = config.hiddenLayerSize
+		else:
+			hiddenLayerSizeStart = blockInitCapacity
+	
 		if(useSequentialSANI):
-			self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
 			numberUniqueLayers = self.numberUniqueHiddenLayers+1	#these arrays contain both input and hidden neurons (not only hidden neurons)
-			self.layerActivation = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.bool, device=device)
-			self.layerActivationTime = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)
+			if(useConnectionWeights):
+				self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
+			else:
+				self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
+				self.indexArrayA: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+				self.indexArrayB: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			
+			self.layerActivation: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.bool, device=device) for _ in range(numberUniqueLayers)]	#record of activation state at last activation time (recorded activations will grow over time)
+			self.layerActivationTime: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]	#last activation time
 			if(sequentialSANIweightedActivations):
-				self.layerActivationDistance = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)	#distance between neuron segments (additive recursive)
-				self.layerActivationCount = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.int, device=device)	#count number of subneurons which were activated
-				#self.layerActivationStrength = torch.zeros(numberUniqueLayers, config.batchSize, config.hiddenLayerSize, dtype=torch.float, device=device)	#not currently used (it is a derived parameter)
-
-		if useDynamicGeneratedHiddenConnections:
-			self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
+				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
+				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.int, device=device) for _ in range(numberUniqueLayers)]		#count number of subneurons which were activated
+				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((config.batchSize, hiddenLayerSizeStart,), dtype=torch.float, device=device) for _ in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
 
 		# -----------------------------
 		# Output connection matrix
 		# -----------------------------
-		if useOutputConnectionsLastLayer:
-			outConnShape = (config.hiddenLayerSize, config.numberOfClasses,)
+		
+		outConnShape = (hiddenLayerSizeStart, config.numberOfClasses,) # Modified
+		if(useOutputConnectionsLastLayer):
+			self.outputConnectionMatrix = [None for _ in range(self.numberUniqueHiddenLayers)]
+			if useBinaryOutputConnections:
+				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.zeros(outConnShape, dtype=torch.bool, device=device)
+			else:
+				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.zeros(outConnShape, dtype=torch.float, device=device)
 		else:
-			outConnShape = (self.numberUniqueHiddenLayers, config.hiddenLayerSize, config.numberOfClasses,) # Modified
-		if useBinaryOutputConnections:
-			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.bool, device=device) # Added device=device
-		else:
-			print("outConnShape = ", outConnShape)
-			self.outputConnectionMatrix = torch.zeros(outConnShape, dtype=torch.float, device=device) # Added device=device
+			if useBinaryOutputConnections:
+				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=torch.bool, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			else:
+				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=torch.float, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
 		# -------------------------------------------------------------
 		# Hidden-neuron prediction-accuracy tracker
 		#   dim-2: 0 -> #correct, 1 -> #total
 		# -------------------------------------------------------------
 		if(limitOutputConnectionsBasedOnAccuracy):
-			self.hiddenNeuronPredictionAccuracy = torch.zeros(self.numberUniqueHiddenLayers, config.hiddenLayerSize, 2, dtype=torch.int64, device=device,)	#2: (correct, total)
-
-		# -----------------------------
-		# verify neuron uniqueness
-		# -----------------------------
-		if(useDynamicGeneratedHiddenConnections and useDynamicGeneratedHiddenConnectionsUniquenessChecks):
-			L = self.numberUniqueHiddenLayers # Modified
-			S = numberOfSegmentsPerNeuron # Added
-			'''
-			self.hiddenHashes       = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
-			if useEIneurons:
-				self.hiddenHashesExc = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
-				self.hiddenHashesInh = [[torch.empty(0, dtype=torch.int64, device=device) for _ in range(S)] for _ in range(L)] # Modified
-			'''
-			self.hiddenNeuronSignatures = [[dict() for _ in range(S)] for _ in range(L+1)]
-			if useEIneurons:
-				self.hiddenNeuronSignaturesExc = [[dict() for _ in range(S)] for _ in range(L+1)]
-				self.hiddenNeuronSignaturesInh = [[dict() for _ in range(S)] for _ in range(L+1)]
+			self.hiddenNeuronPredictionAccuracy: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart, 2), dtype=torch.bool, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			
 		
-
 	# ---------------------------------------------------------
 	# Helper - layer initialisation
 	# ---------------------------------------------------------
 
-	def getUniqueLayerIndex(self, layerIdSuperblock: int, layerIdHidden: int) -> int: # Added
-		if(recursiveLayers):
-			if(layerIdHidden==0):
-				uniqueLayerIndex = layerIdSuperblock*2
-			else:
-				uniqueLayerIndex = layerIdSuperblock*2+1
-		else:
-			uniqueLayerIndex = layerIdHidden
-		return uniqueLayerIndex
+	if(useConnectionWeights):
+		def _initialise_layer_weights(self, numNeurons: int, prevSize: int, hiddenLayerIdx: int,) -> torch.Tensor:
+			"""
+			Create the hidden connection matrix for a single layer.
 
-	def _initialise_layer_weights(self, numNeurons: int, prevSize: int, hiddenLayerIdx: int,) -> torch.Tensor:
-		"""
-		Create the hidden connection matrix for a single layer.
+			- If `useDynamicGeneratedHiddenConnections` is True  -> start empty
+			- Else													-> randomly connect
+			  exactly `self.cfg.numberOfSynapsesPerSegment` synapses
+			  per neuron.
 
-		- If `useDynamicGeneratedHiddenConnections` is True  -> start empty
-		- Else													-> randomly connect
-		  exactly `self.cfg.numberOfSynapsesPerSegment` synapses
-		  per neuron.
+			Weight values:
+			  - EI-mode  ->  +1  (excitatory) or always-on +1 (inhibitory handled elsewhere)
+			  - Standard ->  1 with equal probability
+			  If sparse and bool: True for +1, False for -1 (non-EI) or True for +1 (EI)
+			  If dense and int8: +1, -1, or 0.
+			"""
+			cfg = self.config
+			dev = device  # ensures GPU/CPU consistency
+			k = cfg.numberOfSynapsesPerSegment  # shorthand
+			nnz  = numNeurons * k
 
-		Weight values:
-		  - EI-mode  ->  +1  (excitatory) or always-on +1 (inhibitory handled elsewhere)
-		  - Standard ->  1 with equal probability
-		  If sparse and bool: True for +1, False for -1 (non-EI) or True for +1 (EI)
-		  If dense and int8: +1, -1, or 0.
-		"""
-		cfg = self.config
-		dev = device  # ensures GPU/CPU consistency
-		k = cfg.numberOfSynapsesPerSegment  # shorthand
-		nnz  = numNeurons * k
-    
-		if useSparseMatrix:
+			if useSparseMatrix:
 
-			sparse_dtype = torch.bool
-			if(initialiseSANIlayerWeightsUsingCPU):
-				devTemp =  pt.device('cpu')
-			else:
-				devTemp = dev
-				
-			if useDynamicGeneratedHiddenConnections:
-				# start EMPTY
-				indices = torch.empty((2, 0), dtype=torch.int64, device=devTemp)
-				values  = torch.empty((0,),  dtype=sparse_dtype, device=devTemp)
-			else:
-				# start with k random synapses per neuron
-				'''
-				row_idx = torch.arange(numNeurons, device=dev).repeat_interleave(k)
-				col_idx = torch.randint(prevSize, (numNeurons * k,), device=dev)
-				indices = torch.stack([row_idx, col_idx])  # shape [2, nnz]
-				'''
-				# ---------- memory-tight random initialisation ----------
-				indices = torch.empty((2, nnz), dtype=torch.int64, device=devTemp)
-				# 1. columns: generate in-place
-				torch.randint(prevSize, (nnz,), dtype=torch.int64, device=devTemp, out=indices[1])
-				# 2. rows: broadcast one small vector into the big slot buffer
-				rows = torch.arange(numNeurons, dtype=torch.int64, device=devTemp)  # length = numNeurons
-				indices[0].view(numNeurons, k).copy_(rows.unsqueeze(1))		 # expand, copy once
-
-				if useEIneurons:
-					values = torch.ones(nnz, device=devTemp, dtype=sparse_dtype)
+				sparse_dtype = torch.bool
+				if(initialiseSANIlayerWeightsUsingCPU):
+					devTemp =  pt.device('cpu')
 				else:
-					values = torch.randint(0, 2, (nnz,), device=devTemp, dtype=sparse_dtype)
-         
-			mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=devTemp, dtype=sparse_dtype,).coalesce()
-			mat = mat.to(dev)
-			return mat
-		else:
-			# -------------------------------------------------- dense initialisation
-			weight = torch.zeros(numNeurons, prevSize, device=dev, dtype=torch.int8) # Use torch.int8 for dense
+					devTemp = dev
 
-			if not useDynamicGeneratedHiddenConnections:
-				# randomly choose k unique presynaptic neurons per postsynaptic cell
-				for n in range(numNeurons):
-					syn_idx = torch.randperm(prevSize, device=dev)[:k]
+				if useDynamicGeneratedHiddenConnections:
+					# start EMPTY
+					indices = torch.empty((2, 0), dtype=torch.int64, device=devTemp)
+					values  = torch.empty((0,),  dtype=sparse_dtype, device=devTemp)
+				else:
+					# start with k random synapses per neuron
+					'''
+					row_idx = torch.arange(numNeurons, device=dev).repeat_interleave(k)
+					col_idx = torch.randint(prevSize, (numNeurons * k,), device=dev)
+					indices = torch.stack([row_idx, col_idx])  # shape [2, nnz]
+					'''
+					# ---------- memory-tight random initialisation ----------
+					indices = torch.empty((2, nnz), dtype=torch.int64, device=devTemp)
+					# 1. columns: generate in-place
+					torch.randint(prevSize, (nnz,), dtype=torch.int64, device=devTemp, out=indices[1])
+					# 2. rows: broadcast one small vector into the big slot buffer
+					rows = torch.arange(numNeurons, dtype=torch.int64, device=devTemp)  # length = numNeurons
+					indices[0].view(numNeurons, k).copy_(rows.unsqueeze(1))		 # expand, copy once
 
 					if useEIneurons:
-						weight[n, syn_idx] = 1
+						values = torch.ones(nnz, device=devTemp, dtype=sparse_dtype)
 					else:
-						# Generate +1 or -1 with equal probability, as int8
-						rand_signs_bool = torch.randint(0, 2, (k,), device=dev, dtype=torch.bool)
-						rand_signs = torch.where(rand_signs_bool, torch.tensor(1, device=dev, dtype=torch.int8), torch.tensor(-1, device=dev, dtype=torch.int8))
-						weight[n, syn_idx] = rand_signs
+						values = torch.randint(0, 2, (nnz,), device=devTemp, dtype=sparse_dtype)
 
-			# make it a learnable parameter for the dense case
-			return weight
+				mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=devTemp, dtype=sparse_dtype,).coalesce()
+				mat = mat.to(dev)
+				return mat
+			else:
+				# -------------------------------------------------- dense initialisation
+				weight = torch.zeros(numNeurons, prevSize, device=dev, dtype=torch.int8) # Use torch.int8 for dense
+
+				if not useDynamicGeneratedHiddenConnections:
+					# randomly choose k unique presynaptic neurons per postsynaptic cell
+					for n in range(numNeurons):
+						syn_idx = torch.randperm(prevSize, device=dev)[:k]
+
+						if useEIneurons:
+							weight[n, syn_idx] = 1
+						else:
+							# Generate +1 or -1 with equal probability, as int8
+							rand_signs_bool = torch.randint(0, 2, (k,), device=dev, dtype=torch.bool)
+							rand_signs = torch.where(rand_signs_bool, torch.tensor(1, device=dev, dtype=torch.int8), torch.tensor(-1, device=dev, dtype=torch.int8))
+							weight[n, syn_idx] = rand_signs
+
+				# make it a learnable parameter for the dense case
+				return weight
 
 	# ---------------------------------------------------------
 	# Forward pass
@@ -378,15 +376,15 @@ class EISANImodel(nn.Module):
 			# -----------------------------
 			# Continuous var encoding as bits
 			# -----------------------------
-			initActivation = self._continuousVarEncoding(x)
+			initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(self, x)
 			
 			# -----------------------------
 			# Hidden layers
 			# -----------------------------
 			if(useSequentialSANI):
-				layerActivations = EISANIpt_EISANImodelNLP.sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation)
+				layerActivations = EISANIpt_EISANImodelSequential.sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation)
 			else:
-				layerActivations = self._summationSANIpassHiddenLayers(trainOrTest, initActivation)
+				layerActivations = EISANIpt_EISANImodelSummation.summationSANIpassHiddenLayers(self, trainOrTest, initActivation)
 
 			# -----------------------------
 			# Output layer
@@ -408,250 +406,7 @@ class EISANImodel(nn.Module):
 		
 		return loss, accuracy
 
-	# -------------------------------------------------------------
-	# Continuous var encoding as bits
-	# -------------------------------------------------------------
 
-	def _continuousVarEncoding(self, x):
-		if useTabularDataset:
-			encoded = self._encodeContinuousVarsAsBits(x)
-			initActivation = encoded.to(torch.int8)
-			numSubsamples = 1
-		elif useImageDataset:
-			encoded = self._encodeContinuousVarsAsBits(x)
-			initActivation = EISANIpt_EISANImodelCNN._propagate_conv_layers(self, encoded)	# (batch, encodedFeatureSize) int8
-		elif useNLPDataset:
-			#print("x.shape = ", x.shape)
-			#print("x = ", x)
-			embedding = EISANIpt_EISANImodelNLP.encodeTokensInputIDs(self, x)	# (batch, sequenceLength, embeddingSize) float32
-			#print("embedding.shape = ", embedding.shape)
-			encoded = self._encodeContinuousVarsAsBits(embedding)	#int8	#[batchSize, sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
-			#print("encoded = ", encoded)
-			initActivation = encoded.to(torch.int8)
-			#encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()	#sequenceLength*embeddingSize*EISANINLPcontinuousVarEncodingNumBits
-		return initActivation
-
-	def _encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
-		if(useTabularDataset):
-			numBits = EISANITABcontinuousVarEncodingNumBits
-		if(useImageDataset):
-			numBits = EISANICNNcontinuousVarEncodingNumBits
-			if numBits == 1:
-				return x
-			B, C, H, W = x.shape
-			x = x.view(B, C * H * W)  # Flatten pixel dimensions
-		elif(useNLPDataset):
-			numBits = EISANINLPcontinuousVarEncodingNumBits
-			if(useTokenEmbedding):
-				B, L, E = x.shape
-				x = x.view(B, L * E)
-			else:
-				B, L = x.shape
-				x = x.view(B, L)
-
-		if useContinuousVarEncodeMethod=="grayCode":
-			encoded_bits_list = self._gray_code_encode(x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
-		elif useContinuousVarEncodeMethod=="thermometer":
-			encoded_bits_list = self._thermometer_encode(x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
-		elif useContinuousVarEncodeMethod=="onehot":
-			encoded_bits = F.one_hot(x, num_classes=numBits)	# (B, L, numBits)
-
-		if(useTabularDataset):
-			code = torch.cat(encoded_bits_list, dim=1) # Concatenate along the feature/bit dimension	#[B, nCont*numBits]
-		elif(useImageDataset):
-			code = torch.stack(encoded_bits_list, dim=2) 	#[B, C*H*W, EISANICNNcontinuousVarEncodingNumBits]
-			code = code.view(B, C, H, W, numBits)	#unflatten pixel dimensions
-			code = code.permute(0, 1, 4, 2, 3)  # Rearrange dimensions to [B, C, numBits, H, W]
-			code = code.reshape(B, C*numBits, H, W)
-		elif(useNLPDataset):
-			if useContinuousVarEncodeMethod=="onehot":
-				code = encoded_bits.view(B, L, numBits) 	#[B, L*numBits]
-				#FUTURE: update EISANIpt_EISANImodel and EISANIpt_EISANImodelDynamic to support useNLPDataset with dim [batchSize sequenceLength, EISANINLPcontinuousVarEncodingNumBits]
-				code = code.reshape(B, L*numBits)
-			else:
-				code = torch.stack(encoded_bits_list, dim=1) 	#[B, L, numBits]
-				#code = code.reshape(B, L, E*numBits)		#FUTURE: update EISANIpt_EISANImodel and EISANIpt_EISANImodelDynamic to support useNLPDataset with dim [batchSize sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
-				code = code.reshape(B, L*E*numBits)
-
-		return code
-
-	def _gray_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
-		"""Vectorised Gray-code encoding (batch, features, bits) with no costly Python loop."""
-		batch_size, num_features = x.shape
-		device = x.device
-
-		# 1. Identify Boolean columns once
-		isBool = torch.zeros(num_features, dtype=torch.bool, device=device)
-		if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
-			limit = min(num_features, len(fieldTypeList))
-			isBool[:limit] = torch.tensor([ft == 'bool' for ft in fieldTypeList[:limit]], device=device)
-
-		# 2. Boolean bits (1-bit, already 0/1)
-		boolBits = x[:, isBool].float()											# (batch, nBool)
-
-		# 3. Continuous bits - quantise - Gray - bit-slice
-		if (~isBool).any():
-			xCont = x[:, ~isBool]												# (batch, nCont)
-			intLevels = self._continuous_to_int(xCont, numBits, minVal, maxVal)		# (batch, nCont)
-			grayLevels = intLevels ^ (intLevels >> 1)
-			bitPos = torch.arange(numBits, device=device)						# (numBits,)
-			contBits = ((grayLevels.unsqueeze(-1) >> bitPos) & 1).float()		# (batch, nCont, numBits)
-		else:
-			contBits = x.new_empty(batch_size, 0, numBits)
-
-		# 4. Re-interleave (cheap Python, negligible cost)
-		encoded_bits_list: list[torch.Tensor] = []
-		bool_iter = iter(boolBits.unbind(dim=1))									# each - (batch,)
-		cont_iter = iter(contBits.unbind(dim=1))								# each - (batch, numBits)
-		for flag in isBool:														# trivial loop
-			encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
-		return encoded_bits_list
-
-	def _thermometer_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
-		"""Vectorised thermometer encoding (batch, features, bits) without per-feature Python work."""
-		batch_size, num_features = x.shape
-		device = x.device
-
-		isBool = torch.zeros(num_features, dtype=torch.bool, device=device)
-		if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
-			limit = min(num_features, len(fieldTypeList))
-			isBool[:limit] = torch.tensor([ft == 'bool' for ft in fieldTypeList[:limit]], device=device)
-
-		boolBits = x[:, isBool].float()											# (batch, nBool)
-
-		if (~isBool).any():
-			xCont = x[:, ~isBool]												# (batch, nCont)
-			intLevels = self._continuous_to_int(xCont, numBits, minVal, maxVal)		# (batch, nCont)
-			thresholds = torch.arange(numBits, device=device)					# (numBits,)
-			contBits = (intLevels.unsqueeze(-1) >= thresholds).float()			# (batch, nCont, numBits)
-		else:
-			contBits = x.new_empty(batch_size, 0, numBits)
-
-		encoded_bits_list: list[torch.Tensor] = []
-		bool_iter = iter(boolBits.unbind(dim=1))
-		cont_iter = iter(contBits.unbind(dim=1))
-		for flag in isBool:
-			encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
-		return encoded_bits_list
-
-	def _continuous_to_int(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
-		"""Map (batch, features) continuous tensor to integer levels [0, 2**bits-1]."""
-		xClamped = torch.clamp(x, minVal, maxVal)
-		norm = (xClamped - minVal) / (maxVal - minVal)
-		scaled = norm * (2 ** numBits - 1)
-		return scaled.round().to(torch.long)
-		
-	# -----------------------------
-	# Hidden layers
-	# -----------------------------
-	
-	def _summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
-		prevActivation = initActivation
-		layerActivations: List[torch.Tensor] = []
-		for layerIdSuperblock in range(recursiveSuperblocksNumber): # Modified
-			for layerIdHidden in range(self.config.numberOfHiddenLayers): # Modified
-				uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
-				if useEIneurons:
-					aExc, aInh = self._compute_layer_EI(uniqueLayerIndex, prevActivation, device) # Modified
-					currentActivation = torch.cat([aExc, aInh], dim=1)
-				else:
-					currentActivation = self._compute_layer_standard(uniqueLayerIndex, prevActivation, device) # Modified
-
-				# -------------------------
-				# Dynamic hidden connection growth
-				# -------------------------
-				if (trainOrTest and useDynamicGeneratedHiddenConnections):
-					for _ in range(numberNeuronSegmentsGeneratedPerSample):
-						if(useDynamicGeneratedHiddenConnectionsVectorised):
-							EISANIpt_EISANImodelDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
-						else:
-							for s_batch_idx in range(prevActivation.size(0)):                # loop over batch
-								prevAct_b  = prevActivation[s_batch_idx : s_batch_idx + 1]             # keep 2- [1, prevSize]
-								currAct_b  = currentActivation[s_batch_idx : s_batch_idx + 1]          # keep 2- [1, layerSize]
-								EISANIpt_EISANImodelDynamic.dynamic_hidden_growth(self, uniqueLayerIndex, prevAct_b, currAct_b, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
-
-				layerActivations.append(currentActivation)
-				prevActivation = currentActivation
-		return layerActivations
-
-	def _compute_layer_standard(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:
-		activatedAllSegments = []
-		
-		for segmentIdx in range(numberOfSegmentsPerNeuron):
-			# prevActivation is torch.int8 (0 or 1)
-			weight = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIdx].to(device)
-			
-			dev	= prevActivation.device
-			# weight = self.hiddenConnectionMatrix[hiddenLayerIdx].to(dev) # Already done above
-
-			if useSparseMatrix:
-				# Called only when self.useEIneurons is False.
-				# Sparse bool weights: True is +1, False is -1.
-				weight = weight.coalesce()
-				indices = weight.indices()
-				values = weight.values() # bool
-				numeric_values_float = torch.where(values, torch.tensor(1.0, device=dev, dtype=torch.float32), torch.tensor(-1.0, device=dev, dtype=torch.float32))
-				weight_eff_float = torch.sparse_coo_tensor(indices, numeric_values_float, weight.shape, device=dev, dtype=torch.float32).coalesce()
-				z_float = torch.sparse.mm(weight_eff_float, prevActivation.float().t()).t()
-			else: # dense
-				# Dense weights are int8: +1, -1, or 0.
-				z_float = prevActivation.float() @ weight.float().t() # Cast both to float for matmul
-			activated = self._segmentActivationFunction(z_float).to(torch.int8) # bool to int8 (0 or 1)
-			activatedAllSegments.append(activated)
-		activated = self._neuronActivationFunction(activatedAllSegments)
-		return activated
-
-	def _compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> Tuple[torch.Tensor, torch.Tensor]:
-		aExcAllSegments = []
-		aInhAllSegments = []
-		for segmentIdx in range(numberOfSegmentsPerNeuron):
-			# prevActivation is torch.int8 (0 or 1)
-			dev  = prevActivation.device
-			wExc = self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx][segmentIdx].to(dev)
-			wInh = self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIdx].to(dev)
-
-			# Excitatory
-			if useSparseMatrix:
-				# EI sparse weights are True for +1
-				numeric_values_exc_float = wExc.values().to(torch.float32) # True becomes 1.0
-				wExc_eff_float = torch.sparse_coo_tensor(wExc.indices(), numeric_values_exc_float, wExc.shape, device=dev, dtype=torch.float32).coalesce()
-				zExc_float = torch.sparse.mm(wExc_eff_float, prevActivation.float().t()).t()
-			else: # dense
-				# Dense EI weights are 1 (int8). Convert to float for matmul.
-				zExc_float = prevActivation.float() @ wExc.float().t()
-			aExc = self._segmentActivationFunction(zExc_float).to(torch.int8) # bool to int8 (0 or 1)
-			aExcAllSegments.append(aExc)
-			
-			# Inhibitory
-			if useSparseMatrix:
-				# EI sparse weights are True for +1
-				numeric_values_inh_float = wInh.values().to(torch.float32) # True becomes 1.0
-				wInh_eff_float = torch.sparse_coo_tensor(wInh.indices(), numeric_values_inh_float, wInh.shape, device=dev, dtype=torch.float32).coalesce()
-				zInh_float = torch.sparse.mm(wInh_eff_float, prevActivation.float().t()).t()
-			else: # dense
-				# Dense EI weights are 1 (int8). Convert to float for matmul.
-				zInh_float = prevActivation.float() @ wInh.float().t()
-			firesInh = self._segmentActivationFunction(zInh_float)
-			aInh = torch.zeros_like(zInh_float, dtype=torch.int8, device=dev) # Initialize with correct shape, device and int8 type
-			aInh[firesInh] = -1
-			aInhAllSegments.append(aInh)
-		aExc = self._neuronActivationFunction(aExcAllSegments)
-		aInh = self._neuronActivationFunction(aInhAllSegments)
-		return aExc, aInh
-		
-	def _segmentActivationFunction(self, z_all_segments):
-		# z_all_segments has shape [B, numNeurons, numberOfSegmentsPerNeuron]
-		# A segment fires if its activation sum meets the threshold.
-		segment_fires = z_all_segments >= segmentActivationThreshold # [B, numNeurons, numberOfSegmentsPerNeuron] (bool)
-		return segment_fires
-		
-	def _neuronActivationFunction(self, a_all_segments_list):
-		#for EISANI summation activated neuronal input assume neuron is activated when any segments are activated
-		a_all_segments = torch.stack(a_all_segments_list, dim=2)	# [B, numNeurons, numberOfSegmentsPerNeuron] (bool)
-		# Combine segment activations: a neuron is active if any of its segments are active.
-		neuron_fires = torch.any(a_all_segments, dim=2) # [B, numNeurons] (bool)
-		return neuron_fires
-		
 	# -----------------------------
 	# Output layer
 	# -----------------------------
@@ -659,30 +414,14 @@ class EISANImodel(nn.Module):
 	def _calculateOutputLayer(self, trainOrTest, layerActivations, y):
 		outputActivations = torch.zeros(batchSize, self.config.numberOfClasses, device=device)
 
-		if useOutputConnectionsLastLayer:
-			act = layerActivations[-1] # Activations from the last hidden layer
-			weights = self.outputConnectionMatrix
-
-			if useBinaryOutputConnectionsEffective:
-				weights = self.outputConnectionMatrix.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
-			else:
-				if useBinaryOutputConnections:
-					weights = self.outputConnectionMatrix.to(torch.int8) # bool to int8 (0/1)
-				else:
-					weights = self.outputConnectionMatrix # float
-
-			weights = self._normaliseOutputConnectionWeights(weights.float())	# cast weights to float for matmul
-			outputActivations += act.float() @ weights	# cast act to float for matmul
-
-			if trainOrTest and y is not None:
-				self._update_output_connections(None, act, y, device)
-		else:
-			actLayerIndex = 0
-			for layerIdSuperblock in range(recursiveSuperblocksNumber): # Added
-				for layerIdHidden in range(self.config.numberOfHiddenLayers): # Added
-					act = layerActivations[actLayerIndex] # Modified
-					uniqueLayerIndex = self.getUniqueLayerIndex(layerIdSuperblock, layerIdHidden) # Added
-					weights = self.outputConnectionMatrix[uniqueLayerIndex] # Modified
+		actLayerIndex = 0
+		for layerIdSuperblock in range(recursiveSuperblocksNumber):
+			for layerIdHidden in range(self.config.numberOfHiddenLayers):
+				isLastLayer = (layerIdSuperblock==recursiveSuperblocksNumber-1) and (layerIdHidden==self.config.numberOfHiddenLayers-1)
+				if(not useOutputConnectionsLastLayer or isLastLayer):
+					act = layerActivations[actLayerIndex]
+					uniqueLayerIndex = EISANIpt_EISANImodelSummation.getUniqueLayerIndex(self, layerIdSuperblock, layerIdHidden) # Added
+					weights = self.outputConnectionMatrix[uniqueLayerIndex]
 
 					if useBinaryOutputConnectionsEffective:
 						weights = weights.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
@@ -698,7 +437,7 @@ class EISANImodel(nn.Module):
 					# Training: reinforce output connections
 					if trainOrTest and y is not None:
 						self._update_output_connections(uniqueLayerIndex, act, y, device)
-					actLayerIndex += 1 # Added
+				actLayerIndex += 1
 
 		predictions = torch.argmax(outputActivations, dim=1)
 		return predictions
@@ -718,16 +457,10 @@ class EISANImodel(nn.Module):
 			activeNeurons = activeMask[sampleIdx].nonzero(as_tuple=True)[0]
 			if activeNeurons.numel() == 0:
 				continue
-			if useOutputConnectionsLastLayer:
-				if useBinaryOutputConnections:
-					self.outputConnectionMatrix[activeNeurons, targetClass] = True
-				else:
-					self.outputConnectionMatrix[activeNeurons, targetClass] += 1.0
+			if useBinaryOutputConnections:
+				self.outputConnectionMatrix[hiddenLayerIdx][activeNeurons, targetClass] = True
 			else:
-				if useBinaryOutputConnections:
-					self.outputConnectionMatrix[hiddenLayerIdx, activeNeurons, targetClass] = True
-				else:
-					self.outputConnectionMatrix[hiddenLayerIdx, activeNeurons, targetClass] += 1.0
+				self.outputConnectionMatrix[hiddenLayerIdx][activeNeurons, targetClass] += 1.0
 						
 	# -----------------------------------------------------------------
 	# Update hidden-neuron accuracy statistics (soft-max vote)
@@ -738,26 +471,16 @@ class EISANImodel(nn.Module):
 			if y is not None:												# labels available
 				#note if useOutputConnectionsLastLayer, only the last index in hiddenNeuronPredictionAccuracy will be valid
 
-				# 1) normalise & soft-max output weights
-				w_norm  = self._normaliseOutputConnectionWeights(self.outputConnectionMatrix)
-				w_soft  = torch.softmax(w_norm, dim=-1)						# same shape as outputConnectionMatrix
-
-				if useOutputConnectionsLastLayer:
-					soft_layer_all = w_soft									# [H,C]
-					conn_layer_all = (self.outputConnectionMatrix != 0).any(dim=1)	# [H]
-				else:
-					soft_layer_all = w_soft									# [L,H,C]
-					conn_layer_all = (self.outputConnectionMatrix != 0).any(dim=2)	# [L,H]
-
 				for lidx, act in enumerate(layerActivations):
+					
+					# 1) normalise & soft-max output weights
+					w_norm  = self._normaliseOutputConnectionWeights(self.outputConnectionMatrix[lidx])
+					w_soft  = torch.softmax(w_norm, dim=-1)						# same shape as outputConnectionMatrix
+
 					active_mask = (act != 0)								# [B,H]
 
-					if useOutputConnectionsLastLayer:
-						soft_layer = soft_layer_all							# [H,C]
-						conn_layer = conn_layer_all							# [H]
-					else:
-						soft_layer = soft_layer_all[lidx]					# [H,C]
-						conn_layer = conn_layer_all[lidx]					# [H]
+					soft_layer = w_soft
+					conn_layer = (self.outputConnectionMatrix[lidx] != 0).any(dim=1)	# [H]
 
 					# 2) gather the soft-max weight for the true class of each sample
 					#    soft_layer[:, y] -> [H,B] -> transpose -> [B,H]

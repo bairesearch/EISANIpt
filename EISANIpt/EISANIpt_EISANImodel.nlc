@@ -209,5 +209,16 @@ Please update this code to perform a softer max (instead of argmax) to determine
 Please upgrade EISANIpt_EISANImodel.py and EISANIpt_EISANImodelDynamic.py to support option useInhibition=False;
 Do not create or assign any inhibitory neurons (if useEIneurons=True) or synapses (if useEIneurons=False).
 
+---
+useSequentialSANI:!useConnectionWeights (o3 prompt);
 
+I am replacing pytorch sparse weights (COO) functions for forward propagating where a) each neuron only has a single connection (input) and b) the connections are all permanently weighted 1.0, with a more efficient and simple 1D index array. The 1D index array (indexArray) converts an index at network layer A2 to an index at previous network layer A1 (similar paradigm to a weight matrix). Please write functions for the following;
+
+1. The forward propagation function forwardProp(self, activationsLayer1, layerIdx, pairId) converts activationsLayer1 to activationsLayer2 using either self.indexArrayA[layerIdx] or self.indexArrayB[layerIdx] (depending on whether pairId==0 or 1). Assume a bool pytorch tensor called activationsLayerA of shape [B, numNeuronSegments[layerIdx-1]]; activationsLayerA2 is of shape [B, numNeuronSegments[layerIdx]]. self.indexArrayA[layerIdx] and self.indexArrayB[layerIdx] are long tensors of shape [numNeuronSegments[layerIdx]].
+
+2. A dynamic connection assignment function called sequentialSANI_dynamic_hidden_growth_pairwise(self, layerIdx, activationsLayerA1, activationsLayerB1). sequentialSANI_dynamic_hidden_growth_pairwise assigns new connection index pair (appends to the end of self.indexArrayA[layerIdx] and the end of self.indexArrayB[layerIdx]) for every active pair of neurons in activationsLayerA1 and activationsLayerB1. It also updates numAssignedNeuronSegments[layerIdx] based on the number of new neuron pairs assigned. sequentialSANI_dynamic_hidden_growth_pairwise should be executed in a parallel using pytorch tensor operations instead of python for loops. 
+
+3. Before assigning the new connection index pair, sequentialSANI_dynamic_hidden_growth_pairwise executes a function called perform_uniqueness_check() to verify whether each pair has already been assigned, and if so it does not create a new pair. Implementation: it deactivates the corresponding elements in the tensor(s) used to perform the dynamic index assignment. perform_uniqueness_check should likewise be executed in a parallel using pytorch tensor operations instead of python for loops.
+
+4. Please use static self.indexArrayA[layerIdx] and self.indexArrayB[layerIdx] arrays, providing an index number that defines how many elements they currently have (numAssignedNeuronSegments[layerId]). They always have the same number of elements (because they represent a connection pair in a binary tree network). Create another function called expandArrays(); If, the number of new pairs exceeds the connection index array capacity (ie numAssignedNeuronSegments[layerIdx] > self.indexArrayA[layerIdx].shape[0] {note same as self.indexArrayB[layerIdx].shape[0]}), grow every self.indexArrayA[layerIdX] and self.indexArrayB[layerIdX] by blockExpansionSize elements (where blockExpansionSize=1000).
 
