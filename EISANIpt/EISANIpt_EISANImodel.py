@@ -355,7 +355,7 @@ class EISANImodel(nn.Module):
 		for slidingWindowIndex in range(numSubsamples):
 			if(numSubsamples > 1):
 				if(debugSequentialSANIactivations):
-					print("slidingWindowIndex = ", slidingWindowIndex)
+					print("\n************************** slidingWindowIndex = ", slidingWindowIndex)
 			
 			# -----------------------------
 			# Apply sliding window (sequence input only)

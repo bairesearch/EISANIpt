@@ -30,42 +30,11 @@ def calculateSegmentCompleteTokenWindowWidth(layerIdx):
 	segmentCompleteTokenWindowWidth = layerIdx
 	return segmentCompleteTokenWindowWidth
 
-def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount):
-	segmentCompleteTokenWindowWidth = calculateSegmentCompleteTokenWindowWidth(layerIdx)
-
-	layerActivationCountNormalised = layerActivationProximityNormalised = layerActivationCount = layerActivationDistance = None
-
-	layerActivationStrength = layerActivation.float()
-	if(sequentialSANIsegmentsPartialActivation):
-		layerActivationCount = layerSegment1ActivationCount + layerSegment2ActivationCount
-		layerActivationCountNormalised = layerActivationCount.float() / segmentCompleteTokenWindowWidth	#CHECKTHIS noramlisation method	#note the activation count is normalised by layerIdx (segmentCompleteTokenWindowWidth)
-		#layerActivationCountNormalised = layerActivationCountNormalised * layerActivation.float()	#zero bad values
-		layerActivationStrength = layerActivationStrength*layerActivationCount.float()	#note the activation count is not currently normalised by layerIdx - activation strength used for output predictions will be biased by layer index; CONSIDER: /layerIdx
-	if(sequentialSANItimeInvariance):
-		layerActivationDistance = layerSegment1ActivationDistance + layerSegment2ActivationDistance	#add distance of each segment
-		layerActivationDistance = layerActivationDistance + (layerSegment2Time-layerSegment1Time)	#add distance between each segment
-		layerActivationProximityNormalised = 1.0/layerActivationDistance.float() / segmentCompleteTokenWindowWidth 	#CHECKTHIS noramlisation method	#note the activation proximity is normalised by layerIdx (segmentCompleteTokenWindowWidth)
-		layerActivationProximityNormalised[torch.isinf(layerActivationProximityNormalised)] = 0	#zero inf values
-		layerActivationStrength = layerActivationStrength*layerActivationProximityNormalised
-	layerActivation = layerActivationStrength/segmentCompleteTokenWindowWidth > segmentActivationFractionThreshold	#CHECKTHIS threshold
-
-	if(debugSequentialSANIactivations):
-		print("\ncalculateActivationStrength(): layerIdx = ", layerIdx)
-		print("layerActivationCount = ", layerActivationCount)
-		print("layerActivationDistance = ", layerActivationDistance)
-		print("layerActivationCountNormalised = ", layerActivationCountNormalised)
-		print("layerActivationProximityNormalised = ", layerActivationProximityNormalised)
-		print("layerActivation = ", layerActivation)
-		print("layerActivationStrength = ", layerActivationStrength)
-
-	return layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount
-
-def updateLayerData(lastActivationData, layerActivation, layerActivationNot, currentActivationData):
-	#reset the data values for current neuron activations
-	lastActivationData = lastActivationData * layerActivationNot.int()	
-	lastActivationData = lastActivationData + (layerActivation.int()*currentActivationData)
-	return lastActivationData
-
+def calculateTime(batchIndex, slidingWindowIndex):
+	currentTime = slidingWindowIndex
+	#FUTURE: for contiguous datasets; ~ batchIndex*sequenceLength + slidingWindowIndex (see TSBNLPpt_dataLoaderOrdered.py for template)
+	return currentTime
+	
 def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation):
 
 	device = initActivation.device
@@ -81,7 +50,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 	
 	for hiddenLayerIdx in range(self.config.numberOfHiddenLayers):
 		if(debugSequentialSANIactivations):
-			print("hiddenLayerIdx = ", hiddenLayerIdx)
+			print("\nhiddenLayerIdx = ", hiddenLayerIdx)
 		layerIdx = hiddenLayerIdx+1
 		prevlayerIdx = layerIdx-1
 		segmentCompleteTokenWindowWidth = calculateSegmentCompleteTokenWindowWidth(layerIdx)
@@ -95,9 +64,9 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		
 		#segment 2 activations;
 		if(useSequentialSANIactivationStrength and sequentialSANItimeInvariance):
-			maxActivationTimeSegment2 = currentActivationTime
-			maxActivationRecallTime = calculateSegmentCompleteTokenWindowWidth(layerIdx)*sequentialSANItimeInvarianceFactor
-			minActivationTimeSegment2 = max(0, currentActivationTime-maxActivationRecallTime)
+			maxActivationTimeSegment2 = currentActivationTime - segmentCompleteTokenWindowWidth
+			maxActivationRecallTime = calculateSegmentCompleteTokenWindowWidth(layerIdx)*sequentialSANItimeInvarianceFactor-1	#FUTURE: remove -1 condition (enable a small amount of timeInvariance for input layer)
+			minActivationTimeSegment2 = max(0, maxActivationTimeSegment2-maxActivationRecallTime)
 		else:
 			maxActivationTimeSegment2 = currentActivationTime - segmentCompleteTokenWindowWidth
 			minActivationTimeSegment2 = None
@@ -106,14 +75,12 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 
 		if(useSequentialSANIactivationStrength):
 			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
-		else:
-			if(debugSequentialSANIactivations):
-				print("maxActivationTimeSegment1 = ", maxActivationTimeSegment1)
-				print("maxActivationTimeSegment2 = ", maxActivationTimeSegment2)
-				print("layerSegment1Activation = ", layerSegment1Activation)
-				print("layerSegment2Activation = ", layerSegment2Activation)
-				print("layerActivation = ", layerActivation)
-				#if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): print("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfuly generating neurons across multiple layers")
+		if(debugSequentialSANIactivations):
+			print("\tdebugSequentialSANIactivations:")
+			print("layerSegment1Activation = ", layerSegment1Activation)
+			print("layerSegment2Activation = ", layerSegment2Activation)
+			print("layerActivation = ", layerActivation)
+			if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): print("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfully generating neurons across multiple layers")
 			
 		#update neuron activations;
 		layerActivationNot = torch.logical_not(layerActivation)
@@ -130,26 +97,11 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 	layerActivationsList = self.layerActivation[1:]	#do not add input layer
 	return layerActivationsList
 
-def dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx):
-	layerIdx = hiddenLayerIdx+1
-	if(trainOrTest and useDynamicGeneratedHiddenConnections):
-		timeSeg0 = currentActivationTime
-		timeSeg1 = currentActivationTime-layerIdx	#assume network diverges by 1 unit every layer
-		prevlayerIdx = layerIdx-1
-		prevActivationSeg0 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg0)
-		prevActivationSeg1 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg1)
-		#print("prevlayerIdx = ", prevlayerIdx)
-		#print("timeSeg0 = ", timeSeg0)
-		#print("timeSeg1 = ", timeSeg1)
-		#print("prevActivationSeg0 = ", prevActivationSeg0)
-		#print("prevActivationSeg1 = ", prevActivationSeg1)
-		EISANIpt_EISANImodelSequentialDynamic.sequentialSANI_dynamic_hidden_growth_pairwise(self, hiddenLayerIdx, prevActivationSeg0, prevActivationSeg1)
-
-			
-def calculateTime(batchIndex, slidingWindowIndex):
-	currentTime = slidingWindowIndex
-	#FUTURE: for contiguous datasets; ~ batchIndex*sequenceLength + slidingWindowIndex (see TSBNLPpt_dataLoaderOrdered.py for template)
-	return currentTime
+def updateLayerData(lastActivationData, layerActivation, layerActivationNot, currentActivationData):
+	#reset the data values for current neuron activations
+	lastActivationData = lastActivationData * layerActivationNot.int()	
+	lastActivationData = lastActivationData + (layerActivation.int()*currentActivationData)
+	return lastActivationData
 
 def maskLayerDataByTime(self, currentActivationTime: int, layerIdx: int, propData: str, timeIndexMax: int, timeIndexMin=None):
 	
@@ -195,6 +147,10 @@ def maskLayerDataByTime(self, currentActivationTime: int, layerIdx: int, propDat
 	return result
 
 def compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime: int, hiddenLayerIdx: int, segmentIdx: int, device: torch.device, timeIndexMax = None, timeIndexMin = None) -> torch.Tensor:	
+	if(debugSequentialSANIactivations):
+		print("\tcompute_layer_sequentialSANI_allDataTypes = ")
+		print("timeIndexMax = ", timeIndexMax)
+		print("timeIndexMin = ", timeIndexMin)
 	layerSegmentXActivation, layerSegmentXTime, layerSegmentXActivationStrength, layerSegmentXActivationCount = (None, None, None, None)
 	layerSegmentXActivation = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activation", timeIndexMax, timeIndexMin)
 	if(useSequentialSANIactivationStrength):
@@ -209,7 +165,8 @@ def compute_layer_sequentialSANI(self, currentActivationTime: int, hiddenLayerId
 	layerIdx = hiddenLayerIdx+1
 	prevlayerIdx = layerIdx-1
 	prevActivation = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, propData, timeIndexMax, timeIndexMin)
-	#print("propData = ", propData, ", prevActivation = ", prevActivation)
+	if(debugSequentialSANIactivations):
+		print("propData = ", propData, ", prevActivation = ", prevActivation)
 	
 	if(useConnectionWeights):
 		z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx, device)
@@ -220,3 +177,83 @@ def compute_layer_sequentialSANI(self, currentActivationTime: int, hiddenLayerId
 	#if(propData=="activation"): result = z_float >= segmentActivationThreshold	#not required as segmentActivationThreshold = 1
 
 	return result
+
+def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount):
+	segmentCompleteTokenWindowWidth = calculateSegmentCompleteTokenWindowWidth(layerIdx)
+
+	if(debugSequentialSANIactivationsStrength):
+		print("\tcalculateActivationStrength(): layerIdx = ", layerIdx)
+		print("layerActivation = ", layerActivation)
+		print("layerSegment1Time = ", layerSegment1Time)
+		print("layerSegment2Time = ", layerSegment2Time)
+		print("layerSegment1ActivationCount = ", layerSegment1ActivationCount)
+		print("layerSegment2ActivationCount = ", layerSegment2ActivationCount)
+		print("layerSegment1ActivationDistance = ", layerSegment1ActivationDistance)
+		print("layerSegment2ActivationDistance = ", layerSegment2ActivationDistance)
+		print("segmentCompleteTokenWindowWidth = ", segmentCompleteTokenWindowWidth)
+		
+	layerActivationCountNormalised = layerActivationProximityNormalised = layerActivationCount = layerActivationDistance = None
+
+	layerActivationStrength = layerActivation.float()
+	if(sequentialSANIsegmentsPartialActivation):
+		layerActivationCount = layerSegment1ActivationCount + layerSegment2ActivationCount
+		layerActivationCountNormalised = layerActivationCount.float() / count_predicted(layerIdx)
+		layerActivationStrength = layerActivationStrength*layerActivationCountNormalised.float()
+		if(debugSequentialSANIactivationsStrength):
+			print("1 layerActivationStrength = ", layerActivationStrength)
+	if(sequentialSANItimeInvariance):
+		layerActivationDistance = layerSegment1ActivationDistance + layerSegment2ActivationDistance	#add distance of each segment
+		layerActivationDistance = layerActivationDistance + (layerSegment1Time-layerSegment2Time)	#add distance between each segment
+		layerActivationProximityNormalised = (1.0/layerActivationDistance.float()) * distance_predicted(layerIdx)
+		layerActivationProximityNormalised[torch.isinf(layerActivationProximityNormalised)] = 0	#zero inf values
+		layerActivationStrength = layerActivationStrength*layerActivationProximityNormalised
+		if(debugSequentialSANIactivationsStrength):
+			print("2 layerActivationStrength = ", layerActivationStrength)
+	layerActivation = layerActivationStrength > segmentActivationFractionThreshold
+
+	if(debugSequentialSANIactivationsStrength):
+		print("layerActivationCount = ", layerActivationCount)
+		print("layerActivationDistance = ", layerActivationDistance)
+		print("layerActivationCountNormalised = ", layerActivationCountNormalised)
+		print("layerActivationProximityNormalised = ", layerActivationProximityNormalised)
+		print("layerActivation = ", layerActivation)
+		print("layerActivationStrength = ", layerActivationStrength)
+
+	return layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount
+
+def count_predicted(layerIndex: int) -> int:
+	'''
+	layerIdx=0; 1
+	layerIdx=1; 2
+	layerIdx=2; 4
+	layerIdx=3; 8
+	layerIdx=4; 16
+	'''	
+	count = 2 ** layerIndex
+	return count
+	
+def distance_predicted(layerIndex: int) -> int:	
+	'''
+	layerIdx=0; 0
+	layerIdx=1; (0+0)+1
+	layerIdx=2; (1+1)+2
+	layerIdx=3; (2+2)+4
+	layerIdx=4; (4+4)+8
+	'''
+	distance = 0 if layerIndex == 0 else 1 if layerIndex == 1 else 2 * (2 ** (layerIndex - 1))
+	return distance
+
+def dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx):
+	layerIdx = hiddenLayerIdx+1
+	if(trainOrTest and useDynamicGeneratedHiddenConnections):
+		timeSeg0 = currentActivationTime
+		timeSeg1 = currentActivationTime-layerIdx	#assume network diverges by 1 unit every layer
+		prevlayerIdx = layerIdx-1
+		prevActivationSeg0 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg0)
+		prevActivationSeg1 = maskLayerDataByTime(self, currentActivationTime, prevlayerIdx, "activation", timeSeg1)
+		#print("prevlayerIdx = ", prevlayerIdx)
+		#print("timeSeg0 = ", timeSeg0)
+		#print("timeSeg1 = ", timeSeg1)
+		#print("prevActivationSeg0 = ", prevActivationSeg0)
+		#print("prevActivationSeg1 = ", prevActivationSeg1)
+		EISANIpt_EISANImodelSequentialDynamic.sequentialSANI_dynamic_hidden_growth_pairwise(self, hiddenLayerIdx, prevActivationSeg0, prevActivationSeg1)

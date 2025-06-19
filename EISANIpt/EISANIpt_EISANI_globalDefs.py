@@ -98,7 +98,8 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
-	debugSequentialSANIactivations = True
+	debugSequentialSANIactivations = False
+	debugSequentialSANIactivationsStrength = False
 	useConnectionWeights = False	#default: False - use 1D index tensors, True: use sparse or dense weight tensors
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
@@ -106,7 +107,7 @@ if(useSequentialSANI):
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	useSequentialSANIactivationStrength = False	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
+	useSequentialSANIactivationStrength = True	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
 	if(useSequentialSANIactivationStrength):
 		sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
 		sequentialSANIsegmentsPartialActivation = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively)
@@ -114,7 +115,7 @@ if(useSequentialSANI):
 			sequentialSANItimeInvarianceFactor = 2	#1 = no time invariance, 2 = time invariance equal to a segment complete token window width
 			#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
 		if(sequentialSANIsegmentsPartialActivation):
-			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active
+			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
 	numberOfSegmentsPerNeuron = 2
 	sequentialSANIsegmentIndexProximal = 0
 	sequentialSANIsegmentIndexDistal = 1
