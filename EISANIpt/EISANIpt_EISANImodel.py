@@ -216,17 +216,22 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		
 		outConnShape = (hiddenLayerSizeStart, config.numberOfClasses,) # Modified
-		if(useOutputConnectionsLastLayer):
-			self.outputConnectionMatrix = [None for _ in range(self.numberUniqueHiddenLayers)]
-			if useBinaryOutputConnections:
-				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.zeros(outConnShape, dtype=torch.bool, device=device)
+		dtype_out = torch.bool if useBinaryOutputConnections else torch.float32
+		if(useSparseOutputMatrix):
+			empty_crow = torch.tensor([0], device=device, dtype=torch.int64)
+			empty_col  = torch.tensor([], device=device, dtype=torch.int64)
+			empty_val  = torch.tensor([], device=device, dtype=dtype_out)
+			if(useOutputConnectionsLastLayer):
+				self.outputConnectionMatrix = [None for _ in range(self.numberUniqueHiddenLayers)]
+				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.sparse_csr_tensor(empty_crow, empty_col, empty_val, size=outConnShape, device=device)
 			else:
-				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.zeros(outConnShape, dtype=torch.float, device=device)
+				self.outputConnectionMatrix: List[torch.Tensor] = [torch.sparse_csr_tensor(empty_crow, empty_col, empty_val, size=outConnShape, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 		else:
-			if useBinaryOutputConnections:
-				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=torch.bool, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			if(useOutputConnectionsLastLayer):
+				self.outputConnectionMatrix = [None for _ in range(self.numberUniqueHiddenLayers)]
+				self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = torch.zeros(outConnShape, dtype=dtype_out, device=device)
 			else:
-				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=torch.float, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=dtype_out, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
 		# -------------------------------------------------------------
 		# Hidden-neuron prediction-accuracy tracker
@@ -261,7 +266,7 @@ class EISANImodel(nn.Module):
 			k = cfg.numberOfSynapsesPerSegment  # shorthand
 			nnz  = numNeurons * k
 
-			if useSparseMatrix:
+			if useSparseHiddenMatrix:
 
 				sparse_dtype = torch.bool
 				if(initialiseSANIlayerWeightsUsingCPU):
@@ -460,23 +465,56 @@ class EISANImodel(nn.Module):
 		
 	def _normaliseOutputConnectionWeights(self, weights):
 		if(useOutputConnectionsNormalised):
-			weights = torch.tanh(weights/useOutputConnectionsNormalisationRange)
-		else:
-			weights = weights
-		return weights
-	
-	def _update_output_connections(self, hiddenLayerIdx: int, activation: torch.Tensor, y: torch.Tensor, device: torch.device,) -> None:
-		batchSize = activation.size(0)
-		activeMask = activation != 0.0  # (batch, hidden)
-		for sampleIdx in range(batchSize):
-			targetClass = y[sampleIdx].item()
-			activeNeurons = activeMask[sampleIdx].nonzero(as_tuple=True)[0]
-			if activeNeurons.numel() == 0:
-				continue
-			if useBinaryOutputConnections:
-				self.outputConnectionMatrix[hiddenLayerIdx][activeNeurons, targetClass] = True
+			if(useSparseOutputMatrix):
+				vals = weights.values().float()
+				vals = torch.tanh(vals / useOutputConnectionsNormalisationRange)
+				weights =  torch.sparse_csr_tensor(weights.crow_indices(), weights.col_indices(), vals, size=weights.shape, device=weights.device)
 			else:
-				self.outputConnectionMatrix[hiddenLayerIdx][activeNeurons, targetClass] += 1.0
+				weights = torch.tanh(weights.float() / useOutputConnectionsNormalisationRange)
+		return weights
+		
+	def _update_output_connections(self, hiddenLayerIdx: int, activation: torch.Tensor, y: torch.Tensor, device: torch.device,) -> None:
+		mat = self.outputConnectionMatrix[hiddenLayerIdx]
+
+		# -- gather all (row = neuron , col = class) pairs in one shot ---------
+		sample_idx, neuron_idx = (activation != 0).nonzero(as_tuple=True)
+		if neuron_idx.numel() == 0:
+			return													# nothing active
+
+		class_idx = y[sample_idx]									# align with rows
+
+		if useBinaryOutputConnections:
+			new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
+		else:
+			new_vals = torch.ones_like(neuron_idx, dtype=torch.float32, device=device)
+
+		if(useSparseOutputMatrix):
+			# 1)   CSR -> COO (cheap view, no copy)
+			coo = mat.to_sparse_coo()
+
+			# 2)   concatenate indices & values
+			exist_idx = coo.indices()			# shape (2, nnz)
+			exist_val = coo.values()
+
+			new_idx   = torch.stack([neuron_idx, class_idx])		# (2, new)
+			all_idx   = torch.cat([exist_idx, new_idx], dim=1)
+			all_val   = torch.cat([exist_val, new_vals])
+
+			# 3)   coalesce -> merges dups (adds values for float / int dtypes)
+			coo_upd = torch.sparse_coo_tensor(all_idx, all_val, size=mat.shape, device=device, dtype=all_val.dtype).coalesce()
+
+			# 4)   bool weights -> cast back to bool after OR-like merge
+			if useBinaryOutputConnections:
+				coo_upd = torch.sparse_coo_tensor(coo_upd.indices(), (coo_upd.values() != 0), size=coo_upd.shape, device=device, dtype=torch.bool)
+
+			# 5)   back to CSR for fast mat-mul
+			self.outputConnectionMatrix[hiddenLayerIdx] = coo_upd.to_sparse_csr()
+		else:
+			if useBinaryOutputConnections:
+				mat[neuron_idx, class_idx] = True						# logical OR
+			else:
+				mat[neuron_idx, class_idx] += 1.0						# count
+
 						
 	# -----------------------------------------------------------------
 	# Update hidden-neuron accuracy statistics (soft-max vote)

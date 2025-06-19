@@ -75,7 +75,7 @@ def compute_layer_standard(self, hiddenLayerIdx: int, prevActivation: torch.Tens
 		dev	= prevActivation.device
 		# weight = self.hiddenConnectionMatrix[hiddenLayerIdx].to(dev) # Already done above
 
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			# Called only when self.useEIneurons is False.
 			# Sparse bool weights: True is +1, False is -1.
 			weight = weight.coalesce()
@@ -102,7 +102,7 @@ def compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, de
 		wInh = self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx][segmentIdx].to(dev)
 
 		# Excitatory
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			# EI sparse weights are True for +1
 			numeric_values_exc_float = wExc.values().to(torch.float32) # True becomes 1.0
 			wExc_eff_float = torch.sparse_coo_tensor(wExc.indices(), numeric_values_exc_float, wExc.shape, device=dev, dtype=torch.float32).coalesce()
@@ -114,7 +114,7 @@ def compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, de
 		aExcAllSegments.append(aExc)
 
 		# Inhibitory
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			# EI sparse weights are True for +1
 			numeric_values_inh_float = wInh.values().to(torch.float32) # True becomes 1.0
 			wInh_eff_float = torch.sparse_coo_tensor(wInh.indices(), numeric_values_inh_float, wInh.shape, device=dev, dtype=torch.float32).coalesce()

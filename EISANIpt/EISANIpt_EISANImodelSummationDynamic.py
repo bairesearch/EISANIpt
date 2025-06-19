@@ -387,7 +387,7 @@ def dynamic_hidden_growth(self, hiddenLayerIdx: int, prevActivation: torch.Tenso
 
 		# EI mode -> all weights are +1
 		#weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)	#orig
-		if useSparseMatrix: #assuming E/I matrices have same dtype
+		if useSparseHiddenMatrix: #assuming E/I matrices have same dtype
 			weights = torch.ones_like(randIdx, dtype=torch.bool, device=device)
 		else:
 			weights = torch.ones_like(randIdx, dtype=torch.float32, device=device)
@@ -453,7 +453,7 @@ def dynamic_hidden_growth(self, hiddenLayerIdx: int, prevActivation: torch.Tenso
 		# weights: +1 if presynaptic *currently on*, else -1
 		prevActSample = presyn[randIdx]						# 0./1.
 		#weights = torch.where(prevActSample > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))	#orig
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			weights = presyn[randIdx] > 0	#boolean
 		else:
 			weights = torch.where(presyn[randIdx] > 0, torch.ones_like(prevActSample), -torch.ones_like(prevActSample))
@@ -479,7 +479,7 @@ def dynamic_hidden_growth(self, hiddenLayerIdx: int, prevActivation: torch.Tenso
 		mat = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate]
 		relativeIdx = newNeuronIdx
 
-	if useSparseMatrix:
+	if useSparseHiddenMatrix:
 		# Append to sparse matrix (now 3D)
 		existing_indices = mat._indices() # [2, nnz_old]
 		existing_values = mat._values()   # [nnz_old]
@@ -589,7 +589,7 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 		inIdx = draw_indices(inactivePool, nI) if nI > 0 else torch.empty(G, 0, dtype=torch.long, device=device)				 # [G, nI]
 		colIdx = torch.cat([actIdx, inIdx], dim=1)			  # [G, k]
 		#weights = torch.ones(G, k, device=device)				# all +1	#orig
-		if useSparseMatrix: #assuming E/I matrices have same dtype
+		if useSparseHiddenMatrix: #assuming E/I matrices have same dtype
 			weights = torch.ones(G, k, device=device, dtype=torch.bool)
 		else:
 			weights = torch.ones(G, k, device=device, dtype=torch.float32)
@@ -601,7 +601,7 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 
 		presynPicked = presynBatch.gather(1, colIdx)			 # 0./1., [G,k]
 		#weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))	# 1	#orig
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			weights = presynPicked > 0 #boolean
 		else:
 			weights = torch.where(presynPicked > 0, torch.ones_like(presynPicked), -torch.ones_like(presynPicked))
@@ -652,7 +652,7 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 			rowShift = 0 if isExc else -half
 			rowsRel  = rowsSel + rowShift # these are neuron indices relative to E or I part
 
-			if useSparseMatrix:
+			if useSparseHiddenMatrix:
 				# For 3D sparse: indices are [neuron_idx, segment_idx, prev_neuron_idx]
 				num_entries = rowsRel.numel()
 				idx_new = torch.stack([rowsRel, colsSel], dim=0) # [2, num_entries] # Modified
@@ -716,7 +716,7 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 		# ---------- 5. write to weight matrix (sparse or dense) for standard (non-EI) ------------------
 		mat = self.hiddenConnectionMatrix[hiddenLayerIdx][segmentIndexToUpdate]
 
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			# For 3D sparse: indices are [neuron_idx, segment_idx, prev_neuron_idx]
 			idx_new = torch.stack([flatNeuronIndices, flatPrevNeuronIndices], dim=0) # [2, G*k] # Modified
 			val_new = flatVals #dtype is bool or float32

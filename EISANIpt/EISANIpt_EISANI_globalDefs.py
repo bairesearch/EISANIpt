@@ -126,7 +126,8 @@ if(useSequentialSANI):
 	else:
 		dynamicGeneratedHiddenConnectionsAfterPropagating = True	#default: True
 	initialiseSANIlayerWeightsUsingCPU = False
-	useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	useSparseHiddenMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	useSparseOutputMatrix = True	#required to prevent very large output matrix multiplications (eg hiddenLayerSizeSANI~100000 x bertNumberTokenTypes~30522)
 	#hiddenLayerSizeSANImax	#default: #heuristic: number of 5-grams=1.18 billion (see Google ngrams) 	#max = bertNumberTokenTypes^numberOfLayers (not all permutations are valid)		#bertNumberTokenTypes*2
 	
 	#for print only;
@@ -141,7 +142,8 @@ else:
 	if(useDynamicGeneratedHiddenConnections):
 		useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
 	useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
-	useSparseMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	useSparseHiddenMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	useSparseOutputMatrix = False
 	continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
 	continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
 

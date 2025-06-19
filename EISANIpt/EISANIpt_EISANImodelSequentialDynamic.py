@@ -29,7 +29,7 @@ if(useConnectionWeights):
 		dev	= prevActivation.device
 		# weight = self.hiddenConnectionMatrix[hiddenLayerIdx].to(dev) # Already done above
 
-		if useSparseMatrix:
+		if useSparseHiddenMatrix:
 			# Called only when self.useEIneurons is False.
 			# Sparse bool weights: True is +1, False is -1.
 			weight = weight.coalesce()
@@ -126,7 +126,7 @@ if(useConnectionWeights):
 
 		mat = self.hiddenConnectionMatrix[hiddenLayerIdx][segIdx]
 
-		if self.config.useSparseMatrix:
+		if self.config.useSparseHiddenMatrix:
 			existing_indices = mat._indices()
 			existing_values  = mat._values()
 
@@ -239,10 +239,24 @@ else:
 
 		#expand output arrays;
 		if(not useOutputConnectionsLastLayer or hiddenLayerIdx==self.numberUniqueHiddenLayers-1):
-			# 2.  Grow the dense output-weight matrix with zero rows
-			outCols = self.outputConnectionMatrix[hiddenLayerIdx].size(1)		# keep column count unchanged
-			outputConnectionPadding = torch.zeros((growBy, outCols), dtype=self.outputConnectionMatrix[hiddenLayerIdx].dtype, device=device)
-			self.outputConnectionMatrix[hiddenLayerIdx] = torch.cat([self.outputConnectionMatrix[hiddenLayerIdx], outputConnectionPadding], dim=0)
+			if(useSparseOutputMatrix):
+				mat = self.outputConnectionMatrix[hiddenLayerIdx]
+				crow = mat.crow_indices()						# length = oldRows + 1
+				col  = mat.col_indices()
+				val  = mat.values()
+				last = crow[-1]									# nnz so far
+
+				# append 'growBy' copies of the same pointer => empty new rows
+				new_crow = torch.cat([crow, last.repeat(growBy)])
+				new_rows = mat.size(0) + growBy
+				new_size = (new_rows, mat.size(1))
+
+				self.outputConnectionMatrix[hiddenLayerIdx] = torch.sparse_csr_tensor(new_crow, col, val, size=new_size, device=mat.device, dtype=mat.dtype)
+			else:
+				# 2.  Grow the dense output-weight matrix with zero rows
+				outCols = self.outputConnectionMatrix[hiddenLayerIdx].size(1)		# keep column count unchanged
+				outputConnectionPadding = torch.zeros((growBy, outCols), dtype=self.outputConnectionMatrix[hiddenLayerIdx].dtype, device=device)
+				self.outputConnectionMatrix[hiddenLayerIdx] = torch.cat([self.outputConnectionMatrix[hiddenLayerIdx], outputConnectionPadding], dim=0)
 
 		#expand accuracy tracker arrays;
 		if(limitOutputConnectionsBasedOnAccuracy):
