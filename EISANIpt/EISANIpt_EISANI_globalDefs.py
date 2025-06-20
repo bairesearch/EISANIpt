@@ -98,6 +98,8 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
+	debugSequentialSANIactivationsLoops = True
+	debugSequentialSANIactivationsMemory = True
 	debugSequentialSANIactivations = False
 	debugSequentialSANIactivationsStrength = False
 	debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations
@@ -195,6 +197,7 @@ else:
 		recursiveSuperblocksNumber = 1
 		
 	generateConnectionsAfterPropagating = True	#default: True
+	debugSequentialSANIactivationsLoops = False
 	
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons

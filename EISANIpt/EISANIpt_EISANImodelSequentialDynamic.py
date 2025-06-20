@@ -202,12 +202,18 @@ else:
 		if used == 0:
 			return torch.ones(candidatePairs.size(0), dtype=torch.bool, device=candidatePairs.device)
 
-		existA = self.indexArrayA[hiddenLayerIdx][:used].unsqueeze(0)	# [1, used]
-		existB = self.indexArrayB[hiddenLayerIdx][:used].unsqueeze(0)	# [1, used]
-		candA  = candidatePairs[:, 0].unsqueeze(1)				# [P, 1]
-		candB  = candidatePairs[:, 1].unsqueeze(1)				# [P, 1]
-		dup    = ((candA == existA) & (candB == existB)).any(dim=1)
-		return ~dup												# keep uniques
+		# ----  Hash each (A, B) pair into one 64-bit integer  --------------------
+		# Safe for layer sizes < 2³². If you ever exceed that, switch to 128-bit
+		# packing or use A * maxPrev + B instead.
+		def _pack(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+			return (a.to(torch.int64) << 32) | b.to(torch.int64)
+
+		existingKeys  = _pack(self.indexArrayA[hiddenLayerIdx][:used], self.indexArrayB[hiddenLayerIdx][:used])			# [used]
+		candidateKeys = _pack(candidatePairs[:, 0], candidatePairs[:, 1])						# [P]
+
+		# torch.isin is O(N) and allocates only the output mask
+		dup = torch.isin(candidateKeys, existingKeys)						# [P] bool
+		return ~dup		
 
 	# ----------------------------------------------------------------- #
 	# Per-layer expansion (only A & B for the specified layer)

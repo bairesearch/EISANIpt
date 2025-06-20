@@ -219,7 +219,9 @@ class EISANImodel(nn.Module):
 		outConnShape = (hiddenLayerSizeStart, config.numberOfClasses,) # Modified
 		dtype_out = torch.bool if useBinaryOutputConnections else torch.float32
 		if(useSparseOutputMatrix):
-			empty_crow = torch.tensor([0], device=device, dtype=torch.int64)
+			#empty_crow = torch.tensor([0], device=device, dtype=torch.int64)
+			rows       = outConnShape[0]
+			empty_crow = torch.zeros(rows + 1, device=device, dtype=torch.int64)
 			empty_col  = torch.tensor([], device=device, dtype=torch.int64)
 			empty_val  = torch.tensor([], device=device, dtype=dtype_out)
 			if(useOutputConnectionsLastLayer):
@@ -359,9 +361,8 @@ class EISANImodel(nn.Module):
 			
 		accuracyAllWindows = 0
 		for slidingWindowIndex in range(numSubsamples):
-			if(numSubsamples > 1):
-				if(debugSequentialSANIactivations):
-					print("\n************************** slidingWindowIndex = ", slidingWindowIndex)
+			if(debugSequentialSANIactivationsLoops):
+				print("\n************************** slidingWindowIndex = ", slidingWindowIndex)
 			
 			# -----------------------------
 			# Apply sliding window (sequence input only)
