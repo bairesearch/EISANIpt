@@ -92,7 +92,7 @@ elif(useNLPDataset):
 			EISANINLPcontinuousVarEncodingNumBits = 3	#default: 3; -1.0, 0, +1.0	#alternative eg 5; -1, -0.5, 0, 0.5, 1.0
 			embeddingSize = 768	#embeddingSize = 1024
 		
-		contextSizeMax = 128	#default: 128	#production: 512 
+		contextSizeMax = 128	#default: 128	#production: 512
 		numberOfClasses = bertNumberTokenTypes
 	sequenceLength = contextSizeMax
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
@@ -100,6 +100,8 @@ elif(useNLPDataset):
 if(useSequentialSANI):
 	debugSequentialSANIactivations = False
 	debugSequentialSANIactivationsStrength = False
+	debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations
+	debugDynamicallyGenerateLayerNeurons = False
 	useConnectionWeights = False	#default: False - use 1D index tensors, True: use sparse or dense weight tensors
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
@@ -107,13 +109,15 @@ if(useSequentialSANI):
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	useSequentialSANIactivationStrength = True	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
+	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	
+	useSequentialSANIactivationStrength = False	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
 	if(useSequentialSANIactivationStrength):
 		sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
 		sequentialSANIsegmentsPartialActivation = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively)
 		if(sequentialSANItimeInvariance):
-			sequentialSANItimeInvarianceFactor = 2	#1 = no time invariance, 2 = time invariance equal to a segment complete token window width
+			sequentialSANItimeInvarianceFactor = 1.0	#default: 2	#minimum: 1 - maxActivationRecallTimeInvariance == count_predicted(prevlayerIdx) - max time invariance is equivalent to !sequentialSANIoverlappingSegments (contiguous segments only)
 			#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
+			inputLayerTimeInvariance = False	#default: False	#True: time invariance is applied to input layer also (ie non-contiguous input layer tokens)
 		if(sequentialSANIsegmentsPartialActivation):
 			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
 	numberOfSegmentsPerNeuron = 2
@@ -122,9 +126,9 @@ if(useSequentialSANI):
 	useEIneurons = False	#mandatory: False
 	useDynamicGeneratedHiddenConnections = True	#mandatory: True
 	if(debugSequentialSANIactivations):
-		dynamicGeneratedHiddenConnectionsAfterPropagating = False 	#debug: False (generate hidden connections before propagating; creates hidden neurons/connections more quickly for debug)
+		generateConnectionsAfterPropagating = False 	#debug: False (generate hidden/output connections before propagating; creates hidden neurons/connections and output connections more quickly for debug)
 	else:
-		dynamicGeneratedHiddenConnectionsAfterPropagating = True	#default: True
+		generateConnectionsAfterPropagating = True	#default: True
 	initialiseSANIlayerWeightsUsingCPU = False
 	useSparseHiddenMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
 	useSparseOutputMatrix = True	#required to prevent very large output matrix multiplications (eg hiddenLayerSizeSANI~100000 x bertNumberTokenTypes~30522)
@@ -189,6 +193,8 @@ else:
 			recursiveSuperblocksNumber = 1
 	else:
 		recursiveSuperblocksNumber = 1
+		
+	generateConnectionsAfterPropagating = True	#default: True
 	
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
