@@ -98,12 +98,15 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
-	debugSequentialSANIactivationsLoops = True
-	debugSequentialSANIactivationsMemory = True
+	debugSequentialSANIactivationsLoops = False
+	debugSequentialSANIactivationsOutputs = False
+	debugSequentialSANIactivationsMemory = False
 	debugSequentialSANIactivations = False
 	debugSequentialSANIactivationsStrength = False
 	debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations
 	debugDynamicallyGenerateLayerNeurons = False
+	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
+		
 	useConnectionWeights = False	#default: False - use 1D index tensors, True: use sparse or dense weight tensors
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
@@ -127,7 +130,7 @@ if(useSequentialSANI):
 	sequentialSANIsegmentIndexDistal = 1
 	useEIneurons = False	#mandatory: False
 	useDynamicGeneratedHiddenConnections = True	#mandatory: True
-	if(debugSequentialSANIactivations):
+	if(debugGenerateConnectionsBeforePropagating):
 		generateConnectionsAfterPropagating = False 	#debug: False (generate hidden/output connections before propagating; creates hidden neurons/connections and output connections more quickly for debug)
 	else:
 		generateConnectionsAfterPropagating = True	#default: True
@@ -198,6 +201,7 @@ else:
 		
 	generateConnectionsAfterPropagating = True	#default: True
 	debugSequentialSANIactivationsLoops = False
+	debugSequentialSANIactivationsOutputs = False
 	
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons

@@ -18,6 +18,7 @@ EISANIpt model output
 """
 
 import torch
+import numpy as np				# \u2190 NEW (for safe CPU set-ops)
 from ANNpt_globalDefs import *
 
 # -----------------------------
@@ -34,8 +35,6 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 			if(not useOutputConnectionsLastLayer or isLastLayer):
 				act = layerActivations[actLayerIndex]
 				uniqueLayerIndex = self._getUniqueLayerIndex(layerIdSuperblock, layerIdHidden)
-				if(debugSequentialSANIactivationsLoops):
-					print("uniqueLayerIndex = ", uniqueLayerIndex)
 				
 				if(not generateConnectionsAfterPropagating):
 					# Training: reinforce output connections
@@ -43,9 +42,15 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 						update_output_connections(self, uniqueLayerIndex, act, y, device)
 				
 				weights = self.outputConnectionMatrix[uniqueLayerIndex]
-				#print("actLayerIndex = ", actLayerIndex)
-				#print("act.shape = ", act.shape)
-				#print("weights.shape = ", weights.shape)
+					
+				if(debugSequentialSANIactivationsOutputs):
+					print("\tuniqueLayerIndex = ", uniqueLayerIndex)
+					print("layerActivations[actLayerIndex].shape = ", layerActivations[actLayerIndex].shape)
+					print("self.outputConnectionMatrix[uniqueLayerIndex].shape = ", self.outputConnectionMatrix[uniqueLayerIndex].shape)
+					row_ptr = self.outputConnectionMatrix[uniqueLayerIndex].crow_indices()      # shape = (nrows+1,)
+					total_nnz = int(row_ptr[-1].item())
+					print("total output connections = ", total_nnz)
+		
 				if useBinaryOutputConnectionsEffective:
 					weights = weights.to(torch.bool).to(torch.int8)	# float to bool to int8 (0/1)
 				else:
@@ -57,18 +62,18 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 				weights = normaliseOutputConnectionWeights(self, weights.float())	# cast weights to float for matmul
 
 				if(useSparseOutputMatrix):
-					#matMulMethod = "orig"
+					matMulMethod = "orig"
 					#matMulMethod = "chunkedDense"
-					matMulMethod = "singleRow"
+					#matMulMethod = "singleRow"
 					if(matMulMethod == "orig"):
 						outputActivations += act.float() @ weights 	# cast act to float for matmul
 					elif(matMulMethod == "chunkedDense"):
 						CHUNK = 1_000_000   # rows per micro-matmul, tweak for your GPU
 						for offset in range(0, act.size(1), CHUNK):
 							r0, r1 = offset, min(offset + CHUNK, act.size(1))
-							chunk  = act[:, r0:r1].float()                      # (B, chunk)
-							subcsr = csr_row_block(weights, r0, r1)            # (chunk, C)
-							outputActivations += chunk @ subcsr                 # (B, C)
+							chunk  = act[:, r0:r1].float()					  # (B, chunk)
+							subcsr = csr_row_block(weights, r0, r1)			# (chunk, C)
+							outputActivations += chunk @ subcsr				 # (B, C)
 					elif(matMulMethod == "singleRow"):
 						for sample in range(act.size(0)):				# small batch, e.g. 1-4
 							active_rows = (act[sample] != 0).nonzero(as_tuple=True)[0]
@@ -155,12 +160,12 @@ def update_output_connections(self,
 		master_coo_cpu = master_csr_cpu.to_sparse_coo()
 
 		if use_bool:
-			# logical OR  \u2192  add ints then clamp to 0/1 and cast back to bool
+			# logical OR  ->  add ints then clamp to 0/1 and cast back to bool
 			merged_int   = (master_coo_cpu.to(torch.int8) + delta_cpu.to(torch.int8)).coalesce()
 			merged_vals  = (merged_int.values() > 0)
 			merged_coo   = torch.sparse_coo_tensor(merged_int.indices(), merged_vals, size=master_csr_cpu.shape, dtype=torch.bool, device=tempDevice)
 		else:
-			# float counter  \u2192 straight addition
+			# float counter  -> straight addition
 			merged_coo   = (master_coo_cpu + delta_cpu).coalesce()
 
 		# ------------------------------------------------------------------
@@ -180,6 +185,7 @@ def update_output_connections(self,
 			mat[neuron_idx, class_idx] = True						# logical OR
 		else:
 			mat[neuron_idx, class_idx] += 1.0						# count	
+
 
 # -----------------------------------------------------------------
 # Update hidden-neuron accuracy statistics (soft-max vote)
@@ -202,14 +208,14 @@ def updateHiddenNeuronAccuracyStatistics(self):
 				conn_layer = (self.outputConnectionMatrix[lidx] != 0).any(dim=1)	# [H]
 
 				# 2) gather the soft-max weight for the true class of each sample
-				#    soft_layer[:, y] -> [H,B] -> transpose -> [B,H]
+				#	soft_layer[:, y] -> [H,B] -> transpose -> [B,H]
 				soft_true = soft_layer[:, y].t()						# [B,H]
 
 				valid_neuron_mask = conn_layer.unsqueeze(0)				# [1,H]
-				pred_above_thr    = soft_true > limitOutputConnectionsSoftmaxWeightMin
+				pred_above_thr	= soft_true > limitOutputConnectionsSoftmaxWeightMin
 
 				correct_neuron = active_mask & valid_neuron_mask & pred_above_thr
-				considered     = active_mask & valid_neuron_mask
+				considered	 = active_mask & valid_neuron_mask
 
 				self.hiddenNeuronPredictionAccuracy[lidx,:,0] += correct_neuron.sum(dim=0)
 				self.hiddenNeuronPredictionAccuracy[lidx,:,1] += considered.sum(dim=0)	
@@ -268,7 +274,7 @@ def csr_row_block(csr: torch.Tensor, r0: int, r1: int) -> torch.Tensor:
 	start_ptr = crow[r0].item()
 	end_ptr   = crow[r1].item()
 
-	crow_sub  = crow[r0:r1+1] - start_ptr          # shift so first row starts at 0
+	crow_sub  = crow[r0:r1+1] - start_ptr		  # shift so first row starts at 0
 	col_sub   = col[start_ptr:end_ptr]
 	val_sub   = val[start_ptr:end_ptr]
 

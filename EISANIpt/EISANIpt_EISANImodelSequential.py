@@ -283,9 +283,10 @@ def dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hi
 			print("prevActivationSeg0 = ", prevActivationSeg0)
 			print("prevActivationSeg1 = ", prevActivationSeg1)
 		if(debugSequentialSANIactivationsMemory):
-			print("dynamicallyGenerateLayerNeurons: self.layerActivation[layerIdx].shape = ", self.layerActivation[layerIdx].shape)
+			print("\tdebugDynamicallyGenerateLayerNeurons:")
+			print("self.layerActivation[layerIdx].shape = ", self.layerActivation[layerIdx].shape)
 			#print("dynamicallyGenerateLayerNeurons: self.layerActivation[layerIdx].sum() = ", self.layerActivation[layerIdx].sum())
-			print("dynamicallyGenerateLayerNeurons: prevActivationSeg0.sum() = ",prevActivationSeg0.sum())
-			print("dynamicallyGenerateLayerNeurons: prevActivationSeg1.sum() = ",prevActivationSeg1.sum())
+			print("prevActivationSeg0.sum() = ",prevActivationSeg0.sum())
+			print("prevActivationSeg1.sum() = ",prevActivationSeg1.sum())
 
 		EISANIpt_EISANImodelSequentialDynamic.sequentialSANI_dynamic_hidden_growth_pairwise(self, hiddenLayerIdx, prevActivationSeg0, prevActivationSeg1)

@@ -593,9 +593,6 @@ elif(useNLPDataset):
 		dataset = load_dataset(datasetName, datasetCfg, split="train", streaming=True)
 		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",})	#does not support streaming
 
-		if(datasetShuffle):
-			dataset = dataset.shuffle(buffer_size=10_000, seed=42)
-			
 		if(useDatasetSubset):
 			dataset = dataset.take(datasetSizeSubset)
 			datasetSize = datasetSizeSubset	#do not train all samples
@@ -610,8 +607,16 @@ elif(useNLPDataset):
 		global datasetSizeRecord
 		datasetSizeRecord = datasetSize
 
-		test_stream = dataset.take(eval_rows)   # ~50k examples for evaluation
-		train_stream = dataset.skip(eval_rows)   # everything else
+		'''
+		#orig method (too slow to process data with skip as it downloads the entire eval dataset before streaming train dataset);
+		test_stream = base_stream.take(eval_rows)          # rows 0 -> eval_rows-1	 # ~50k examples for evaluation
+		train_stream = base_stream.skip(eval_rows)          # rows eval_rows -> end	  # everything else
+		'''
+		print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test/eval dataset")
+		test_stream = dataset.take(eval_rows)
+		train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
+		if(datasetShuffle):					   # keep optional shuffle
+			train_stream = train_stream.shuffle(buffer_size=1024, seed=42)
 		dataset = DatasetDict({"train": train_stream, "test": test_stream})
 
 		'''

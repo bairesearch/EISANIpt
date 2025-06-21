@@ -189,7 +189,6 @@ def processDataset(trainOrTest, dataset, model):
 				
 				loop = tqdm(loader, leave=True)
 				for batchIndex, batch in enumerate(loop):
-
 					if(trainOrTest):
 						loss, accuracy = trainBatch(batchIndex, batch, model, optim, l, fieldTypeList)
 					else:

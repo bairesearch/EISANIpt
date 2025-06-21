@@ -402,7 +402,7 @@ elif(useImageDataset):
 	dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 elif(useNLPDataset):
 	if(useSequentialSANI):
-		useDatasetSubset = True	#default: False - hiddenLayerSizeSANI is dynamically grown, and is not dependent on datasetSize, however useDatasetSubset is still useful for fast debugging 
+		useDatasetSubset = False	#default: False - hiddenLayerSizeSANI is dynamically grown, and is not dependent on datasetSize, however useDatasetSubset is still useful for fast debugging 
 	else:
 		useDatasetSubset = True
 	if(useDatasetSubset):

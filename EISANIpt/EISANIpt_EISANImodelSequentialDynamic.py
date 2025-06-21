@@ -233,7 +233,7 @@ else:
 		self.indexArrayA[hiddenLayerIdx] = torch.cat([self.indexArrayA[hiddenLayerIdx], indexPadding], dim=0)
 		self.indexArrayB[hiddenLayerIdx] = torch.cat([self.indexArrayB[hiddenLayerIdx], indexPadding.clone()], dim=0)
 
-		#expand activation arrays;
+		#expand activation arrays (new sizes will be retained when processing next batch during reinitialisation);
 		layerIdx = hiddenLayerIdx+1
 		activationPadding = torch.zeros((self.config.batchSize, growBy,), dtype=torch.bool, device=device)
 		self.layerActivation[layerIdx] = torch.cat([self.layerActivation[layerIdx], activationPadding.bool()], dim=1)
