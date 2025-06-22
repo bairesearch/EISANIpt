@@ -53,8 +53,9 @@ def createModel(dataset):
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
 	print("\t useOutputConnectionsNormalised = ", useOutputConnectionsNormalised)
-	print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
-	print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)
+	if(limitOutputConnections):
+		print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
+		print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)
 
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,

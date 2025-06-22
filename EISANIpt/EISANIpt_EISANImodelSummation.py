@@ -47,7 +47,10 @@ def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 				currentActivation = torch.cat([aExc, aInh], dim=1)
 			else:
 				currentActivation = compute_layer_standard(self, uniqueLayerIndex, prevActivation, device) # Modified
-
+			
+			if(limitHiddenConnections):
+				self.hiddenNeuronUsage[uniqueLayerIndex] = self.hiddenNeuronUsage[uniqueLayerIndex] + currentActivation.sum(dim=0)	#sum across batch dim
+			
 			# -------------------------
 			# Dynamic hidden connection growth
 			# -------------------------

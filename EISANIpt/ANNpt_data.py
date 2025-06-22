@@ -612,7 +612,7 @@ elif(useNLPDataset):
 		test_stream = base_stream.take(eval_rows)          # rows 0 -> eval_rows-1	 # ~50k examples for evaluation
 		train_stream = base_stream.skip(eval_rows)          # rows eval_rows -> end	  # everything else
 		'''
-		print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test/eval dataset")
+		print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test (eval) dataset")
 		test_stream = dataset.take(eval_rows)
 		train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
 		if(datasetShuffle):					   # keep optional shuffle

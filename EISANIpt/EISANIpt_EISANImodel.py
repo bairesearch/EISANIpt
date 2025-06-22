@@ -194,6 +194,7 @@ class EISANImodel(nn.Module):
 	
 		if(useSequentialSANI):
 			if(useConnectionWeights):
+				printe("warning useSequentialSANI:useConnectionWeights is depreciated; various functions are not supported (eg pruning)")
 				self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
 			else:
 				self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
@@ -204,12 +205,11 @@ class EISANImodel(nn.Module):
 		# -----------------------------
 		# Output connection matrix
 		# -----------------------------
-		
 		outConnShape = (hiddenLayerSizeStart, config.numberOfClasses,) # Modified
 		dtype_out = torch.bool if useBinaryOutputConnections else torch.float32
 		if(useSparseOutputMatrix):
 			#empty_crow = torch.tensor([0], device=device, dtype=torch.int64)
-			rows       = outConnShape[0]
+			rows = outConnShape[0]
 			empty_crow = torch.zeros(rows + 1, device=device, dtype=torch.int64)
 			empty_col  = torch.tensor([], device=device, dtype=torch.int64)
 			empty_val  = torch.tensor([], device=device, dtype=dtype_out)
@@ -226,27 +226,20 @@ class EISANImodel(nn.Module):
 				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=dtype_out, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
 		# -------------------------------------------------------------
-		# Hidden-neuron prediction-accuracy tracker
-		#   dim-2: 0 -> #correct, 1 -> #total
+		# limitOutputConnections/limitHiddenConnections
 		# -------------------------------------------------------------
-		if(limitOutputConnectionsBasedOnAccuracy):
-			self.hiddenNeuronPredictionAccuracy: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart, 2), dtype=torch.bool, device=device) for _ in range(self.numberUniqueHiddenLayers)]
-			
+		if(limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
+			#Hidden-neuron prediction-accuracy tracker; dim-2: 0 -> #correct, 1 -> #total
+			self.hiddenNeuronPredictionAccuracy: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart, 2), dtype=torch.int, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+		if(limitHiddenConnections or limitOutputConnections):
+			self.hiddenNeuronUsage: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart,), dtype=torch.float, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+
 		
 	# ---------------------------------------------------------
 	# Layer initialisation
 	# ---------------------------------------------------------
 	
 	if(useSequentialSANI):
-		def _getCurrentLayerSize(self, layerIdx):
-			if(layerIdx==0):
-				#first layer activations use static number abstract neurons (ie neuron activations/times recorded at time t);
-				currentLayerSize = self.encodedFeatureSize
-			else:
-				hiddenLayerIdx = layerIdx-1
-				currentLayerSize = self.indexArrayA[hiddenLayerIdx].shape[0]
-			return currentLayerSize
-		
 		def _initialiseLayerActivations(self):
 			numberUniqueLayers = self.numberUniqueHiddenLayers+1	#activation arrays contain both input and hidden neurons (not only hidden neurons)
 			self.layerActivation: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.bool, device=device) for layerIdx in range(numberUniqueLayers)]	#record of activation state at last activation time (recorded activations will grow over time)
@@ -255,7 +248,25 @@ class EISANImodel(nn.Module):
 				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
 				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]		#count number of subneurons which were activated
 				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.float, device=device) for layerIdx in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
-		
+	
+	def _getCurrentLayerSize(self, layerIdx):
+		if(useSequentialSANI):
+			if(layerIdx==0):
+				#first layer activations use static number abstract neurons (ie neuron activations/times recorded at time t);
+				currentLayerSize = self.encodedFeatureSize
+			else:
+				hiddenLayerIdx = layerIdx-1
+				currentLayerSize = self.indexArrayA[hiddenLayerIdx].shape[0]
+		else:
+			if(layerIdx==0):
+				currentLayerSize = self.encodedFeatureSize
+			else:
+				currentLayerSize = self.config.hiddenLayerSize
+		return currentLayerSize
+
+	def _getCurrentHiddenLayerSize(self, hiddenLayerIdx):
+		return self._getCurrentLayerSize(hiddenLayerIdx+1)
+				
 	if(useConnectionWeights):
 		def _initialise_layer_weights(self, numNeurons: int, prevSize: int, hiddenLayerIdx: int,) -> torch.Tensor:
 			"""
@@ -415,7 +426,7 @@ class EISANImodel(nn.Module):
 			# -----------------------------------------------------------------
 			# Update hidden-neuron accuracy statistics (soft-max vote)
 			# -----------------------------------------------------------------
-			EISANIpt_EISANImodelOutput.updateHiddenNeuronAccuracyStatistics(self)
+			EISANIpt_EISANImodelOutput.updateHiddenNeuronAccuracyStatistics(self, trainOrTest, layerActivations, y)
 			
 			# count how many are exactly correct
 			correct = (predictions == y).sum().item()

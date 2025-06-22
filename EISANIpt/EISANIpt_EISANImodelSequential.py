@@ -77,13 +77,18 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 
 		if(useSequentialSANIactivationStrength):
 			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
+		else:
+			layerActivationStrength = layerActivation
 		if(debugSequentialSANIactivations):
 			print("\tdebugSequentialSANIactivations:")
 			print("layerSegment1Activation = ", layerSegment1Activation)
 			print("layerSegment2Activation = ", layerSegment2Activation)
 			print("layerActivation = ", layerActivation)
 			if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): print("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfully generating neurons across multiple layers")
-			
+		
+		if(limitHiddenConnections):
+			self.hiddenNeuronUsage[hiddenLayerIdx] = self.hiddenNeuronUsage[hiddenLayerIdx] + layerActivationStrength.sum(dim=0)	#sum across batch dim	#or layerActivation.int().sum(dim=0)?
+				
 		#update neuron activations;
 		layerActivationNot = torch.logical_not(layerActivation)
 		self.layerActivation[layerIdx] = torch.logical_or(self.layerActivation[layerIdx], layerActivation)

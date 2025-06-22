@@ -75,8 +75,7 @@ if(useConnectionWeights):
 		# ------------------------------------------------------------------
 		# 3. List neurons still free on *both* segments
 		# ------------------------------------------------------------------
-		freeMask = (~self.neuronSegmentAssignedMask[hiddenLayerIdx, segIndex0] &
-					~self.neuronSegmentAssignedMask[hiddenLayerIdx, segIndex1])
+		freeMask = (~self.neuronSegmentAssignedMask[hiddenLayerIdx, segIndex0] & ~self.neuronSegmentAssignedMask[hiddenLayerIdx, segIndex1])
 		freeList = freeMask.nonzero(as_tuple=True)[0]				# 1-D LongTensor
 
 		if freeList.numel() == 0:
@@ -133,12 +132,7 @@ if(useConnectionWeights):
 			new_indices = torch.tensor([[neuronIdx], [prevIdx]], dtype=torch.long, device=device)
 			new_values  = torch.ones(1, dtype=existing_values.dtype, device=device)
 
-			mat = torch.sparse_coo_tensor(
-				torch.cat([existing_indices, new_indices], dim=1),
-				torch.cat([existing_values,  new_values ], dim=0),
-				mat.size(),
-				device=device,
-			).coalesce()
+			mat = torch.sparse_coo_tensor(torch.cat([existing_indices, new_indices], dim=1), torch.cat([existing_values,  new_values ], dim=0), mat.size(), device=device,).coalesce()
 		else:
 			mat[neuronIdx, prevIdx] = 1.0
 
@@ -153,11 +147,11 @@ else:
 		indexArray  = (self.indexArrayA if pairId == 0 else self.indexArrayB)[hiddenLayerIdx]	# [capacity]
 
 		# Gather - first replace "-1" placeholders by a safe 0 (any valid column)
-		safeIndex   = indexArray.clamp(min=0)
-		acts        = activationsLayer1.index_select(dim=1, index=safeIndex)				# [B, capacity]
+		safeIndex = indexArray.clamp(min=0)
+		acts = activationsLayer1.index_select(dim=1, index=safeIndex)				# [B, capacity]
 
 		# Zero-out columns that correspond to unassigned slots
-		mask        = indexArray.unsqueeze(0).ne(-1)										# [1, capacity]
+		mask = indexArray.unsqueeze(0).ne(-1)										# [1, capacity]
 		activationsLayer2 = acts * mask.to(dtype=acts.dtype)
 		return activationsLayer2
 
@@ -168,16 +162,16 @@ else:
 		device = activationsLayerA1.device
 		activeA = activationsLayerA1.any(dim=0)
 		activeB = activationsLayerB1.any(dim=0)
-		idxA    = activeA.nonzero(as_tuple=False).flatten()
-		idxB    = activeB.nonzero(as_tuple=False).flatten()
+		idxA = activeA.nonzero(as_tuple=False).flatten()
+		idxB = activeB.nonzero(as_tuple=False).flatten()
 		if idxA.numel() == 0 or idxB.numel() == 0:
 			#print("idxA.numel() == 0 or idxB.numel() == 0")
 			return
 
 		candidatePairs = torch.cartesian_prod(idxA, idxB)				# [P, 2]
-		uniqueMask     = perform_uniqueness_check(self, hiddenLayerIdx, candidatePairs)
-		newPairs       = candidatePairs[uniqueMask]
-		nNew           = newPairs.size(0)
+		uniqueMask  = perform_uniqueness_check(self, hiddenLayerIdx, candidatePairs)
+		newPairs = candidatePairs[uniqueMask]
+		nNew = newPairs.size(0)
 		if nNew == 0:
 			#print("nNew == 0")
 			return
@@ -186,7 +180,7 @@ else:
 		if(debugSequentialSANIactivations):
 			print("self.numAssignedNeuronSegments[hiddenLayerIdx] = ",  self.numAssignedNeuronSegments[hiddenLayerIdx])
 		start = self.numAssignedNeuronSegments[hiddenLayerIdx].item()
-		end   = start + nNew
+		end = start + nNew
 		if end > self.indexArrayA[hiddenLayerIdx].size(0):
 			expandArrays(self, hiddenLayerIdx, end - self.indexArrayA[hiddenLayerIdx].size(0))
 
@@ -208,18 +202,35 @@ else:
 		def _pack(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 			return (a.to(torch.int64) << 32) | b.to(torch.int64)
 
-		existingKeys  = _pack(self.indexArrayA[hiddenLayerIdx][:used], self.indexArrayB[hiddenLayerIdx][:used])			# [used]
+		existingKeys = _pack(self.indexArrayA[hiddenLayerIdx][:used], self.indexArrayB[hiddenLayerIdx][:used])			# [used]
 		candidateKeys = _pack(candidatePairs[:, 0], candidatePairs[:, 1])						# [P]
 
 		# torch.isin is O(N) and allocates only the output mask
 		dup = torch.isin(candidateKeys, existingKeys)						# [P] bool
 		return ~dup		
 
+	'''
+	#orig before optimisation
+	
+	def perform_uniqueness_check(self, hiddenLayerIdx: int, candidatePairs: torch.Tensor) -> torch.Tensor:
+		used = self.numAssignedNeuronSegments[hiddenLayerIdx].item()
+		if used == 0:
+			return torch.ones(candidatePairs.size(0), dtype=torch.bool, device=candidatePairs.device)
+
+		existA = self.indexArrayA[hiddenLayerIdx][:used].unsqueeze(0)	# [1, used]
+		existB = self.indexArrayB[hiddenLayerIdx][:used].unsqueeze(0)	# [1, used]
+		candA  = candidatePairs[:, 0].unsqueeze(1)				# [P, 1]
+		candB  = candidatePairs[:, 1].unsqueeze(1)				# [P, 1]
+		dup    = ((candA == existA) & (candB == existB)).any(dim=1)
+		return ~dup	
+	'''
+
 	# ----------------------------------------------------------------- #
 	# Per-layer expansion (only A & B for the specified layer)
 	# ----------------------------------------------------------------- #
 	def expandArrays(self, hiddenLayerIdx: int, additionalRequired: int) -> None:
 		#must always sync expansions with the arrays defined in EISANImodel:init();
+		#print("expandArrays")
 		
 		if additionalRequired <= 0:
 			return
@@ -265,8 +276,12 @@ else:
 				self.outputConnectionMatrix[hiddenLayerIdx] = torch.cat([self.outputConnectionMatrix[hiddenLayerIdx], outputConnectionPadding], dim=0)
 
 		#expand accuracy tracker arrays;
-		if(limitOutputConnectionsBasedOnAccuracy):
+		if(limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
 			accPadding = torch.zeros((growBy, 2), dtype=torch.bool, device=device)
 			self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx] = torch.cat([self.hiddenNeuronPredictionAccuracy[hiddenLayerIdx], accPadding], dim=0)
 
+		#expand usage arrays;
+		if(limitHiddenConnections or limitOutputConnections):
+			usagePadding = torch.zeros((growBy,), dtype=torch.long, device=device)
+			self.hiddenNeuronUsage[hiddenLayerIdx] = torch.cat([self.hiddenNeuronUsage[hiddenLayerIdx], usagePadding], dim=0)
 

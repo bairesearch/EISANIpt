@@ -205,6 +205,10 @@ def processDataset(trainOrTest, dataset, model):
 					loop.set_description(f'Epoch {epoch}')
 					loop.set_postfix(batchIndex=batchIndex, loss=loss, accuracy=accuracy)
 		
+					if(debugLimitOutputConnectionsSequentialSANI):
+						if(useAlgorithmEISANI):
+							model.executePostTrainPrune(trainOrTest)
+				
 			if(not trainOrTest):
 				averageAccuracy = totalAccuracy/totalAccuracyCount
 				print("test averageAccuracy = ", averageAccuracy)
@@ -214,8 +218,9 @@ def processDataset(trainOrTest, dataset, model):
 				for sch in schedulers:
 					sch.step()
 		
-		if(useAlgorithmEISANI):
-			model.executePostTrainPrune(trainOrTest)
+		if(not debugLimitOutputConnectionsSequentialSANI):
+			if(useAlgorithmEISANI):
+				model.executePostTrainPrune(trainOrTest)
 
 		saveModel(model)
 		

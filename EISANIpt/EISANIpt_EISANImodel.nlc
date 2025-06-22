@@ -225,3 +225,60 @@ I am replacing pytorch sparse weights (COO) functions for forward propagating wh
 3. Before assigning the new connection index pair, sequentialSANI_dynamic_hidden_growth_pairwise executes a function called perform_uniqueness_check() to verify whether each pair has already been assigned, and if so it does not create a new pair. Implementation: it deactivates the corresponding elements in the tensor(s) used to perform the dynamic index assignment. perform_uniqueness_check should likewise be executed in a parallel using pytorch tensor operations instead of python for loops.
 4. Please use static self.indexArrayA[layerIdx] and self.indexArrayB[layerIdx] arrays, providing an index number that defines how many elements they currently have (numAssignedNeuronSegments[layerId]). They always have the same number of elements (because they represent a connection pair in a binary tree network). Create another function called expandArrays(); If, the number of new pairs exceeds the connection index array capacity (ie numAssignedNeuronSegments[layerIdx] > self.indexArrayA[layerIdx].shape[0] {note same as self.indexArrayB[layerIdx].shape[0]}), grow every self.indexArrayA[layerIdX] and self.indexArrayB[layerIdX] by blockExpansionSize elements (where blockExpansionSize=1000).
 
+---
+!useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence
+
+Attached is code below to prune 1. network output connections and 2. unused hidden neuron segments (with pruned output connections).
+
+I want you to create a new function called prune_hidden_neurons_and_output_connections() that 1. prunes all hidden neurons whose self.hiddenNeuronUsage is below hiddenNeuronMinUsageThreshold, along with 2. their corresponding output connections (self.outputConnectionMatrix). For step 1., you will need to;
+1. modify self.neuronSegmentAssignedMask
+2. modify self.hiddenConnectionMatrix* (please use prune_rows() function)
+3. modify self.hiddenNeuronSignatures* (please use purge_sigs() function)
+
+Note;
+self.hiddenNeuronUsage: List[torch.Tensor] = [torch.zeros((hiddenLayerSize,), dtype=torch.float, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+
+Remember to reuse any existing functions.
+
+---
+useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence
+
+Please implement the following functions to a) prune hidden layer neurons (pruneHiddenNeurons) and b) prune output layer connections (prune_output_rows).
+
+- The code should support both useSparseOutputMatrix=True and useSparseOutputMatrix=False
+- The code should assume that the current layer sizes are defined by self._getCurrentLayerSize(layerIdx).
+
+...
+
+a)
+def pruneHiddenNeurons(self, layerIndex: int, hiddenNeuronsRemoved: torch.Tensor) -> None:
+	"""
+	Completely delete (do not simply zero-out) hidden neurons masked by hiddenNeuronsRemoved
+
+	Arguments
+	---------
+	layerIndex : int
+	    Index of the unique hidden layer being pruned.
+	hiddenNeuronsRemoved : torch.BoolTensor  shape = [hidden]
+	    True for every neuron that must disappear.
+	
+	prunes these arrays;
+	self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
+	self.indexArrayA: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+	self.indexArrayB: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+
+	"""
+	#COMPLETE THIS FUNCTION
+
+b)
+def prune_output_rows(outputConnectionMat: torch.Tensor, hiddenNeuronsRemoved: torch.Tensor) -> torch.Tensor:
+	Completely delete (do not simply zero-out) output connections whose first dimension is masked by hiddenNeuronsRemoved
+
+	Arguments
+	---------
+	outputConnectionMat : torch.float	shape=[currentHiddenLayerSize, config.numberOfClasses]
+	hiddenNeuronsRemoved : torch.BoolTensor  shape = [hidden]
+	    True for every neuron that must disappear.
+	...
+	#COMPLETE THIS FUNCTION
+	
