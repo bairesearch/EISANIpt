@@ -204,9 +204,9 @@ def processDataset(trainOrTest, dataset, model):
 					
 					loop.set_description(f'Epoch {epoch}')
 					loop.set_postfix(batchIndex=batchIndex, loss=loss, accuracy=accuracy)
-		
-					if(debugLimitOutputConnectionsSequentialSANI):
-						if(useAlgorithmEISANI):
+					
+					if(useAlgorithmEISANI and limitConnections):
+						if(debugLimitConnectionsSequentialSANI):
 							model.executePostTrainPrune(trainOrTest)
 				
 			if(not trainOrTest):
@@ -218,8 +218,8 @@ def processDataset(trainOrTest, dataset, model):
 				for sch in schedulers:
 					sch.step()
 		
-		if(not debugLimitOutputConnectionsSequentialSANI):
-			if(useAlgorithmEISANI):
+		if(useAlgorithmEISANI and limitConnections):
+			if(not debugLimitConnectionsSequentialSANI):
 				model.executePostTrainPrune(trainOrTest)
 
 		saveModel(model)

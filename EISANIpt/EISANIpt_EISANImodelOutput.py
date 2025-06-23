@@ -19,8 +19,9 @@ EISANIpt model output
 
 import torch
 from ANNpt_globalDefs import *
-from EISANIpt_EISANImodelPrune import get_row_nnz
 import torch.nn.functional as F
+if(limitConnections):
+	from EISANIpt_EISANImodelPrune import get_row_nnz
 
 # -----------------------------
 # Output layer
@@ -44,7 +45,7 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 				
 				weights = self.outputConnectionMatrix[uniqueLayerIndex]
 					
-				if(debugSequentialSANIactivationsOutputs):
+				if(debugEISANIoutputs):
 					print("\tuniqueLayerIndex = ", uniqueLayerIndex)
 					print("layerActivations[actLayerIndex].shape = ", layerActivations[actLayerIndex].shape)
 					print("self.outputConnectionMatrix[uniqueLayerIndex].shape = ", self.outputConnectionMatrix[uniqueLayerIndex].shape)
@@ -63,26 +64,7 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 				weights = normaliseOutputConnectionWeights(self, weights.float())	# cast weights to float for matmul
 
 				if(useSparseOutputMatrix):
-					sparseCSRmatMulMethod = "orig"
-					if(sparseCSRmatMulMethod == "orig"):
-						outputActivations += act.float() @ weights 	# cast act to float for matmul
-					'''
-					#sparseCSRmatMulMethod = "chunkedDense"
-					#sparseCSRmatMulMethod = "singleRow"
-					elif(sparseCSRmatMulMethod == "chunkedDense"):
-						CHUNK = 1000000   # rows per micro-matmul, tweak for your GPU
-						for offset in range(0, act.size(1), CHUNK):
-							r0, r1 = offset, min(offset + CHUNK, act.size(1))
-							chunk  = act[:, r0:r1].float()					  # (B, chunk)
-							subcsr = csr_row_block(weights, r0, r1)			# (chunk, C)
-							outputActivations += chunk @ subcsr				 # (B, C)
-					elif(sparseCSRmatMulMethod == "singleRow"):
-						for sample in range(act.size(0)):				# small batch, e.g. 1-4
-							active_rows = (act[sample] != 0).nonzero(as_tuple=True)[0]
-							if active_rows.numel():
-								vec = csr_row_gather_sum(active_rows, weights, self.config.numberOfClasses)
-								outputActivations[sample] += vec		 # shapes now match
-					'''
+					outputActivations += act.float() @ weights 	# cast act to float for matmul
 				else:
 					outputActivations += act.float() @ weights 	# cast act to float for matmul
 					
@@ -117,79 +99,6 @@ def update_output_connections(self,
 		y: torch.Tensor,				  # (B,)   long
 		device: torch.device) -> None:
 
-	# -- 0. gather active (row, col) pairs ------------------------------
-	sample_idx, neuron_idx = (activation != 0).nonzero(as_tuple=True)
-	if neuron_idx.numel() == 0:
-		return
-		
-	class_idx  = y[sample_idx]
-
-	if(useSparseOutputMatrix):
-	
-		tempDevice = device	#'cpu'
-		
-		# ------------------------------------------------------------------
-		# 1) Gather NEW (row = hidden-neuron , col = class) pairs
-		# ------------------------------------------------------------------
-
-		rows_new  = neuron_idx.to(torch.int64)
-		cols_new  = class_idx.to(torch.int64)
-
-		# Deduplicate inside the mini-batch
-		edge_ids	   = rows_new * self.config.numberOfClasses + cols_new
-		uniq_ids	   = torch.unique(edge_ids)
-		rows_new	   = (uniq_ids // self.config.numberOfClasses)
-		cols_new	   = (uniq_ids %  self.config.numberOfClasses)
-
-		use_bool	   = useBinaryOutputConnections
-		dtype_val	  = torch.bool if use_bool else torch.float32
-		delta_vals_cpu = torch.ones(uniq_ids.size(0), dtype=dtype_val, device=tempDevice)
-
-		if(tempDevice=='cpu'):
-			rows_new = rows_new.cpu()
-			cols_new = cols_new.cpu()
-		
-		# ------------------------------------------------------------------
-		# 2) Build a *delta* COO tensor (CPU) with ONLY the new edges
-		# ------------------------------------------------------------------
-		delta_cpu = torch.sparse_coo_tensor(torch.stack([rows_new, cols_new]), delta_vals_cpu, size=self.outputConnectionMatrix[hiddenLayerIdx].shape, dtype=dtype_val, device=tempDevice).coalesce()
-
-		# ------------------------------------------------------------------
-		# 3) Merge delta with the master matrix  (all on CPU for safety)
-		# ------------------------------------------------------------------
-		master_csr_cpu = self.outputConnectionMatrix[hiddenLayerIdx]
-		if(tempDevice=='cpu'):
-			master_csr_cpu = master_csr_cpu.cpu()
-		master_coo_cpu = master_csr_cpu.to_sparse_coo()
-
-		if use_bool:
-			# logical OR  ->  add ints then clamp to 0/1 and cast back to bool
-			merged_int   = (master_coo_cpu.to(torch.int8) + delta_cpu.to(torch.int8)).coalesce()
-			merged_vals  = (merged_int.values() > 0)
-			merged_coo   = torch.sparse_coo_tensor(merged_int.indices(), merged_vals, size=master_csr_cpu.shape, dtype=torch.bool, device=tempDevice)
-		else:
-			# float counter  -> straight addition
-			merged_coo   = (master_coo_cpu + delta_cpu).coalesce()
-
-		# ------------------------------------------------------------------
-		# 4) Back to CSR on the GPU for fast mat-mul
-		# ------------------------------------------------------------------
-		merged_csr_gpu = merged_coo.to_sparse_csr().to(device)
-		self.outputConnectionMatrix[hiddenLayerIdx] = merged_csr_gpu
-
-	else:
-		mat = self.outputConnectionMatrix[hiddenLayerIdx]
-		
-		if useBinaryOutputConnections:
-			new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
-		else:
-			new_vals = torch.ones_like(neuron_idx, dtype=torch.float32, device=device)
-		if useBinaryOutputConnections:
-			mat[neuron_idx, class_idx] = True						# logical OR
-		else:
-			mat[neuron_idx, class_idx] += 1.0						# count	
-
-	'''
 	#orig before optimisation;
 	
 	mat = self.outputConnectionMatrix[hiddenLayerIdx]
@@ -232,14 +141,88 @@ def update_output_connections(self,
 			mat[neuron_idx, class_idx] = True						# logical OR
 		else:
 			mat[neuron_idx, class_idx] += 1.0						# count
-	'''	
+			
+	'''
+	# -- 0. gather active (row, col) pairs ------------------------------
+	sample_idx, neuron_idx = (activation != 0).nonzero(as_tuple=True)
+	if neuron_idx.numel() == 0:
+		return
+		
+	class_idx  = y[sample_idx]
+
+	if(useSparseOutputMatrix):
+	
+		tempDevice = device	#'cpu'
+		
+		# ------------------------------------------------------------------
+		# 1) Gather NEW (row = hidden-neuron , col = class) pairs
+		# ------------------------------------------------------------------
+
+		rows_new  = neuron_idx.to(torch.int64)
+		cols_new  = class_idx.to(torch.int64)
+
+		# Deduplicate inside the mini-batch
+		edge_ids	   = rows_new * self.config.numberOfClasses + cols_new
+		uniq_ids	   = torch.unique(edge_ids)
+		rows_new	   = (uniq_ids // self.config.numberOfClasses)
+		cols_new	   = (uniq_ids %  self.config.numberOfClasses)
+
+		use_bool	   = useBinaryOutputConnections
+		dtype_val	  = torch.bool if use_bool else torch.float32
+		delta_vals = torch.ones(uniq_ids.size(0), dtype=dtype_val, device=tempDevice)
+
+		if(tempDevice=='cpu'):
+			rows_new = rows_new.cpu()
+			cols_new = cols_new.cpu()
+		
+		# ------------------------------------------------------------------
+		# 2) Build a *delta* COO tensor (CPU) with ONLY the new edges
+		# ------------------------------------------------------------------
+		delta = torch.sparse_coo_tensor(torch.stack([rows_new, cols_new]), delta_vals, size=self.outputConnectionMatrix[hiddenLayerIdx].shape, dtype=dtype_val, device=tempDevice).coalesce()
+
+		# ------------------------------------------------------------------
+		# 3) Merge delta with the master matrix  (all on CPU for safety)
+		# ------------------------------------------------------------------
+		master_csr = self.outputConnectionMatrix[hiddenLayerIdx]
+		if(tempDevice=='cpu'):
+			master_csr = master_csr.cpu()
+		master_coo = master_csr.to_sparse_coo()
+
+		if use_bool:
+			# logical OR  ->  add ints then clamp to 0/1 and cast back to bool
+			merged_int   = (master_coo.to(torch.int8) + delta.to(torch.int8)).coalesce()
+			merged_vals  = (merged_int.values() > 0)
+			merged_coo   = torch.sparse_coo_tensor(merged_int.indices(), merged_vals, size=master_csr.shape, dtype=torch.bool, device=tempDevice)
+		else:
+			# float counter  -> straight addition
+			merged_coo   = (master_coo + delta).coalesce()
+
+		# ------------------------------------------------------------------
+		# 4) Back to CSR on the GPU for fast mat-mul
+		# ------------------------------------------------------------------
+		merged_csr_gpu = merged_coo.to_sparse_csr().to(device)
+		self.outputConnectionMatrix[hiddenLayerIdx] = merged_csr_gpu
+
+	else:
+		mat = self.outputConnectionMatrix[hiddenLayerIdx]
+		
+		if useBinaryOutputConnections:
+			new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
+		else:
+			new_vals = torch.ones_like(neuron_idx, dtype=torch.float32, device=device)
+		if useBinaryOutputConnections:
+			mat[neuron_idx, class_idx] = True						# logical OR
+		else:
+			mat[neuron_idx, class_idx] += 1.0						# count	
+	'''
+
 
 # -----------------------------------------------------------------
 # Update hidden-neuron accuracy statistics (soft-max vote)
 # -----------------------------------------------------------------
 
 def updateHiddenNeuronAccuracyStatistics(self, trainOrTest, layerActivations, y):
-	if(limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
+	if(limitConnections and limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
 		if y is not None:												# labels available
 			#note if useOutputConnectionsLastLayer, only the last index in hiddenNeuronPredictionAccuracy will be valid
 
@@ -398,63 +381,3 @@ else:
 
 
 
-'''
-if(sparseCSRmatMulMethod == "singleRow"):
-	@staticmethod
-	def csr_row_gather_sum(rows_active: torch.Tensor,
-								 csr: torch.Tensor,
-								 num_classes: int) -> torch.Tensor:
-		"""
-		Sum the CSR rows in `rows_active` into a 1-D float32 vector.
-		* rows_active  (K,) int64 on the same CUDA device as csr
-		* csr		  sparse_csr [H, C]
-		returns		(C,) float32, CUDA
-		"""
-
-		# --- CSR buffers (all CUDA) ---------------------------------------
-		crow = csr.crow_indices()
-		col  = csr.col_indices()
-		val  = csr.values().float()				 # cast once (bool->float)
-
-		# --- gather start / length per active row -------------------------
-		start  = crow[rows_active]				  # (K,)
-		end	= crow[rows_active + 1]
-		lens   = end - start						# (K,)
-		tot_nnz = int(lens.sum().item())
-		if tot_nnz == 0:
-			return torch.zeros(num_classes, device=csr.device)
-
-		# --- build flat indices WITHOUT Python loops ----------------------
-		# each row i contributes a slice [start[i], start[i]+lens[i])
-		base   = start.repeat_interleave(lens)	  # (E nnz,)
-		offs   = torch.arange(tot_nnz, device=csr.device) - torch.repeat_interleave(lens.cumsum(dim=0) - lens, lens)
-		idx	= base + offs						# absolute positions into col/val
-
-		cols_g = col[idx]						   # (E nnz,)
-		vals_g = val[idx]
-
-		# --- scatter-add into dense output --------------------------------
-		out = torch.zeros(num_classes, device=csr.device, dtype=torch.float32)
-		out.index_add_(0, cols_g, vals_g)
-		return out
-if(sparseCSRmatMulMethod == "chunkedDense"):
-	def csr_row_block(csr: torch.Tensor, r0: int, r1: int) -> torch.Tensor:
-		"""
-		Return rows [r0:r1] of a CSR tensor **without** copying col/val data.
-		Works on CUDA.  (r1 is exclusive.)
-		"""
-		assert csr.layout == torch.sparse_csr
-		crow = csr.crow_indices()
-		col  = csr.col_indices()
-		val  = csr.values()
-
-		# row-pointers for the sub-block
-		start_ptr = crow[r0].item()
-		end_ptr   = crow[r1].item()
-
-		crow_sub  = crow[r0:r1+1] - start_ptr		  # shift so first row starts at 0
-		col_sub   = col[start_ptr:end_ptr]
-		val_sub   = val[start_ptr:end_ptr]
-
-		return torch.sparse_csr_tensor(crow_sub, col_sub, val_sub, size=(r1 - r0, csr.size(1)), dtype=csr.dtype, device=csr.device)
-'''

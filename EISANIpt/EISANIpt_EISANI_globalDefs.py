@@ -19,15 +19,7 @@ EISANIpt globalDefs
 
 import math
 
-debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
-debugEISANIfractionActivated = False	#print fractionActive of each layer
-debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
-
-debugLimitOutputConnections = True	#print ratio of hidden neurons pruned
-debugLimitOutputConnectionsSequentialSANI = False	#prune every batch rather than every epoch/dataset
-
-debugMeasureClassExclusiveNeuronRatio = False	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
-debugMeasureRatioOfHiddenNeuronsWithOutputConnections = False	#measure ratio of hidden neurons with output connections to those without output connections
+debugEISANIoutputs = False
 
 useDefaultNumNeuronSegmentsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
@@ -41,12 +33,12 @@ useNLPDataset = False	#aka useSequenceDataset
 #init derived params (do not modify here);
 useSequentialSANI = False
 useSequentialSANIactivationStrength = False
-useConnectionWeights = True
 limitOutputConnectionsBasedOnAccuracySoftmax = False
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 elif(useImageDataset):
+	debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
 	useContinuousVarEncodeMethod = "grayCode"
 	CNNkernelSize = 3
 	CNNstride = 1
@@ -103,16 +95,15 @@ elif(useNLPDataset):
 
 if(useSequentialSANI):
 	debugSequentialSANIactivationsLoops = False
-	debugSequentialSANIactivationsOutputs = False
 	debugSequentialSANIactivationsMemory = False
 	debugSequentialSANIactivations = False
 	debugSequentialSANIactivationsStrength = False
 	debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations
 	debugDynamicallyGenerateLayerNeurons = False
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
-		
-	useConnectionWeights = False	#default: False - use 1D index tensors, True: use sparse or dense weight tensors	#note useSequentialSANI:!useConnectionWeights uses a more memory efficient pruning method (actual hidden/output matrix shapes are modified)
-	assert not useConnectionWeights, "useSequentialSANI:useConnectionWeights is depreciated; various functions are not supported (eg pruning)"
+	debugSequentialSANIinhibitoryTopkSelection = True
+	
+	useConnectionWeights = False	#mandatory: False - use 1D index tensors rather than standard weight tensors	#note useSequentialSANI:!useConnectionWeights uses a more memory efficient pruning method (actual hidden/output matrix shapes are modified)
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
 		blockExpansionSize = 1000	#expansion additional hidden neurons
@@ -120,16 +111,19 @@ if(useSequentialSANI):
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
 	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	
-	useSequentialSANIactivationStrength = False	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
+	useSequentialSANIactivationStrength = True	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANItimeInvariance/sequentialSANIsegmentsPartialActivation
 	if(useSequentialSANIactivationStrength):
 		sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
 		sequentialSANIsegmentsPartialActivation = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively)
+		sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths
 		if(sequentialSANItimeInvariance):
-			sequentialSANItimeInvarianceFactor = 1.0	#default: 2	#minimum: 1 - maxActivationRecallTimeInvariance == count_predicted(prevlayerIdx) - max time invariance is equivalent to !sequentialSANIoverlappingSegments (contiguous segments only)
+			sequentialSANItimeInvarianceFactor = 2.0	#default: 2	#minimum: 1 - maxActivationRecallTimeInvariance == count_predicted(prevlayerIdx) - max time invariance is equivalent to !sequentialSANIoverlappingSegments (contiguous segments only)
 			#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
 			inputLayerTimeInvariance = False	#default: False	#True: time invariance is applied to input layer also (ie non-contiguous input layer tokens)
 		if(sequentialSANIsegmentsPartialActivation):
 			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
+		if(sequentialSANIinhibitoryTopkSelection):
+			sequentialSANIinhibitoryTopkSelectionKfraction = 0.005	#fraction of neurons on layer to select
 	numberOfSegmentsPerNeuron = 2
 	sequentialSANIsegmentIndexProximal = 0
 	sequentialSANIsegmentIndexDistal = 1
@@ -152,8 +146,10 @@ if(useSequentialSANI):
 	useCPU = False
 else:
 	debugSequentialSANIactivationsLoops = False
-	debugSequentialSANIactivationsOutputs = False
-	
+	debugEISANIfractionActivated = False	#print fractionActive of each layer
+	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
+
+	useConnectionWeights = True	 #mandatory: True: use sparse or dense weight tensors
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 	useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 	if(useDynamicGeneratedHiddenConnections):
@@ -219,8 +215,7 @@ if(useInitOrigParam):
 	datasetEqualiseClassSamples = False	
 	datasetEqualiseClassSamplesTest = False	
 	useMultipleTrainEpochsSmallDatasetsOnly = True #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
-	limitOutputConnections = False
-	limitHiddenConnections = False
+	limitConnections = False
 	useBinaryOutputConnectionsEffective = False
 	useOutputConnectionsNormalised = False
 else:
@@ -234,24 +229,30 @@ else:
 	datasetEqualiseClassSamplesTest = False	#default: False	
 	useMultipleTrainEpochsSmallDatasetsOnly = False
 	useBinaryOutputConnectionsEffective = False	
-	limitOutputConnections = False	#optional	#prune network output connections and unused hidden neuron segments
-	limitHiddenConnections = False	#optional	#prune unused hidden neuron segments and their output connections
-	if(limitOutputConnections):
-		#current limitation: useSparseOutputMatrix does not support individual connection pruning via limitOutputConnections:limitOutputConnectionsBasedOnPrevalence (only hidden neuron pruning)
-		limitOutputConnectionsBasedOnPrevalence = True	#optional	#limit output connectivity to prevelant hidden neurons (used to prune network output connections and unused hidden neuron segments)
-		limitOutputConnectionsBasedOnExclusivity = False	#experimental	#limit output connectivity to class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
-		limitOutputConnectionsBasedOnAccuracy = True	#optional	#limit output connectivity to accurate hidden neurons; associated output class predictions observed during training (used to prune network output connections and unused hidden neuron segments)
-		limitOutputConnectionsPrevalenceMin = 5	#minimum connection weight to be retained after pruning (unnormalised)
-		limitOutputConnectionsAccuracyMin = 0.5	#minimum train prediction accuracy to be retained after pruning
-		limitOutputConnectionsSoftmaxWeightMin = 0.5	#minimum hidden neuron normalised+softmax output connection weight to accept as predictive of output class y (ie accurate=True)
-		if(limitOutputConnectionsBasedOnAccuracy):
-			limitOutputConnectionsBasedOnAccuracySoftmax = True	#apply softmax after tanh norm	#more complex (especially for sparse tensors)
-		if(useBinaryOutputConnections):
-			useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
-			useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
-	if(limitHiddenConnections):
-		limitHiddenConnectionsBasedOnPrevalence = True
-		hiddenNeuronMinUsageThreshold = 3	#number of times a neuron must be fired across an epoch to not be pruned
+	limitConnections = False
+	if(limitConnections):
+		debugLimitConnectionsSequentialSANI = False	#prune every batch rather than every epoch/dataset
+		debugMeasureClassExclusiveNeuronRatio = False	#measure ratio of a) class (output neuron) exclusive hidden neurons to b) non class (output neuron) exclusive hidden neurons
+		debugMeasureRatioOfHiddenNeuronsWithOutputConnections = False	#measure ratio of hidden neurons with output connections to those without output connections
+		printLimitConnections = True	#default: True	#print ratio of hidden neurons pruned
+		limitOutputConnections = True	#optional	#prune network output connections and unused hidden neuron segments
+		limitHiddenConnections = True	#optional	#prune unused hidden neuron segments and their output connections
+		if(limitOutputConnections):
+			#current limitation: useSparseOutputMatrix does not support individual connection pruning via limitOutputConnections:limitOutputConnectionsBasedOnPrevalence (only hidden neuron pruning)
+			limitOutputConnectionsBasedOnPrevalence = True	#optional	#limit output connectivity to prevelant hidden neurons (used to prune network output connections and unused hidden neuron segments)
+			limitOutputConnectionsBasedOnExclusivity = False	#experimental	#limit output connectivity to class exclusive hidden neurons (used to prune network output connections and unused hidden neuron segments)
+			limitOutputConnectionsBasedOnAccuracy = True	#optional	#limit output connectivity to accurate hidden neurons; associated output class predictions observed during training (used to prune network output connections and unused hidden neuron segments)
+			limitOutputConnectionsPrevalenceMin = 5	#minimum connection weight to be retained after pruning (unnormalised)
+			limitOutputConnectionsAccuracyMin = 0.5	#minimum train prediction accuracy to be retained after pruning
+			limitOutputConnectionsSoftmaxWeightMin = 0.5	#minimum hidden neuron normalised+softmax output connection weight to accept as predictive of output class y (ie accurate=True)
+			if(limitOutputConnectionsBasedOnAccuracy):
+				limitOutputConnectionsBasedOnAccuracySoftmax = True	#apply softmax after tanh norm	#more complex (especially for sparse tensors)
+			if(useBinaryOutputConnections):
+				useBinaryOutputConnections = False	#use integer weighted connections to calculate prevelance before prune
+				useBinaryOutputConnectionsEffective = True	#after prune, output connection weights are set to 0 or 1
+		if(limitHiddenConnections):
+			limitHiddenConnectionsBasedOnPrevalence = True
+			hiddenNeuronMinUsageThreshold = 3	#number of times a neuron must be fired across an epoch to not be pruned
 	if(useBinaryOutputConnections):
 		useOutputConnectionsNormalised = False
 	else:

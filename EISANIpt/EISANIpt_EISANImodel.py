@@ -32,7 +32,8 @@ elif(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
 	import EISANIpt_EISANImodelSequential
 import EISANIpt_EISANImodelOutput
-import EISANIpt_EISANImodelPrune
+if(limitConnections):
+	import EISANIpt_EISANImodelPrune
 
 
 def generateNumberHiddenLayers(numberOfLayers: int, numberOfConvlayers: int) -> None:
@@ -193,13 +194,9 @@ class EISANImodel(nn.Module):
 			hiddenLayerSizeStart = blockInitCapacity
 	
 		if(useSequentialSANI):
-			if(useConnectionWeights):
-				printe("warning useSequentialSANI:useConnectionWeights is depreciated; various functions are not supported (eg pruning)")
-				self.hiddenNeuronPairSignatures = [{} for _ in range(self.numberUniqueHiddenLayers)]
-			else:
-				self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
-				self.indexArrayA: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
-				self.indexArrayB: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
+			self.indexArrayA: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
+			self.indexArrayB: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 			self._initialiseLayerActivations()
 	
 		# -----------------------------
@@ -226,12 +223,12 @@ class EISANImodel(nn.Module):
 				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=dtype_out, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
 		# -------------------------------------------------------------
-		# limitOutputConnections/limitHiddenConnections
+		# limitConnections
 		# -------------------------------------------------------------
-		if(limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
-			#Hidden-neuron prediction-accuracy tracker; dim-2: 0 -> #correct, 1 -> #total
-			self.hiddenNeuronPredictionAccuracy: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart, 2), dtype=torch.int, device=device) for _ in range(self.numberUniqueHiddenLayers)]
-		if(limitHiddenConnections or limitOutputConnections):
+		if(limitConnections):
+			if(limitOutputConnections and limitOutputConnectionsBasedOnAccuracy):
+				#Hidden-neuron prediction-accuracy tracker; dim-2: 0 -> #correct, 1 -> #total
+				self.hiddenNeuronPredictionAccuracy: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart, 2), dtype=torch.int, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 			self.hiddenNeuronUsage: List[torch.Tensor] = [torch.zeros((hiddenLayerSizeStart,), dtype=torch.float, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
 		

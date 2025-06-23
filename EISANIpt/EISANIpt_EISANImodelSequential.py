@@ -65,14 +65,14 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		#segment 2 activations;
 		minActivationTimeSegment2 = None
 		if(useSequentialSANIactivationStrength and sequentialSANItimeInvariance):
-			maxActivationRecallTimeInvariance = count_predicted(prevlayerIdx)*sequentialSANItimeInvarianceFactor
+			maxActivationRecallTimeInvariance = int(count_predicted(prevlayerIdx)*sequentialSANItimeInvarianceFactor)
 			if(not inputLayerTimeInvariance):
 				maxActivationRecallTimeInvariance = maxActivationRecallTimeInvariance-1	#disable small amount of timeInvariance for input layer
 			if(debugSequentialSANItimeInvarianceDisable):
 				maxActivationRecallTimeInvariance = 0	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations!
 			minActivationTimeSegment2 = max(0, maxActivationTimeSegment2-maxActivationRecallTimeInvariance)
-
-		layerSegment2Activation, layerSegment2Time, layerSegment2ActivationDistance, layerSegment2ActivationCount = compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime, hiddenLayerIdx, sequentialSANIsegmentIndexDistal, device, maxActivationTimeSegment2, timeIndexMin=maxActivationTimeSegment2)
+			
+		layerSegment2Activation, layerSegment2Time, layerSegment2ActivationDistance, layerSegment2ActivationCount = compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime, hiddenLayerIdx, sequentialSANIsegmentIndexDistal, device, maxActivationTimeSegment2, timeIndexMin=minActivationTimeSegment2)
 		layerActivation = torch.logical_and(layerSegment2Activation, layerSegment1Activation)
 
 		if(useSequentialSANIactivationStrength):
@@ -86,7 +86,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			print("layerActivation = ", layerActivation)
 			if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): print("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfully generating neurons across multiple layers")
 		
-		if(limitHiddenConnections):
+		if(limitConnections and limitHiddenConnections):
 			self.hiddenNeuronUsage[hiddenLayerIdx] = self.hiddenNeuronUsage[hiddenLayerIdx] + layerActivationStrength.sum(dim=0)	#sum across batch dim	#or layerActivation.int().sum(dim=0)?
 				
 		#update neuron activations;
@@ -175,10 +175,7 @@ def compute_layer_sequentialSANI(self, currentActivationTime: int, hiddenLayerId
 	if(debugSequentialSANIactivations):
 		print("propData = ", propData, ", prevActivation = ", prevActivation)
 	
-	if(useConnectionWeights):
-		z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx, device)
-	else:
-		z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx)
+	z_float = EISANIpt_EISANImodelSequentialDynamic.forwardProp(self, prevActivation, hiddenLayerIdx, segmentIdx)
 
 	result = z_float
 	#if(propData=="activation"): result = z_float >= segmentActivationThreshold	#not required as segmentActivationThreshold = 1
@@ -219,6 +216,17 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 		layerActivationStrength = layerActivationStrength*layerActivationProximityNormalised
 		if(debugSequentialSANIactivationsStrength):
 			print("2 layerActivationStrength = ", layerActivationStrength)
+
+	if(sequentialSANIinhibitoryTopkSelection):
+		if(debugSequentialSANIinhibitoryTopkSelection):
+			print("\tsequentialSANIinhibitoryTopkSelection:")
+			print("layerActivationStrength.shape = ", layerActivationStrength.shape)
+			print("pre active neurons = ", layerActivation.count_nonzero(dim=1)) 
+			#print("pre active neuron strengths = ", layerActivationStrength.count_nonzero(dim=1)) 
+		k = int(layerActivation.shape[1]*sequentialSANIinhibitoryTopkSelectionKfraction)
+		layerActivationStrength = topk_zero_out(layerActivationStrength, k)
+		#print("post active neuron strengths = ", layerActivationStrength.count_nonzero(dim=1)) 
+
 	layerActivation = layerActivationStrength > segmentActivationFractionThreshold
 
 	if(debugSequentialSANIactivationsStrength):
@@ -230,6 +238,32 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 		print("layerActivationStrength = ", layerActivationStrength)
 
 	return layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount
+
+def topk_zero_out(x: torch.Tensor, k: int) -> torch.Tensor:
+	"""
+	Keep only the top-k activations in each row of a (B, N) tensor.
+
+	Args:
+		x (torch.Tensor): Input tensor of shape (B, N).
+		k (int)          : Number of top elements to keep per row.
+
+	Returns:
+		torch.Tensor: Tensor of the same shape as `x` where the
+		              largest `k` values in every row are preserved
+		              and all other entries are set to 0.
+	"""
+	if k <= 0:
+		return torch.zeros_like(x)
+
+	# 1. Find indices of the top-k values along dim 1 (per batch item)
+	_, idx = torch.topk(x, k=min(k, x.size(1)), dim=1)
+
+	# 2. Build a boolean mask with True at those indices
+	mask = torch.zeros_like(x, dtype=torch.bool)
+	mask.scatter_(1, idx, True)
+
+	# 3. Zero out everything except the chosen activations
+	return x * mask
 	
 def count_predicted(layerIndex: int) -> int:
 	'''

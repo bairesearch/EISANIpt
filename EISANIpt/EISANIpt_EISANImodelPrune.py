@@ -619,7 +619,7 @@ def measure_ratio_of_hidden_neurons_with_output_connections(self) -> float:
 	return ratio_all_layers
 
 def printPruneHiddenNeurons(self, hiddenLayerIdx, hiddenNeuronsRemoved):
-	if(debugLimitOutputConnections):
+	if(printLimitConnections):
 		total_neurons = hiddenNeuronsRemoved.numel()                   # hiddenLayerSizeSANI
 		if(useSequentialSANI):
 			assigned_count = self.numAssignedNeuronSegments[hiddenLayerIdx].item()

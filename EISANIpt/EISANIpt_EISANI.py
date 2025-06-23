@@ -53,7 +53,7 @@ def createModel(dataset):
 	print("\t recursiveLayers = ", recursiveLayers)
 	print("\t recursiveSuperblocksNumber = ", recursiveSuperblocksNumber)
 	print("\t useOutputConnectionsNormalised = ", useOutputConnectionsNormalised)
-	if(limitOutputConnections):
+	if(limitConnections and limitOutputConnections):
 		print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
 		print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)
 

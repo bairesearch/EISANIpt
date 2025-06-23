@@ -226,7 +226,7 @@ I am replacing pytorch sparse weights (COO) functions for forward propagating wh
 4. Please use static self.indexArrayA[layerIdx] and self.indexArrayB[layerIdx] arrays, providing an index number that defines how many elements they currently have (numAssignedNeuronSegments[layerId]). They always have the same number of elements (because they represent a connection pair in a binary tree network). Create another function called expandArrays(); If, the number of new pairs exceeds the connection index array capacity (ie numAssignedNeuronSegments[layerIdx] > self.indexArrayA[layerIdx].shape[0] {note same as self.indexArrayB[layerIdx].shape[0]}), grow every self.indexArrayA[layerIdX] and self.indexArrayB[layerIdX] by blockExpansionSize elements (where blockExpansionSize=1000).
 
 ---
-!useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence
+!useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence (o3 prompt);
 
 Attached is code below to prune 1. network output connections and 2. unused hidden neuron segments (with pruned output connections).
 
@@ -241,7 +241,7 @@ self.hiddenNeuronUsage: List[torch.Tensor] = [torch.zeros((hiddenLayerSize,), dt
 Remember to reuse any existing functions.
 
 ---
-useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence
+useSequentialSANI:limitHiddenConnections:limitHiddenConnectionsBasedOnPrevalence (o3 prompt);
 
 Please implement the following functions to a) prune hidden layer neurons (pruneHiddenNeurons) and b) prune output layer connections (prune_output_rows).
 
