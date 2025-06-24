@@ -97,11 +97,9 @@ if(useSequentialSANI):
 	debugSequentialSANIactivationsLoops = False
 	debugSequentialSANIactivationsMemory = False
 	debugSequentialSANIactivations = False
-	debugSequentialSANIactivationsStrength = False
-	debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations in useSequentialSANIactivationStrength
 	debugDynamicallyGenerateLayerNeurons = False
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
-	debugSequentialSANIinhibitoryTopkSelection = True
+	debugSequentialSANIpropagationVerify = False
 	
 	useConnectionWeights = False	#mandatory: False - use 1D index tensors rather than standard weight tensors	#note useSequentialSANI:!useConnectionWeights uses a more memory efficient pruning method (actual hidden/output matrix shapes are modified)
 	if(not useConnectionWeights):	
@@ -110,21 +108,23 @@ if(useSequentialSANI):
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	
+	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	#required for non-even tree structure for neuron input
 	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment	
 	if(sequentialSANItimeInvariance):
+		debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations in useSequentialSANIactivationStrength
 		debugSequentialSANItimeInvarianceVerify = False
 		sequentialSANItimeInvarianceFactor = 2.0	#default: 2	#minimum: 1 - maxActivationRecallTimeInvariance == count_predicted(prevlayerIdx) - max time invariance is equivalent to !sequentialSANIoverlappingSegments (contiguous segments only)
 		#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
 		inputLayerTimeInvariance = False	#default: False	#True: time invariance is applied to input layer also (ie non-contiguous input layer tokens)
 		useSequentialSANIactivationStrength = True	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANIsegmentsPartialActivationCount/sequentialSANIsegmentsPartialActivationDistance
 		if(useSequentialSANIactivationStrength):
+			debugSequentialSANIactivationsStrength = False
 			sequentialSANIsegmentsPartialActivationCount = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively) #requires non-symmetrical tree structure
 			sequentialSANIsegmentsPartialActivationDistance = True	 #default: True  #enables redundancy (favour more immediate tokens, closer to timeIndex of the last token in the segment)	#required for sequentialSANItimeInvariance
 			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths
-			if(sequentialSANIsegmentsPartialActivationCount):
-				segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
+			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
 			if(sequentialSANIinhibitoryTopkSelection):
+				debugSequentialSANIinhibitoryTopkSelection = False
 				sequentialSANIinhibitoryTopkSelectionKfraction = 0.005	#fraction of neurons on layer to select
 	else:
 		useSequentialSANIactivationStrength = False	#mandatory: False (sequentialSANIsegmentsPartialActivationDistance requires sequentialSANItimeInvariance)

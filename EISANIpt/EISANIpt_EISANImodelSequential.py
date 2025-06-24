@@ -65,7 +65,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		#segment 2 activations;
 		minActivationTimeSegment2 = None
 		if(sequentialSANItimeInvariance):
-			maxActivationRecallTimeInvariance = int(count_predicted(prevlayerIdx)*sequentialSANItimeInvarianceFactor)
+			maxActivationRecallTimeInvariance = int(calculate_segment_times_diff(layerIdx)*sequentialSANItimeInvarianceFactor)
 			if(not inputLayerTimeInvariance and hiddenLayerIdx==0):
 				maxActivationRecallTimeInvariance = 0	#disable timeInvariance for input layer
 			if(debugSequentialSANItimeInvarianceDisable):
@@ -79,6 +79,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
 		else:
 			layerActivationStrength = layerActivation
+			
 		if(debugSequentialSANIactivations):
 			print("\tdebugSequentialSANIactivations:")
 			print("layerSegment1Activation = ", layerSegment1Activation)
@@ -86,10 +87,10 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			print("layerActivation = ", layerActivation)
 			print("layerActivation.shape = ", layerActivation.shape)
 			print("layerActivation.count_nonzero = ", layerActivation.count_nonzero(dim=1)) 
-			if(debugSequentialSANItimeInvarianceVerify):
-				if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): 
-					print("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfully generating neurons across multiple layers")
-				
+		if(debugSequentialSANIpropagationVerify):
+			if(layerActivation.sum() > 0 and hiddenLayerIdx > 0): 
+				printe("layerActivation.sum() > 0 and hiddenLayerIdx > 0 - successfully generating neurons across multiple layers")
+					
 		if(limitConnections and limitHiddenConnections):
 			self.hiddenNeuronUsage[hiddenLayerIdx] = self.hiddenNeuronUsage[hiddenLayerIdx] + layerActivationStrength.sum(dim=0)	#sum across batch dim	#or layerActivation.int().sum(dim=0)?
 				
@@ -208,23 +209,31 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 	layerActivationCountNormalised = layerActivationProximityNormalised = layerActivationCount = layerActivationDistance = None
 
 	layerActivationStrength = layerActivation.float()
+	
+	layerActivationCount = layerSegment1ActivationCount + layerSegment2ActivationCount + 1
+	#layerActivationCount = layerActivationCount - overlappingCountBetweenSegments
+	layerActivationCountNormalised = layerActivationCount.float() / count_predicted(layerIdx)
+	if(debugSequentialSANIactivationsStrength):
+		print("\tsequentialSANIsegmentsPartialActivationCount:")
+		print("layerActivationCount = ",layerActivationCount)
+		print("count_predicted(layerIdx) = ", count_predicted(layerIdx))
+		print("layerActivationCountNormalised = ", layerActivationCountNormalised)
 	if(sequentialSANIsegmentsPartialActivationCount):
-		layerActivationCount = layerSegment1ActivationCount + layerSegment2ActivationCount
-		layerActivationCountNormalised = layerActivationCount.float() / count_predicted(layerIdx)
 		layerActivationStrength = layerActivationStrength*layerActivationCountNormalised.float()
-		if(debugSequentialSANIactivationsStrength):
-			print("1 layerActivationStrength = ", layerActivationStrength)
+
+	layerActivationDistance = layerSegment1ActivationDistance + layerSegment2ActivationDistance	#add distance of each segment
+	layerActivationDistance = layerActivationDistance + (layerSegment1Time-layerSegment2Time)	#add distance between each segment
+	layerActivationProximityNormalised = (1.0/layerActivationDistance.float()) * distance_predicted(layerIdx)
+	layerActivationProximityNormalised[torch.isinf(layerActivationProximityNormalised)] = 0	#zero inf values
+	if(debugSequentialSANIactivationsStrength):
+		print("\tsequentialSANIsegmentsPartialActivationDistance:")
+		print("layerActivationDistance = ", layerActivationDistance)
+		print("layerSegment1ActivationDistance + layerSegment2ActivationDistance = ", layerSegment1ActivationDistance + layerSegment2ActivationDistance)
+		print("(layerSegment1Time-layerSegment2Time) = ", (layerSegment1Time-layerSegment2Time))
+		print("distance_predicted(layerIdx) = ", distance_predicted(layerIdx))
+		print("layerActivationProximityNormalised = ", layerActivationProximityNormalised)
 	if(sequentialSANIsegmentsPartialActivationDistance):
-		layerActivationDistance = layerSegment1ActivationDistance + layerSegment2ActivationDistance	#add distance of each segment
-		if(debugSequentialSANIactivationsStrength):
-			print("1 layerActivationDistance = ", layerActivationDistance)
-			print("1 (layerSegment1Time-layerSegment2Time) = ", (layerSegment1Time-layerSegment2Time))
-		layerActivationDistance = layerActivationDistance + (layerSegment1Time-layerSegment2Time)	#add distance between each segment
-		layerActivationProximityNormalised = (1.0/layerActivationDistance.float()) * distance_predicted(layerIdx)
-		layerActivationProximityNormalised[torch.isinf(layerActivationProximityNormalised)] = 0	#zero inf values
 		layerActivationStrength = layerActivationStrength*layerActivationProximityNormalised
-		if(debugSequentialSANIactivationsStrength):
-			print("2 layerActivationStrength = ", layerActivationStrength)
 
 	if(sequentialSANIinhibitoryTopkSelection):
 		if(debugSequentialSANIinhibitoryTopkSelection):
@@ -239,11 +248,7 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 	layerActivation = layerActivationStrength > segmentActivationFractionThreshold
 
 	if(debugSequentialSANIactivationsStrength):
-		print("layerActivationCount = ", layerActivationCount)
-		print("layerActivationDistance = ", layerActivationDistance)
-		print("layerActivationCountNormalised = ", layerActivationCountNormalised)
-		print("layerActivationProximityNormalised = ", layerActivationProximityNormalised)
-		print("layerActivation = ", layerActivation)
+		print("\tlayerActivation = ", layerActivation)
 		print("layerActivationStrength = ", layerActivationStrength)
 
 	return layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount
@@ -273,31 +278,76 @@ def topk_zero_out(x: torch.Tensor, k: int) -> torch.Tensor:
 
 	# 3. Zero out everything except the chosen activations
 	return x * mask
+
+def calculate_segment_times_diff(layerIndex: int) -> int:
+	if(sequentialSANIoverlappingSegments):
+		r'''
+		\/\/\/
+		 \/\/
+		  \/
+		layerIdx=0; = 1 [N/A]
+		layerIdx=1; = 1
+		layerIdx=2; = 1
+		layerIdx=3; = 1
+		'''	
+		diff = 1
+	else:
+		r'''
+		\/  \/  \/  \/
+		 \  /    \  /
+    	   \      /
+		layerIdx=0; 1 [N/A]
+		layerIdx=1; 2
+		layerIdx=2; 4
+		layerIdx=3; 8
+		layerIdx=4; 16
+		'''
+		diff = 2 ** (layerIndex-1)
+	return diff
 	
 def count_predicted(layerIndex: int) -> int:
-	'''
+	r'''
+	if(sequentialSANIoverlappingSegments):
+	#counts overlapping nodes as separate nodes
+	
+	\/\/\/
+	 \/\/
+	  \/
+	
+	else:
+	
+	\/  \/  \/  \/
+	 \  /    \  /
+       \      /
+	   
 	layerIdx=0; 1
-	layerIdx=1; 2
-	layerIdx=2; 4
-	layerIdx=3; 8
-	layerIdx=4; 16
-	'''	
-	count = 2 ** layerIndex
+	layerIdx=1; 3
+	layerIdx=2; 7
+	layerIdx=3; 15
+	layerIdx=4; 31
+	'''
+	count =  (2 ** (layerIndex+1) - 1)
 	return count
 	
 def distance_predicted(layerIndex: int) -> int:	
 	if(sequentialSANIoverlappingSegments):
-		'''
+		r'''
+		\/\/\/
+		 \/\/
+		  \/
 		layerIdx=0; 0
 		layerIdx=1; (0+0)+1 = 1		#layerSegment1or2ActivationDistance=0, (layerSegment1Time-layerSegment2Time)=1
-		layerIdx=2; (1+1)+2 = 4		#layerSegment1or2ActivationDistance=1, (layerSegment1Time-layerSegment2Time)=2
-		layerIdx=3; (4+4)+3 = 11	#layerSegment1or2ActivationDistance=3, (layerSegment1Time-layerSegment2Time)=3
-		layerIdx=4; (11+11)+4 = 26
-		layerIdx=5; (26+26)+5 = 57
-		'''	
-		distance = (2 ** (layerIndex + 1) - layerIndex - 2)
-	else:
+		layerIdx=2; (1+1)+1 = 3		#layerSegment1or2ActivationDistance=1, (layerSegment1Time-layerSegment2Time)=1
+		layerIdx=3; (3+3)+1 = 7		#layerSegment1or2ActivationDistance=3, (layerSegment1Time-layerSegment2Time)=1
+		layerIdx=4; (7+7)+1 = 15
+		layerIdx=5; (15+15)+1 = 31
 		'''
+		distance = (2 ** layerIndex - 1)
+	else:
+		r'''
+		\/  \/  \/  \/
+		 \  /    \  /
+    	   \      /
 		layerIdx=0; 0
 		layerIdx=1; (0+0)+1 = 1		#layerSegment1or2ActivationDistance=0, (layerSegment1Time-layerSegment2Time)=1
 		layerIdx=2; (1+1)+2 = 4		#layerSegment1or2ActivationDistance=1, (layerSegment1Time-layerSegment2Time)=2
@@ -308,12 +358,8 @@ def distance_predicted(layerIndex: int) -> int:
 	return distance
 
 def calculateSegmentTimes(currentActivationTime, layerIdx):
-	prevlayerIdx = layerIdx-1
 	timeSeg0 = currentActivationTime
-	if(sequentialSANIoverlappingSegments):
-		timeSeg1 = currentActivationTime - layerIdx	#assume network diverges by 1 unit every layer
-	else:
-		timeSeg1 = currentActivationTime - count_predicted(prevlayerIdx)
+	timeSeg1 = currentActivationTime - calculate_segment_times_diff(layerIdx)	#assume network diverges by 1 unit every layer
 	return timeSeg0, timeSeg1
 			
 def dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx):
