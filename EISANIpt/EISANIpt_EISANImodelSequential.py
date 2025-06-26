@@ -37,6 +37,7 @@ def calculateTime(batchIndex, slidingWindowIndex):
 	
 def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation):
 
+	layerActivationsList = []
 	device = initActivation.device
 	currentActivationTime = calculateTime(batchIndex, slidingWindowIndex)
 
@@ -65,7 +66,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		#segment 2 activations;
 		minActivationTimeSegment2 = None
 		if(sequentialSANItimeInvariance):
-			maxActivationRecallTimeInvariance = int(calculate_segment_times_diff(layerIdx)*sequentialSANItimeInvarianceFactor)
+			maxActivationRecallTimeInvariance = calculateMaxActivationRecallTimeInvariance(layerIdx)
 			if(not inputLayerTimeInvariance and hiddenLayerIdx==0):
 				maxActivationRecallTimeInvariance = 0	#disable timeInvariance for input layer
 			if(debugSequentialSANItimeInvarianceDisable):
@@ -102,11 +103,15 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			self.layerActivationDistance[layerIdx] = updateLayerData(self.layerActivationDistance[layerIdx], layerActivation, layerActivationNot, layerActivationDistance)
 			self.layerActivationCount[layerIdx] = updateLayerData(self.layerActivationCount[layerIdx], layerActivation, layerActivationNot, layerActivationCount)
 			#self.layerActivationStrength[layerIdx] = updateLayerData(self.layerActivationStrength[layerIdx], layerActivation, layerActivationNot, layerActivationStrength)
+		self.layerActivationStrength = layerActivationStrength	#required for dynamicallyGenerateLayerNeurons	#temporary var
 		
 		if(generateConnectionsAfterPropagating):
 			dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx)
+		
+		layerActivationsList.append(self.layerActivationStrength)
 
-	layerActivationsList = self.layerActivation[1:]	#do not add input layer
+	#orig; layerActivationsList = self.layerActivation[1:]	#do not add input layer
+
 	return layerActivationsList
 
 def updateLayerData(lastActivationData, layerActivation, layerActivationNot, currentActivationData):
@@ -285,7 +290,7 @@ def calculate_segment_times_diff(layerIndex: int) -> int:
 		\/\/\/
 		 \/\/
 		  \/
-		layerIdx=0; = 1 [N/A]
+		layerIdx=0; = [N/A]
 		layerIdx=1; = 1
 		layerIdx=2; = 1
 		layerIdx=3; = 1
@@ -296,13 +301,13 @@ def calculate_segment_times_diff(layerIndex: int) -> int:
 		\/  \/  \/  \/
 		 \  /    \  /
     	   \      /
-		layerIdx=0; 1 [N/A]
-		layerIdx=1; 2
-		layerIdx=2; 4
-		layerIdx=3; 8
-		layerIdx=4; 16
+		layerIdx=0; [N/A]
+		layerIdx=1; 1
+		layerIdx=2; 2
+		layerIdx=3; 4
+		layerIdx=4; 8
 		'''
-		diff = 2 ** (layerIndex-1)
+		diff = 2 ** (layerIndex - 1)
 	return diff
 	
 def count_predicted(layerIndex: int) -> int:
@@ -356,6 +361,13 @@ def distance_predicted(layerIndex: int) -> int:
 		'''
 		distance = 0 if layerIndex == 0 else layerIndex * (2 ** (layerIndex - 1))
 	return distance
+
+def calculateMaxActivationRecallTimeInvariance(layerIdx):
+	if(sequentialSANIoverlappingSegments):
+		maxActivationRecallTimeInvariance = int(layerIdx*sequentialSANItimeInvarianceFactor)	#heuristic
+	else:
+		maxActivationRecallTimeInvariance = int(calculate_segment_times_diff(layerIdx)*sequentialSANItimeInvarianceFactor)
+	return maxActivationRecallTimeInvariance
 
 def calculateSegmentTimes(currentActivationTime, layerIdx):
 	timeSeg0 = currentActivationTime

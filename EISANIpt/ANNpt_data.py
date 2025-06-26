@@ -590,8 +590,8 @@ elif(useImageDataset):
 elif(useNLPDataset):
 
 	def loadDatasetNLP():
-		dataset = load_dataset(datasetName, datasetCfg, split="train", streaming=True)
-		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",})	#does not support streaming
+		dataset = load_dataset(datasetName, datasetCfg, split="train", streaming=True, trust_remote_code=True)
+		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",}, trust_remote_code=True)	#does not support streaming
 
 		if(useDatasetSubset):
 			dataset = dataset.take(datasetSizeSubset)

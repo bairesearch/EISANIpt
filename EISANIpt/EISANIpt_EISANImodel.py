@@ -368,7 +368,8 @@ class EISANImodel(nn.Module):
 				if not pt.any(non_pad):
 					return
 				lengths	= non_pad.sum(-1)							# [B]
-				numSubsamples = int(lengths.max().item())			# global max
+				max_len = int(lengths.max().item())
+				numSubsamples = max(1, max_len - 1)				# predict *next* token only
 				extra = contextSizeMax - lengths					# [B]
 			else:
 				numSubsamples = 1
@@ -379,6 +380,7 @@ class EISANImodel(nn.Module):
 			self._initialiseLayerActivations()
 		
 		accuracyAllWindows = 0
+		#print("numSubsamples = ", numSubsamples)
 		for slidingWindowIndex in range(numSubsamples):
 			if(debugSequentialSANIactivationsLoops):
 				print("\n************************** slidingWindowIndex = ", slidingWindowIndex)
@@ -390,15 +392,22 @@ class EISANImodel(nn.Module):
 				# --- one-token sliding window: output shape = [B,1] ---
 				token_idx = slidingWindowIndex								# scalar int
 				idx = pt.full((batchSize, 1), token_idx, dtype=pt.long, device=device)
-				gather_idx = idx.clamp(max=seq.size(1) - 1)					# stay in-bounds
+				gather_idx = idx.clamp(max=seq.size(1) - 1)
 
+				next_idx = pt.full((batchSize, 1), token_idx + 1, dtype=pt.long, device=device)
+				next_idx_clamped = next_idx.clamp(max=seq.size(1) - 1)
+
+				# current token
 				x_shift = seq.gather(1, gather_idx)						# [B,1]
+				# next-token target
+				y_shift = seq.gather(1, next_idx_clamped).squeeze(1)		# [B]
 
-				# mask out positions beyond each sequence\u2019s true length
-				invalid		= (token_idx >= lengths).unsqueeze(1)			# [B,1]
-				x_shift[invalid] = NLPcharacterInputPadTokenID
+				# zero-out positions past true length
+				invalid_x	= (token_idx >= lengths).unsqueeze(1)			# [B,1]
+				invalid_y	= (token_idx + 1 >= lengths)					# [B]
+				x_shift[invalid_x] = NLPcharacterInputPadTokenID
+				y_shift[invalid_y] = NLPcharacterInputPadTokenID
 
-				y_shift = x_shift.squeeze(1)						# [B]
 				x = x_shift											# [B,1]
 				y = y_shift											# [B]
 				 
@@ -426,9 +435,18 @@ class EISANImodel(nn.Module):
 			EISANIpt_EISANImodelOutput.updateHiddenNeuronAccuracyStatistics(self, trainOrTest, layerActivations, y)
 			
 			# count how many are exactly correct
-			correct = (predictions == y).sum().item()
-			accuracy = correct / y.size(0)
-			accuracyAllWindows += accuracy
+			if(useNLPDataset):
+				valid_mask = (y != NLPcharacterInputPadTokenID)
+				valid_count = valid_mask.sum().item()
+				if valid_count > 0:
+					correct = ((predictions == y) & valid_mask).sum().item()
+					accuracyAllWindows += correct / valid_count
+				else:
+					accuracyAllWindows += 0.0
+			else:
+				correct = (predictions == y).sum().item()
+				accuracy = correct / y.size(0)
+				accuracyAllWindows += accuracy
 		
 		accuracy = accuracyAllWindows / numSubsamples
 		loss = Loss(0.0)

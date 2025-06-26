@@ -133,7 +133,7 @@ def expandArrays(self, hiddenLayerIdx: int, additionalRequired: int) -> None:
 	if(useSequentialSANIactivationStrength):
 		self.layerActivationDistance[layerIdx] = torch.cat([self.layerActivationDistance[layerIdx], activationPadding.int()], dim=1)
 		self.layerActivationCount[layerIdx] = torch.cat([self.layerActivationCount[layerIdx], activationPadding.int()], dim=1)
-		#self.layerActivationStrength[layerIdx] = torch.cat([self.layerActivationStrength[layerIdx], activationPadding.float()], dim=1)
+	self.layerActivationStrength = torch.cat([self.layerActivationStrength, activationPadding.float()], dim=1)	#temporary var
 
 	#expand output arrays;
 	if(not useOutputConnectionsLastLayer or hiddenLayerIdx==self.numberUniqueHiddenLayers-1):

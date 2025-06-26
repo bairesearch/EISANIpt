@@ -34,7 +34,7 @@ from tqdm.auto import tqdm
 from torch import optim
 from torch.optim.lr_scheduler import StepLR, LambdaLR, SequentialLR
 import GPUtil
-
+import time
 
 from ANNpt_globalDefs import *
 
@@ -153,8 +153,8 @@ def processDataset(trainOrTest, dataset, model):
 		
 	for epoch in range(numberOfEpochs):
 
-		if(debugPrintGPUusage):
-			print_gpu_utilization()
+		#if(debugPrintGPUusage):
+		#	print_gpu_utilization()
 
 		if(usePairedDataset):
 			dataset1, dataset2 = ANNpt_algorithm.generateVICRegANNpairedDatasets(dataset)
@@ -188,7 +188,12 @@ def processDataset(trainOrTest, dataset, model):
 					loader = ANNpt_data.createDataLoaderNLP(dataset)
 				
 				loop = tqdm(loader, leave=True)
+				startTime = time.time()
 				for batchIndex, batch in enumerate(loop):
+					if(debugPrintGPUusage):
+						if batchIndex % 100 == 0:
+							print_gpu_utilization()
+							
 					if(trainOrTest):
 						loss, accuracy = trainBatch(batchIndex, batch, model, optim, l, fieldTypeList)
 					else:
@@ -204,6 +209,8 @@ def processDataset(trainOrTest, dataset, model):
 					
 					loop.set_description(f'Epoch {epoch}')
 					loop.set_postfix(batchIndex=batchIndex, loss=loss, accuracy=accuracy)
+					if(useCloudExecution):
+						print_tqdm_output(epoch, start_time=startTime, batch_index=batchIndex, loss=loss, accuracy=accuracy)
 					
 					if(useAlgorithmEISANI and limitConnections):
 						if(debugLimitConnectionsSequentialSANI):
@@ -277,12 +284,21 @@ def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None, fieldTy
 	else:
 		loss, accuracy = model(trainOrTest, x, y, optim, l)
 	return loss, accuracy
-				
+
+def print_tqdm_output(epoch: int, start_time: float, batch_index: int, loss: float, accuracy: float, file_path: str = "log.txt"):
+	elapsed = time.time() - start_time
+	avg_per_it = elapsed / (batch_index + 1)
+	msg = (
+		f"Epoch {epoch}: "
+		f"{batch_index+1}it "
+		f"[{elapsed:.2f}s elapsed, {avg_per_it:.2f}s/it, "
+		f"loss={loss:.4f}, accuracy={accuracy:.3f}, "
+		f"batchIndex={batch_index}]"
+	)
+	printf(msg, filePath=file_path)
+					
 if(__name__ == '__main__'):
 	main()
-
-
-
 
 
 

@@ -62,7 +62,7 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 						weights = weights
 
 				weights = normaliseOutputConnectionWeights(self, weights.float())	# cast weights to float for matmul
-
+				
 				if(useSparseOutputMatrix):
 					outputActivations += act.float() @ weights 	# cast act to float for matmul
 				else:
@@ -100,7 +100,7 @@ def update_output_connections(self,
 		device: torch.device) -> None:
 
 	#orig before optimisation;
-	
+
 	mat = self.outputConnectionMatrix[hiddenLayerIdx]
 
 	# -- gather all (row = neuron , col = class) pairs in one shot ---------
@@ -110,10 +110,21 @@ def update_output_connections(self,
 
 	class_idx = y[sample_idx]									# align with rows
 
-	if useBinaryOutputConnections:
+	if(useNLPDataset):
+		# ----- drop pad-token targets ---------------------------------------
+		valid_mask = (class_idx != NLPcharacterInputPadTokenID)
+		sample_idx = sample_idx[valid_mask]
+		neuron_idx = neuron_idx[valid_mask]
+		class_idx  = class_idx[valid_mask]
+		if neuron_idx.numel() == 0:
+			return		
+
+	if useBinaryOutputConnections or not useSequentialSANIactivationStrength:
+		# keep binary semantics: any positive activation -> True
 		new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
 	else:
-		new_vals = torch.ones_like(neuron_idx, dtype=torch.float32, device=device)
+		# use the *actual* activation value for each (sample, neuron) hit
+		new_vals = activation[sample_idx, neuron_idx].to(torch.float32)
 
 	if(useSparseOutputMatrix):
 		# 1)   CSR -> COO (cheap view, no copy)
@@ -140,81 +151,11 @@ def update_output_connections(self,
 		if useBinaryOutputConnections:
 			mat[neuron_idx, class_idx] = True						# logical OR
 		else:
-			mat[neuron_idx, class_idx] += 1.0						# count
-			
-	'''
-	# -- 0. gather active (row, col) pairs ------------------------------
-	sample_idx, neuron_idx = (activation != 0).nonzero(as_tuple=True)
-	if neuron_idx.numel() == 0:
-		return
-		
-	class_idx  = y[sample_idx]
-
-	if(useSparseOutputMatrix):
-	
-		tempDevice = device	#'cpu'
-		
-		# ------------------------------------------------------------------
-		# 1) Gather NEW (row = hidden-neuron , col = class) pairs
-		# ------------------------------------------------------------------
-
-		rows_new  = neuron_idx.to(torch.int64)
-		cols_new  = class_idx.to(torch.int64)
-
-		# Deduplicate inside the mini-batch
-		edge_ids	   = rows_new * self.config.numberOfClasses + cols_new
-		uniq_ids	   = torch.unique(edge_ids)
-		rows_new	   = (uniq_ids // self.config.numberOfClasses)
-		cols_new	   = (uniq_ids %  self.config.numberOfClasses)
-
-		use_bool	   = useBinaryOutputConnections
-		dtype_val	  = torch.bool if use_bool else torch.float32
-		delta_vals = torch.ones(uniq_ids.size(0), dtype=dtype_val, device=tempDevice)
-
-		if(tempDevice=='cpu'):
-			rows_new = rows_new.cpu()
-			cols_new = cols_new.cpu()
-		
-		# ------------------------------------------------------------------
-		# 2) Build a *delta* COO tensor (CPU) with ONLY the new edges
-		# ------------------------------------------------------------------
-		delta = torch.sparse_coo_tensor(torch.stack([rows_new, cols_new]), delta_vals, size=self.outputConnectionMatrix[hiddenLayerIdx].shape, dtype=dtype_val, device=tempDevice).coalesce()
-
-		# ------------------------------------------------------------------
-		# 3) Merge delta with the master matrix  (all on CPU for safety)
-		# ------------------------------------------------------------------
-		master_csr = self.outputConnectionMatrix[hiddenLayerIdx]
-		if(tempDevice=='cpu'):
-			master_csr = master_csr.cpu()
-		master_coo = master_csr.to_sparse_coo()
-
-		if use_bool:
-			# logical OR  ->  add ints then clamp to 0/1 and cast back to bool
-			merged_int   = (master_coo.to(torch.int8) + delta.to(torch.int8)).coalesce()
-			merged_vals  = (merged_int.values() > 0)
-			merged_coo   = torch.sparse_coo_tensor(merged_int.indices(), merged_vals, size=master_csr.shape, dtype=torch.bool, device=tempDevice)
-		else:
-			# float counter  -> straight addition
-			merged_coo   = (master_coo + delta).coalesce()
-
-		# ------------------------------------------------------------------
-		# 4) Back to CSR on the GPU for fast mat-mul
-		# ------------------------------------------------------------------
-		merged_csr_gpu = merged_coo.to_sparse_csr().to(device)
-		self.outputConnectionMatrix[hiddenLayerIdx] = merged_csr_gpu
-
-	else:
-		mat = self.outputConnectionMatrix[hiddenLayerIdx]
-		
-		if useBinaryOutputConnections:
-			new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
-		else:
-			new_vals = torch.ones_like(neuron_idx, dtype=torch.float32, device=device)
-		if useBinaryOutputConnections:
-			mat[neuron_idx, class_idx] = True						# logical OR
-		else:
-			mat[neuron_idx, class_idx] += 1.0						# count	
-	'''
+			# -------- accumulate real activation strengths (B \u2265 1) -----------
+			vals      = activation[sample_idx, neuron_idx].to(mat.dtype)
+			flat_mat  = mat.view(-1)								# (H*C,)
+			flat_idx  = neuron_idx * mat.shape[1] + class_idx		# linear indices
+			flat_mat.index_put_((flat_idx,), vals, accumulate=True)
 
 
 # -----------------------------------------------------------------

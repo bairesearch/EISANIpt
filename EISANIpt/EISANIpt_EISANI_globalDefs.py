@@ -88,7 +88,7 @@ elif(useNLPDataset):
 			EISANINLPcontinuousVarEncodingNumBits = 3	#default: 3; -1.0, 0, +1.0	#alternative eg 5; -1, -0.5, 0, 0.5, 1.0
 			embeddingSize = 768	#embeddingSize = 1024
 		
-		contextSizeMax = 128	#default: 128	#production: 512
+		contextSizeMax = 64	#efficient: 64 #default: 128	#depends on sequentialSANItimeInvariance (uses tokens in inference further than training), sequentialSANIoverlappingSegments (linear instead of exponential time invariance across layers), memory efficiency (less tokens means less serial and more parallel processing), and average number of tokens per sentence (to ensure always sampling tokens across entire sentences)
 		numberOfClasses = bertNumberTokenTypes
 	sequenceLength = contextSizeMax
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
@@ -122,7 +122,7 @@ if(useSequentialSANI):
 			sequentialSANIsegmentsPartialActivationCount = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively) #requires non-symmetrical tree structure
 			sequentialSANIsegmentsPartialActivationDistance = True	 #default: True  #enables redundancy (favour more immediate tokens, closer to timeIndex of the last token in the segment)	#required for sequentialSANItimeInvariance
 			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths
-			segmentActivationFractionThreshold = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
+			segmentActivationFractionThreshold = 0.50	#default: tune hyperparameter #orig = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
 			if(sequentialSANIinhibitoryTopkSelection):
 				debugSequentialSANIinhibitoryTopkSelection = False
 				sequentialSANIinhibitoryTopkSelectionKfraction = 0.005	#fraction of neurons on layer to select
