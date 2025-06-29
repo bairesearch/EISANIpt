@@ -108,8 +108,10 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		if(generateConnectionsAfterPropagating):
 			dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx)
 		
-		layerActivationsList.append(self.layerActivationStrength)
-
+		if(evalOnlyUsingTimeInvariance):
+			layerActivationsList.append(layerActivation)
+		else:
+			layerActivationsList.append(self.layerActivationStrength)
 	#orig; layerActivationsList = self.layerActivation[1:]	#do not add input layer
 
 	return layerActivationsList
