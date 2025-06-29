@@ -18,6 +18,7 @@ EISANIpt globalDefs
 """
 
 import math
+import ANNpt_globalDefs
 
 debugEISANIoutputs = False
 
@@ -94,6 +95,7 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
+	evalOnlyUsingTimeInvariance = False  # Assume EISANImodel was created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
 	debugSequentialSANIactivationsLoops = False
 	debugSequentialSANIactivationsMemory = False
 	debugSequentialSANIactivations = False
@@ -110,6 +112,11 @@ if(useSequentialSANI):
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
 	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	#required for non-even tree structure for neuron input
 	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment	
+	if(evalOnlyUsingTimeInvariance):
+		if(not ANNpt_globalDefs.stateTrainDataset and ANNpt_globalDefs.stateTestDataset):
+			sequentialSANItimeInvariance = True
+		elif(ANNpt_globalDefs.stateTrainDataset and not ANNpt_globalDefs.stateTestDataset):
+			sequentialSANItimeInvariance = False
 	if(sequentialSANItimeInvariance):
 		debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations in useSequentialSANIactivationStrength
 		debugSequentialSANItimeInvarianceVerify = False
@@ -206,9 +213,7 @@ else:
 			recursiveSuperblocksNumber = 1
 	else:
 		recursiveSuperblocksNumber = 1
-	
 	generateConnectionsAfterPropagating = True	#default: True
-	
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
