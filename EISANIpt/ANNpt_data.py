@@ -590,7 +590,8 @@ elif(useImageDataset):
 elif(useNLPDataset):
 
 	def loadDatasetNLP():
-		dataset = load_dataset(datasetName, datasetCfg, split="train", streaming=True, trust_remote_code=True)
+		base_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True, trust_remote_code=True)
+		dataset = base_stream
 		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",}, trust_remote_code=True)	#does not support streaming
 
 		if(useDatasetSubset):
@@ -599,24 +600,27 @@ elif(useNLPDataset):
 		else:
 			info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
 			datasetSize = info.splits["train"].num_examples
-					
-		train_rows = int(datasetSize*(1-datasetTestSplitSize))
-		eval_rows = int(datasetSize*datasetTestSplitSize)
-		print(f"Train size: {train_rows:,}")
-		print(f"Eval size: {eval_rows:,}")
-		global datasetSizeRecord
-		datasetSizeRecord = datasetSize
 
-		'''
-		#orig method (too slow to process data with skip as it downloads the entire eval dataset before streaming train dataset);
-		test_stream = base_stream.take(eval_rows)          # rows 0 -> eval_rows-1	 # ~50k examples for evaluation
-		train_stream = base_stream.skip(eval_rows)          # rows eval_rows -> end	  # everything else
-		'''
-		print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test (eval) dataset")
-		test_stream = dataset.take(eval_rows)
-		train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
-		if(datasetShuffle):					   # keep optional shuffle
-			train_stream = train_stream.shuffle(buffer_size=1024, seed=42)
+			if(not stateTrainDataset and stateTestDataset):
+				#assume train rows already streamed and cached
+				train_rows = 1000000  #user set
+				eval_rows = 10000   #user set
+				train_stream = base_stream.take(train_rows)
+				test_stream = base_stream.skip(train_rows)
+			else:
+				train_rows = int(datasetSize*(1-datasetTestSplitSize))
+				eval_rows = int(datasetSize*datasetTestSplitSize)
+				print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test (eval) dataset")
+				test_stream = dataset.take(eval_rows)
+				train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
+				if(datasetShuffle):
+					train_stream = train_stream.shuffle(buffer_size=1024, seed=42)
+
+			print(f"Train size: {train_rows:,}")
+			print(f"Eval size: {eval_rows:,}")
+			global datasetSizeRecord
+			datasetSizeRecord = datasetSize
+
 		dataset = DatasetDict({"train": train_stream, "test": test_stream})
 
 		'''
