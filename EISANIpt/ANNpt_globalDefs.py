@@ -407,7 +407,7 @@ elif(useNLPDataset):
 		useDatasetSubset = True
 	if(useDatasetSubset):
 		datasetSizeSubset = 160	#debug: 160	#do not train all samples	#currently this is severely limited (to limit generateHiddenLayerSizeSANI:hiddenLayerSizeSANI and hence outConnShape etc)
-	numWorkers = 2
+	numWorkers = 1	#default: 1, orig = 2	#set numWorkers=1 for simplify dataset determinism during streaming (numWorkers=2 will alternate between selecting articles from wikipedia dataset shard N and shard N+1)
 	batchSize = 1	#default: 1	#debug: 1
 	datasetName = "wikipedia"
 	datasetCfg = "20220301.en"	#not available in conda; "20231101.en", not available in huggingface; "20240501.en"

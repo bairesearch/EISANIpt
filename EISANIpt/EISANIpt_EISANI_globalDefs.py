@@ -56,6 +56,7 @@ elif(useImageDataset):
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 	trainNumberOfEpochsHigh = False	#default: False
 elif(useNLPDataset):
+	debugOnlyPrintStreamedWikiArticleTitles = False
 	useSequentialSANI = True	#sequentially activated neuronal input (else use summation activated neuronal input)
 	useNeuronActivationMemory = True	#FUTURE: emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#incomplete
 	#enforceSequenceContiguity = True	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
@@ -95,7 +96,6 @@ elif(useNLPDataset):
 	NLPcharacterInputPadTokenID = 0	#must be same as bert pad token id	#assert bert_tokenizer.pad_token_id == NLPcharacterInputPadTokenID
 
 if(useSequentialSANI):
-	evalOnlyUsingTimeInvariance = False  # Assume EISANImodel was created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
 	debugSequentialSANIactivationsLoops = False
 	debugSequentialSANIactivationsMemory = False
 	debugSequentialSANIactivations = False
@@ -103,6 +103,7 @@ if(useSequentialSANI):
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
 	debugSequentialSANIpropagationVerify = False
 	
+	evalOnlyUsingTimeInvariance = False  #default: False	#Assume EISANImodel was created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
 	useConnectionWeights = False	#mandatory: False - use 1D index tensors rather than standard weight tensors	#note useSequentialSANI:!useConnectionWeights uses a more memory efficient pruning method (actual hidden/output matrix shapes are modified)
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
@@ -128,8 +129,14 @@ if(useSequentialSANI):
 			debugSequentialSANIactivationsStrength = False
 			sequentialSANIsegmentsPartialActivationCount = True	 #default: True #enables redundancy (not every segment needs to be completely represented; some can only contain less activated nodes in their seg0 or seg1, recursively) #requires non-symmetrical tree structure
 			sequentialSANIsegmentsPartialActivationDistance = True	 #default: True  #enables redundancy (favour more immediate tokens, closer to timeIndex of the last token in the segment)	#required for sequentialSANItimeInvariance
-			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths
-			segmentActivationFractionThreshold = 0.50	#default: tune hyperparameter #orig = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
+			sequentialSANIsegmentRequirement = "any"	#both (orig): both segments must be active, any (default): only one segment must be active, first: only last segment must be active, none: no segments must be active (linear)			
+			if(sequentialSANIsegmentRequirement == "both"):
+				segmentActivationFractionThreshold = 0.75	#default: tune hyperparameter #orig = 0.75	 #proportion of synapses (newly activated lower layer SANI nodes) which must be active for a segment to be active	#CHECKTHIS threshold
+			elif(sequentialSANIsegmentRequirement == "any" or sequentialSANIsegmentRequirement == "first"):
+				segmentActivationFractionThreshold = 0.5	#must be <= 0.5
+			elif(sequentialSANIsegmentRequirement == "none"):
+				segmentActivationFractionThreshold = 0.5
+			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths			
 			if(sequentialSANIinhibitoryTopkSelection):
 				debugSequentialSANIinhibitoryTopkSelection = False
 				sequentialSANIinhibitoryTopkSelectionKfraction = 0.005	#fraction of neurons on layer to select

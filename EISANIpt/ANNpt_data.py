@@ -590,32 +590,22 @@ elif(useImageDataset):
 elif(useNLPDataset):
 
 	def loadDatasetNLP():
-		base_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True, trust_remote_code=True)
-		dataset = base_stream
-		#dataset = load_dataset(datasetName, datasetCfg, split={"train":"train[:90%]", "test":"train[90%:]",}, trust_remote_code=True)	#does not support streaming
-
-		if(useDatasetSubset):
-			dataset = dataset.take(datasetSizeSubset)
-			datasetSize = datasetSizeSubset	#do not train all samples
-		else:
-			info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
-			datasetSize = info.splits["train"].num_examples
+		info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
+		datasetSize = info.splits["train"].num_examples
 
 		if(not stateTrainDataset and stateTestDataset):
-			#assume train rows already streamed and cached
-			train_rows = 1000000  #user set
-			eval_rows = 10000   #user set
+			#assume train rows already streamed and cached (else will take long time to download train data before can start streaming test data)
+			train_rows = 100000  #user set!
+			eval_rows = 10000   #user set!
 			train_stream = base_stream.take(train_rows)
 			test_stream = base_stream.skip(train_rows)
 		else:
-			train_rows = int(datasetSize*(1-datasetTestSplitSize))
-			eval_rows = int(datasetSize*datasetTestSplitSize)
-			print("loadDatasetNLP() warning: train_stream and test_stream will overlap; do not use test (eval) dataset")
-			test_stream = dataset.take(eval_rows)
+			train_rows = int(datasetSize)
+			eval_rows = int(0)
+			print("loadDatasetNLP() warning: by default there is no test_stream available")
 			train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
-			if(datasetShuffle):
-				train_stream = train_stream.shuffle(buffer_size=1024, seed=42)
-
+			test_stream = None
+			
 		print(f"Train size: {train_rows:,}")
 		print(f"Eval size: {eval_rows:,}")
 		global datasetSizeRecord
@@ -623,11 +613,6 @@ elif(useNLPDataset):
 
 		dataset = DatasetDict({"train": train_stream, "test": test_stream})
 
-		'''
-		# (optional) reshuffle each epoch
-		for epoch in range(num_epochs):
-			dataset["train"].set_epoch(epoch)
-		'''	
 		return dataset
 
 	def encode(batch):
@@ -650,6 +635,8 @@ elif(useNLPDataset):
 				bert_pad_id	= bert_tokenizer.pad_token_id
 				assert bert_pad_id == NLPcharacterInputPadTokenID
 			enc = bert_tokenizer(texts, truncation=True, max_length=contextSizeMax, padding=False)
+			if(debugOnlyPrintStreamedWikiArticleTitles):
+				print(batch["title"])
 			return enc   # already {"input_ids": [...], ...}
 			
 	if(useNeuronActivationMemory):

@@ -74,11 +74,11 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			minActivationTimeSegment2 = max(0, maxActivationTimeSegment2-maxActivationRecallTimeInvariance)
 			
 		layerSegment2Activation, layerSegment2Time, layerSegment2ActivationDistance, layerSegment2ActivationCount = compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime, hiddenLayerIdx, sequentialSANIsegmentIndexDistal, device, maxActivationTimeSegment2, timeIndexMin=minActivationTimeSegment2)
-		layerActivation = torch.logical_and(layerSegment2Activation, layerSegment1Activation)
 
 		if(useSequentialSANIactivationStrength):
-			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
+			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerSegment1Activation, layerSegment2Activation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
 		else:
+			layerActivation = torch.logical_and(layerSegment1Activation, layerSegment2Activation)
 			layerActivationStrength = layerActivation
 			
 		if(debugSequentialSANIactivations):
@@ -199,7 +199,7 @@ def compute_layer_sequentialSANI(self, currentActivationTime: int, hiddenLayerId
 
 	return result
 
-def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount):
+def calculateActivationStrength(layerIdx, layerSegment1Activation, layerSegment2Activation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount):
 	#segmentCompleteTokenWindowWidth = calculateSegmentCompleteTokenWindowWidth(layerIdx)
 
 	if(debugSequentialSANIactivationsStrength):
@@ -215,8 +215,28 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 		
 	layerActivationCountNormalised = layerActivationProximityNormalised = layerActivationCount = layerActivationDistance = None
 
-	layerActivationStrength = layerActivation.float()
-	
+	if(sequentialSANIsegmentRequirement == "both"):
+		layerActivationStrength = torch.logical_and(layerSegment1Activation, layerSegment2Activation)
+	elif(sequentialSANIsegmentRequirement == "any"):
+		layerActivationStrength = torch.logical_or(layerSegment1Activation, layerSegment2Activation)
+		#filter seg1/seg2 activation properties by layerSegment1Activation/layerSegment2Activation;
+		layerSegment1Time = layerSegment1Time*layerSegment1Activation
+		layerSegment1ActivationDistance = layerSegment1ActivationDistance*layerSegment1Activation
+		layerSegment1ActivationCount = layerSegment1ActivationCount*layerSegment1Activation
+		layerSegment2Time = layerSegment2Time*layerSegment2Activation
+		layerSegment2ActivationDistance = layerSegment2ActivationDistance*layerSegment2Activation
+		layerSegment2ActivationCount = layerSegment2ActivationCount*layerSegment2Activation
+	elif(sequentialSANIsegmentRequirement == "first"):
+		layerActivationStrength = layerSegment1Activation
+		#filter seg2 activation properties by layerSegment2Activation;
+		layerSegment2Time = layerSegment2Time*layerSegment2Activation
+		layerSegment2ActivationDistance = layerSegment2ActivationDistance*layerSegment2Activation
+		layerSegment2ActivationCount = layerSegment2ActivationCount*layerSegment2Activation
+	elif(sequentialSANIsegmentRequirement == "none"):	
+		printe("sequentialSANIsegmentRequirement == none does not currently work as seg1/seg2 activation properties (time/distance/count) are only currently valid when layerActivation values are true")
+		layerActivationStrength = torch.ones_like(layerSegment1Activation).float()
+		#no prior dependency layerActivation dependency (no non-linear activation functions)
+
 	layerActivationCount = layerSegment1ActivationCount + layerSegment2ActivationCount + 1
 	#layerActivationCount = layerActivationCount - overlappingCountBetweenSegments
 	layerActivationCountNormalised = layerActivationCount.float() / count_predicted(layerIdx)
@@ -242,17 +262,20 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 	if(sequentialSANIsegmentsPartialActivationDistance):
 		layerActivationStrength = layerActivationStrength*layerActivationProximityNormalised
 
+	layerActivation = layerActivationStrength >= segmentActivationFractionThreshold
+	layerActivationStrength = layerActivationStrength*layerActivation.float()
+	
 	if(sequentialSANIinhibitoryTopkSelection):
 		if(debugSequentialSANIinhibitoryTopkSelection):
 			print("\tsequentialSANIinhibitoryTopkSelection:")
 			print("layerActivationStrength.shape = ", layerActivationStrength.shape)
-			print("pre active neurons = ", layerActivation.count_nonzero(dim=1)) 
+			print("pre active neurons = ", layerActivationStrength.count_nonzero(dim=1)) 
 			#print("pre active neuron strengths = ", layerActivationStrength.count_nonzero(dim=1)) 
-		k = int(layerActivation.shape[1]*sequentialSANIinhibitoryTopkSelectionKfraction)
-		layerActivationStrength = topk_zero_out(layerActivationStrength, k)
+		k = int(layerActivationStrength.shape[1]*sequentialSANIinhibitoryTopkSelectionKfraction)
+		layerActivationTopKmask = generateTopkMask(layerActivationStrength, k)
+		layerActivation = layerActivation*mask	#zero out everything except the chosen activations
+		layerActivationStrength = layerActivationStrength*mask	#zero out everything except the chosen activations
 		#print("post active neuron strengths = ", layerActivationStrength.count_nonzero(dim=1)) 
-
-	layerActivation = layerActivationStrength > segmentActivationFractionThreshold
 
 	if(debugSequentialSANIactivationsStrength):
 		print("\tlayerActivation = ", layerActivation)
@@ -260,7 +283,7 @@ def calculateActivationStrength(layerIdx, layerActivation, layerSegment1Time, la
 
 	return layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount
 
-def topk_zero_out(x: torch.Tensor, k: int) -> torch.Tensor:
+def generateTopkMask(x: torch.Tensor, k: int) -> torch.Tensor:
 	"""
 	Keep only the top-k activations in each row of a (B, N) tensor.
 
@@ -282,9 +305,6 @@ def topk_zero_out(x: torch.Tensor, k: int) -> torch.Tensor:
 	# 2. Build a boolean mask with True at those indices
 	mask = torch.zeros_like(x, dtype=torch.bool)
 	mask.scatter_(1, idx, True)
-
-	# 3. Zero out everything except the chosen activations
-	return x * mask
 
 def calculate_segment_times_diff(layerIndex: int) -> int:
 	if(sequentialSANIoverlappingSegments):

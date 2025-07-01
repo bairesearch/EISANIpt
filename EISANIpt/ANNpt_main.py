@@ -193,7 +193,10 @@ def processDataset(trainOrTest, dataset, model):
 					if(debugPrintGPUusage):
 						if batchIndex % 100 == 0:
 							print_gpu_utilization()
-							
+					
+					if(useNLPDataset and debugOnlyPrintStreamedWikiArticleTitles):
+						continue
+						
 					if(trainOrTest):
 						loss, accuracy = trainBatch(batchIndex, batch, model, optim, l, fieldTypeList)
 					else:
