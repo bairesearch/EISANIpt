@@ -143,8 +143,8 @@ def processDataset(trainOrTest, dataset, model):
 		model.to(device)
 		model.eval()
 		numberOfEpochs = 1
-		totalAccuracy = 0.0
-		totalAccuracyCount = 0
+	totalAccuracy = 0.0
+	totalAccuracyCount = 0
 
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
 		
@@ -194,7 +194,7 @@ def processDataset(trainOrTest, dataset, model):
 						if batchIndex % 100 == 0:
 							print_gpu_utilization()
 					
-					if(useNLPDataset and debugOnlyPrintStreamedWikiArticleTitles):
+					if(debugOnlyPrintStreamedWikiArticleTitles):
 						continue
 						
 					if(trainOrTest):
@@ -203,9 +203,8 @@ def processDataset(trainOrTest, dataset, model):
 						loss, accuracy = testBatch(batchIndex, batch, model, l, fieldTypeList)
 
 					if(l == maxLayer-1):
-						if(not trainOrTest):
-							totalAccuracy = totalAccuracy + accuracy
-							totalAccuracyCount += 1
+						totalAccuracy = totalAccuracy + accuracy
+						totalAccuracyCount += 1
 							
 					if(printAccuracyRunningAverage):
 						(loss, accuracy) = (runningLoss, runningAccuracy) = (runningLoss/runningAverageBatches*(runningAverageBatches-1)+(loss/runningAverageBatches), runningAccuracy/runningAverageBatches*(runningAverageBatches-1)+(accuracy/runningAverageBatches))
@@ -219,9 +218,10 @@ def processDataset(trainOrTest, dataset, model):
 						if(debugLimitConnectionsSequentialSANI):
 							model.executePostTrainPrune(trainOrTest)
 				
-			if(not trainOrTest):
+			if(not debugOnlyPrintStreamedWikiArticleTitles):
 				averageAccuracy = totalAccuracy/totalAccuracyCount
-				print("test averageAccuracy = ", averageAccuracy)
+				phase = "train" if(trainOrTest) else "test"
+				print(phase + " averageAccuracy = ", averageAccuracy)
 
 		if(trainOrTest):
 			if(useLearningRateScheduler):

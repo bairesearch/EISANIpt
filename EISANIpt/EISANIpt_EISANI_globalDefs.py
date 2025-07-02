@@ -21,6 +21,7 @@ import math
 import ANNpt_globalDefs
 
 debugEISANIoutputs = False
+printEISANImodelProperties = True
 
 useDefaultNumNeuronSegmentsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
@@ -35,6 +36,8 @@ useNLPDataset = False	#aka useSequenceDataset
 useSequentialSANI = False
 useSequentialSANIactivationStrength = False
 limitOutputConnectionsBasedOnAccuracySoftmax = False
+evalStillTrainOutputConnections = False
+debugOnlyPrintStreamedWikiArticleTitles = False
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -57,8 +60,9 @@ elif(useImageDataset):
 	trainNumberOfEpochsHigh = False	#default: False
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
+
 	useSequentialSANI = True	#sequentially activated neuronal input (else use summation activated neuronal input)
-	useNeuronActivationMemory = True	#FUTURE: emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#incomplete
+	useNeuronActivationMemory = True	#emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#incomplete
 	#enforceSequenceContiguity = True	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
 	useDefaultSegmentSizeParam = False	#currently use smaller number of requisite active connections
 	if(useSequentialSANI):
@@ -103,7 +107,10 @@ if(useSequentialSANI):
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
 	debugSequentialSANIpropagationVerify = False
 	
-	evalOnlyUsingTimeInvariance = False  #default: False	#Assume EISANImodel was created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
+	evalOnlyUsingTimeInvariance = True  #default: True	#orig: False	#Assume EISANImodel is created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
+	if(evalOnlyUsingTimeInvariance):
+		evalStillTrainOutputConnections = False	#default: False	#orig: False	#still train output connections during eval phase - enables tweaking of output predictions based on time invariant network propagation during eval phase
+	
 	useConnectionWeights = False	#mandatory: False - use 1D index tensors rather than standard weight tensors	#note useSequentialSANI:!useConnectionWeights uses a more memory efficient pruning method (actual hidden/output matrix shapes are modified)
 	if(not useConnectionWeights):	
 		blockInitCapacity = 1000	#initial number of hidden neurons
@@ -111,17 +118,12 @@ if(useSequentialSANI):
 	numberOfLayers = 6	#supports relationships/associations across approx 2^6 (numberOfSegmentsPerNeuron^numberOfLayers) tokens with contiguous inputs (no missing/gap tokens)
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
-	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	#required for non-even tree structure for neuron input
-	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment	
-	if(evalOnlyUsingTimeInvariance):
-		if(not ANNpt_globalDefs.stateTrainDataset and ANNpt_globalDefs.stateTestDataset):
-			sequentialSANItimeInvariance = True
-		elif(ANNpt_globalDefs.stateTrainDataset and not ANNpt_globalDefs.stateTestDataset):
-			sequentialSANItimeInvariance = False
+	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	#required for non-even tree structure for neuron input	#recommended for sequentialSANIsegmentRequirement == "both", optional for "any"/"first"
+	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
 	if(sequentialSANItimeInvariance):
 		debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations in useSequentialSANIactivationStrength
 		debugSequentialSANItimeInvarianceVerify = False
-		sequentialSANItimeInvarianceFactor = 2.0	#default: 2	#minimum: 1 - maxActivationRecallTimeInvariance == count_predicted(prevlayerIdx) - max time invariance is equivalent to !sequentialSANIoverlappingSegments (contiguous segments only)
+		sequentialSANItimeInvarianceFactor = 2.0	#default: 2.0	#minimum: 1.0
 		#maxActivationRecallTime = 100	#max number tokens between poximal and distal segment (supports missing/gap tokens)	#heursitic: > numberOfSegmentsPerNeuron^numberOfLayers tokens
 		inputLayerTimeInvariance = False	#default: False	#True: time invariance is applied to input layer also (ie non-contiguous input layer tokens)
 		useSequentialSANIactivationStrength = True	#default: True	#else use binary activations only	#requires hidden neuron activation function threshold of activation strength tweaked based on sequentialSANIsegmentsPartialActivationCount/sequentialSANIsegmentsPartialActivationDistance
@@ -136,7 +138,7 @@ if(useSequentialSANI):
 				segmentActivationFractionThreshold = 0.5	#must be <= 0.5
 			elif(sequentialSANIsegmentRequirement == "none"):
 				segmentActivationFractionThreshold = 0.5
-			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths			
+			sequentialSANIinhibitoryTopkSelection = False	#default: False	#perform a topk selection of activations based on activations strengths
 			if(sequentialSANIinhibitoryTopkSelection):
 				debugSequentialSANIinhibitoryTopkSelection = False
 				sequentialSANIinhibitoryTopkSelectionKfraction = 0.005	#fraction of neurons on layer to select
@@ -151,9 +153,8 @@ if(useSequentialSANI):
 		generateConnectionsAfterPropagating = False 	#debug: False (generate hidden/output connections before propagating; creates hidden neurons/connections and output connections more quickly for debug)
 	else:
 		generateConnectionsAfterPropagating = True	#default: True
-	initialiseSANIlayerWeightsUsingCPU = False
-	useSparseHiddenMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
-	useSparseOutputMatrix = True	#required to prevent very large output matrix multiplications (eg hiddenLayerSizeSANI~100000 x bertNumberTokenTypes~30522)
+	useSparseHiddenMatrix = True	#default: True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
+	useSparseOutputMatrix = True	#default: True	#required to prevent very large output matrix multiplications (eg hiddenLayerSizeSANI~100000 x bertNumberTokenTypes~30522)
 	#hiddenLayerSizeSANImax	#default: #heuristic: number of 5-grams=1.18 billion (see Google ngrams) 	#max = bertNumberTokenTypes^numberOfLayers (not all permutations are valid)		#bertNumberTokenTypes*2
 	
 	#for print only;

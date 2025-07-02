@@ -28,8 +28,9 @@ if(limitConnections):
 # -----------------------------
 
 def calculateOutputLayer(self, trainOrTest, layerActivations, y):
-	outputActivations = torch.zeros(batchSize, self.config.numberOfClasses, device=device)
-
+	outputActivations = torch.zeros(self.batchSize, self.config.numberOfClasses, device=device)
+	assert y is not None
+	
 	actLayerIndex = 0
 	for layerIdSuperblock in range(recursiveSuperblocksNumber):
 		for layerIdHidden in range(self.config.numberOfHiddenLayers):
@@ -40,7 +41,7 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 				
 				if(not generateConnectionsAfterPropagating):
 					# Training: reinforce output connections
-					if trainOrTest and y is not None:
+					if trainOrTest or evalStillTrainOutputConnections:
 						update_output_connections(self, uniqueLayerIndex, act, y, device)
 				
 				weights = self.outputConnectionMatrix[uniqueLayerIndex]
@@ -74,7 +75,7 @@ def calculateOutputLayer(self, trainOrTest, layerActivations, y):
 				
 				if(generateConnectionsAfterPropagating):
 					# Training: reinforce output connections
-					if trainOrTest and y is not None:
+					if trainOrTest or evalStillTrainOutputConnections:
 						update_output_connections(self, uniqueLayerIndex, act, y, device)
 					
 			actLayerIndex += 1
@@ -119,7 +120,7 @@ def update_output_connections(self,
 		if neuron_idx.numel() == 0:
 			return		
 
-	if useBinaryOutputConnections or not useSequentialSANIactivationStrength:
+	if useBinaryOutputConnections or not self.useSequentialSANIactivationStrength:
 		# keep binary semantics: any positive activation -> True
 		new_vals = torch.ones_like(neuron_idx, dtype=torch.bool, device=device)
 	else:

@@ -592,18 +592,27 @@ elif(useNLPDataset):
 	def loadDatasetNLP():
 		info = get_dataset_config_info(datasetName, datasetCfg)  # tiny JSON download
 		datasetSize = info.splits["train"].num_examples
-
-		if(not stateTrainDataset and stateTestDataset):
-			#assume train rows already streamed and cached (else will take long time to download train data before can start streaming test data)
-			train_rows = 100000  #user set!
-			eval_rows = 10000   #user set!
+		base_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True, trust_remote_code=True)
+		
+		if(stateTestDataset):
+			assert datasetSizeSubset, "loadDatasetNLP error: if stateTestDataset, datasetSizeSubset is required"
+			if(not stateTrainDataset):
+				print("loadDatasetNLP warning: stateTestDataset and !stateTrainDataset: assume train rows already streamed and cached (else will take long time to download train data before can start streaming test data)")
+			#train_rows = int(datasetSize*(1-datasetTestSplitSize))
+			#eval_rows = int(datasetSize*datasetTestSplitSize)
+			train_rows = datasetTrainRows
+			eval_rows = datasetTestRows
 			train_stream = base_stream.take(train_rows)
-			test_stream = base_stream.skip(train_rows)
+			test_stream = base_stream.skip(train_rows).take(eval_rows)
+			datasetSize = train_rows
 		else:
-			train_rows = int(datasetSize)
+			if(datasetSizeSubset):
+				train_rows = datasetTrainRows
+				datasetSize = train_rows
+			else:
+				train_rows =  int(datasetSize)
 			eval_rows = int(0)
-			print("loadDatasetNLP() warning: by default there is no test_stream available")
-			train_stream = load_dataset(datasetName, datasetCfg, split="train", streaming=True,)
+			train_stream = base_stream
 			test_stream = None
 			
 		print(f"Train size: {train_rows:,}")
@@ -611,7 +620,7 @@ elif(useNLPDataset):
 		global datasetSizeRecord
 		datasetSizeRecord = datasetSize
 
-		dataset = DatasetDict({"train": train_stream, "test": test_stream})
+		dataset = DatasetDict({datasetSplitNameTrain: train_stream, datasetSplitNameTest: test_stream})
 
 		return dataset
 

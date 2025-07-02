@@ -114,6 +114,11 @@ class EISANImodel(nn.Module):
 
 		self.numberUniqueHiddenLayers = getNumberUniqueHiddenLayers(recursiveLayers, recursiveSuperblocksNumber, config.numberOfHiddenLayers)
 
+		if(useSequentialSANI):
+			if(not evalOnlyUsingTimeInvariance):
+				self.sequentialSANItimeInvariance = sequentialSANItimeInvariance
+				self.useSequentialSANIactivationStrength = useSequentialSANIactivationStrength
+				
 		if useTabularDataset:
 			# self.encodedFeatureSize = config.numberOfFeatures * EISANITABcontinuousVarEncodingNumBits # Old
 			fieldTypeList = config.fieldTypeList
@@ -197,7 +202,6 @@ class EISANImodel(nn.Module):
 			self.numAssignedNeuronSegments = torch.zeros(self.numberUniqueHiddenLayers, dtype=torch.long, device=device)
 			self.indexArrayA: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 			self.indexArrayB: List[torch.Tensor] = [torch.full((hiddenLayerSizeStart,), -1, dtype=torch.long, device=device) for _ in range(self.numberUniqueHiddenLayers)]
-			self._initialiseLayerActivations()
 	
 		# -----------------------------
 		# Output connection matrix
@@ -237,14 +241,23 @@ class EISANImodel(nn.Module):
 	# ---------------------------------------------------------
 	
 	if(useSequentialSANI):
+		def _setTimeInvarianceState(self, trainOrTest):
+			if(evalOnlyUsingTimeInvariance):
+				if(trainOrTest):
+					self.sequentialSANItimeInvariance = False
+					self.useSequentialSANIactivationStrength = False
+				else:
+					self.sequentialSANItimeInvariance = sequentialSANItimeInvariance
+					self.useSequentialSANIactivationStrength = useSequentialSANIactivationStrength
+					
 		def _initialiseLayerActivations(self):
 			numberUniqueLayers = self.numberUniqueHiddenLayers+1	#activation arrays contain both input and hidden neurons (not only hidden neurons)
-			self.layerActivation: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.bool, device=device) for layerIdx in range(numberUniqueLayers)]	#record of activation state at last activation time (recorded activations will grow over time)
-			self.layerActivationTime: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]	#last activation time
-			if(useSequentialSANIactivationStrength):
-				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
-				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((self.config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]		#count number of subneurons which were activated
-				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((config.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.float, device=device) for layerIdx in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
+			self.layerActivation: List[torch.Tensor] = [torch.zeros((self.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.bool, device=device) for layerIdx in range(numberUniqueLayers)]	#record of activation state at last activation time (recorded activations will grow over time)
+			self.layerActivationTime: List[torch.Tensor] = [torch.zeros((self.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]	#last activation time
+			if(self.useSequentialSANIactivationStrength):
+				self.layerActivationDistance: List[torch.Tensor] = [torch.zeros((self.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]	#distance between neuron segments (additive recursive)
+				self.layerActivationCount: List[torch.Tensor] = [torch.zeros((self.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.int, device=device) for layerIdx in range(numberUniqueLayers)]		#count number of subneurons which were activated
+				#self.layerActivationStrength: List[torch.Tensor] = [torch.zeros((self.batchSize, self._getCurrentLayerSize(layerIdx),), dtype=torch.float, device=device) for layerIdx in range(numberUniqueLayers)]	#not currently used (it is a derived parameter)
 	
 	def _getCurrentLayerSize(self, layerIdx):
 		if(useSequentialSANI):
@@ -281,60 +294,55 @@ class EISANImodel(nn.Module):
 			  If dense and int8: +1, -1, or 0.
 			"""
 			cfg = self.config
-			dev = device  # ensures GPU/CPU consistency
 			k = cfg.numberOfSynapsesPerSegment  # shorthand
 			nnz  = numNeurons * k
 
 			if useSparseHiddenMatrix:
 
 				sparse_dtype = torch.bool
-				if(initialiseSANIlayerWeightsUsingCPU):
-					devTemp =  pt.device('cpu')
-				else:
-					devTemp = dev
 
 				if useDynamicGeneratedHiddenConnections:
 					# start EMPTY
-					indices = torch.empty((2, 0), dtype=torch.int64, device=devTemp)
-					values  = torch.empty((0,),  dtype=sparse_dtype, device=devTemp)
+					indices = torch.empty((2, 0), dtype=torch.int64, device=device)
+					values  = torch.empty((0,),  dtype=sparse_dtype, device=device)
 				else:
 					# start with k random synapses per neuron
 					'''
-					row_idx = torch.arange(numNeurons, device=dev).repeat_interleave(k)
-					col_idx = torch.randint(prevSize, (numNeurons * k,), device=dev)
+					row_idx = torch.arange(numNeurons, device=device).repeat_interleave(k)
+					col_idx = torch.randint(prevSize, (numNeurons * k,), device=device)
 					indices = torch.stack([row_idx, col_idx])  # shape [2, nnz]
 					'''
 					# ---------- memory-tight random initialisation ----------
-					indices = torch.empty((2, nnz), dtype=torch.int64, device=devTemp)
+					indices = torch.empty((2, nnz), dtype=torch.int64, device=device)
 					# 1. columns: generate in-place
-					torch.randint(prevSize, (nnz,), dtype=torch.int64, device=devTemp, out=indices[1])
+					torch.randint(prevSize, (nnz,), dtype=torch.int64, device=device, out=indices[1])
 					# 2. rows: broadcast one small vector into the big slot buffer
-					rows = torch.arange(numNeurons, dtype=torch.int64, device=devTemp)  # length = numNeurons
+					rows = torch.arange(numNeurons, dtype=torch.int64, device=device)  # length = numNeurons
 					indices[0].view(numNeurons, k).copy_(rows.unsqueeze(1))		 # expand, copy once
 
 					if useEIneurons:
-						values = torch.ones(nnz, device=devTemp, dtype=sparse_dtype)
+						values = torch.ones(nnz, device=device, dtype=sparse_dtype)
 					else:
-						values = torch.randint(0, 2, (nnz,), device=devTemp, dtype=sparse_dtype)
+						values = torch.randint(0, 2, (nnz,), device=device, dtype=sparse_dtype)
 
-				mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=devTemp, dtype=sparse_dtype,).coalesce()
-				mat = mat.to(dev)
+				mat = torch.sparse_coo_tensor(indices, values, size=(numNeurons, prevSize), device=device, dtype=sparse_dtype,).coalesce()
+				mat = mat.to(device)
 				return mat
 			else:
 				# -------------------------------------------------- dense initialisation
-				weight = torch.zeros(numNeurons, prevSize, device=dev, dtype=torch.int8) # Use torch.int8 for dense
+				weight = torch.zeros(numNeurons, prevSize, device=device, dtype=torch.int8) # Use torch.int8 for dense
 
 				if not useDynamicGeneratedHiddenConnections:
 					# randomly choose k unique presynaptic neurons per postsynaptic cell
 					for n in range(numNeurons):
-						syn_idx = torch.randperm(prevSize, device=dev)[:k]
+						syn_idx = torch.randperm(prevSize, device=device)[:k]
 
 						if useEIneurons:
 							weight[n, syn_idx] = 1
 						else:
 							# Generate +1 or -1 with equal probability, as int8
-							rand_signs_bool = torch.randint(0, 2, (k,), device=dev, dtype=torch.bool)
-							rand_signs = torch.where(rand_signs_bool, torch.tensor(1, device=dev, dtype=torch.int8), torch.tensor(-1, device=dev, dtype=torch.int8))
+							rand_signs_bool = torch.randint(0, 2, (k,), device=device, dtype=torch.bool)
+							rand_signs = torch.where(rand_signs_bool, torch.tensor(1, device=device, dtype=torch.int8), torch.tensor(-1, device=device, dtype=torch.int8))
 							weight[n, syn_idx] = rand_signs
 
 				# make it a learnable parameter for the dense case
@@ -343,7 +351,7 @@ class EISANImodel(nn.Module):
 	# ---------------------------------------------------------
 	# Forward pass
 	# ---------------------------------------------------------
-
+		
 	@torch.no_grad()
 	def forward(self, trainOrTest: bool, x: torch.Tensor, y: Optional[torch.Tensor] = None, optim=None, l=None, batchIndex=None, fieldTypeList=None) -> Tuple[torch.Tensor, torch.Tensor]:
 		"""Forward pass.
@@ -356,8 +364,8 @@ class EISANImodel(nn.Module):
 		Returns:
 			predictions, outputActivations (both shape (batch, classes)).
 		"""
-		batchSize = x.size(0)
-		#assert (batchSize == self.config.batchSize), "Batch size must match config.batchSize"
+		self.batchSize = x.shape[0]
+		#assert (self.batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
 
 		if(useNLPDataset):
@@ -377,7 +385,10 @@ class EISANImodel(nn.Module):
 			numSubsamples = 1
 		
 		if(useSequentialSANI):
+			self._setTimeInvarianceState(trainOrTest)
 			self._initialiseLayerActivations()
+		else:
+			self.useSequentialSANIactivationStrength = False
 		
 		accuracyAllWindows = 0
 		#print("numSubsamples = ", numSubsamples)
@@ -391,10 +402,10 @@ class EISANImodel(nn.Module):
 			if(useNLPDataset and useNeuronActivationMemory):
 				# --- one-token sliding window: output shape = [B,1] ---
 				token_idx = slidingWindowIndex								# scalar int
-				idx = pt.full((batchSize, 1), token_idx, dtype=pt.long, device=device)
+				idx = pt.full((self.batchSize, 1), token_idx, dtype=pt.long, device=device)
 				gather_idx = idx.clamp(max=seq.size(1) - 1)
 
-				next_idx = pt.full((batchSize, 1), token_idx + 1, dtype=pt.long, device=device)
+				next_idx = pt.full((self.batchSize, 1), token_idx + 1, dtype=pt.long, device=device)
 				next_idx_clamped = next_idx.clamp(max=seq.size(1) - 1)
 
 				# current token
@@ -466,4 +477,3 @@ class EISANImodel(nn.Module):
 
 	def executePostTrainPrune(self, trainOrTest):
 		EISANIpt_EISANImodelPrune.executePostTrainPrune(self, trainOrTest)
-

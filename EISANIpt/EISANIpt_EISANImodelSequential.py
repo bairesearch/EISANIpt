@@ -65,7 +65,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		
 		#segment 2 activations;
 		minActivationTimeSegment2 = None
-		if(sequentialSANItimeInvariance):
+		if(self.sequentialSANItimeInvariance):
 			maxActivationRecallTimeInvariance = calculateMaxActivationRecallTimeInvariance(layerIdx)
 			if(not inputLayerTimeInvariance and hiddenLayerIdx==0):
 				maxActivationRecallTimeInvariance = 0	#disable timeInvariance for input layer
@@ -75,7 +75,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 			
 		layerSegment2Activation, layerSegment2Time, layerSegment2ActivationDistance, layerSegment2ActivationCount = compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime, hiddenLayerIdx, sequentialSANIsegmentIndexDistal, device, maxActivationTimeSegment2, timeIndexMin=minActivationTimeSegment2)
 
-		if(useSequentialSANIactivationStrength):
+		if(self.useSequentialSANIactivationStrength):
 			layerActivation, layerActivationStrength, layerActivationDistance, layerActivationCount = calculateActivationStrength(layerIdx, layerSegment1Activation, layerSegment2Activation, layerSegment1Time, layerSegment2Time, layerSegment1ActivationDistance, layerSegment2ActivationDistance, layerSegment1ActivationCount, layerSegment2ActivationCount)
 		else:
 			layerActivation = torch.logical_and(layerSegment1Activation, layerSegment2Activation)
@@ -99,7 +99,7 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		layerActivationNot = torch.logical_not(layerActivation)
 		self.layerActivation[layerIdx] = torch.logical_or(self.layerActivation[layerIdx], layerActivation)
 		self.layerActivationTime[layerIdx] = updateLayerData(self.layerActivationTime[layerIdx], layerActivation, layerActivationNot, currentActivationTime)	#reset the time values for current neuron activations
-		if(useSequentialSANIactivationStrength):
+		if(self.useSequentialSANIactivationStrength):
 			self.layerActivationDistance[layerIdx] = updateLayerData(self.layerActivationDistance[layerIdx], layerActivation, layerActivationNot, layerActivationDistance)
 			self.layerActivationCount[layerIdx] = updateLayerData(self.layerActivationCount[layerIdx], layerActivation, layerActivationNot, layerActivationCount)
 			#self.layerActivationStrength[layerIdx] = updateLayerData(self.layerActivationStrength[layerIdx], layerActivation, layerActivationNot, layerActivationStrength)
@@ -108,8 +108,11 @@ def sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowI
 		if(generateConnectionsAfterPropagating):
 			dynamicallyGenerateLayerNeurons(self, trainOrTest, currentActivationTime, hiddenLayerIdx)
 		
-		if(evalOnlyUsingTimeInvariance):
-			layerActivationsList.append(layerActivation)
+		if(evalOnlyUsingTimeInvariance and not trainOrTest):
+			if(evalStillTrainOutputConnections):
+				layerActivationsList.append(self.layerActivationStrength)
+			else:
+				layerActivationsList.append(layerActivation)	#always pass boolean hidden activations to output prediction layer (even when self.sequentialSANItimeInvariance==True during eval), as model was trained expecting boolean inputs to output layer
 		else:
 			layerActivationsList.append(self.layerActivationStrength)
 	#orig; layerActivationsList = self.layerActivation[1:]	#do not add input layer
@@ -137,12 +140,12 @@ def maskLayerDataByTime(self, currentActivationTime: int, layerIdx: int, propDat
 		activation = self.layerActivation[layerIdx][:, timeOffsetMin:timeOffsetMin + (timeIndexMax-timeIndexMin+1)*windowSize]
 		activationTime = self.layerActivationTime[layerIdx][:, timeOffsetMin:timeOffsetMin + (timeIndexMax-timeIndexMin+1)*windowSize]
 		'''
-		if(useSequentialSANIactivationStrength):
+		if(self.useSequentialSANIactivationStrength):
 			activationDistance = torch.zeros_like(activation.int())	#initialise (internal) distance each input to zero
 			activationCount = activation.int()		#treat each input count as 1
 			#activationStrength = activation.float()	#not currently used (it is a derived parameter)
 	else:
-		if(useSequentialSANIactivationStrength):
+		if(self.useSequentialSANIactivationStrength):
 			activationDistance = self.layerActivationDistance[layerIdx]
 			activationCount = self.layerActivationCount[layerIdx]
 			#activationStrength = self.layerActivationStrength[layerIdx]
@@ -176,7 +179,7 @@ def compute_layer_sequentialSANI_allDataTypes(self, currentActivationTime: int, 
 		print("timeIndexMin = ", timeIndexMin)
 	layerSegmentXActivation, layerSegmentXTime, layerSegmentXActivationStrength, layerSegmentXActivationCount = (None, None, None, None)
 	layerSegmentXActivation = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activation", timeIndexMax, timeIndexMin)
-	if(useSequentialSANIactivationStrength):
+	if(self.useSequentialSANIactivationStrength):
 		layerSegmentXTime = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activationTime", timeIndexMax, timeIndexMin)
 		layerSegmentXActivationDistance = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activationDistance", timeIndexMax, timeIndexMin)
 		layerSegmentXActivationCount = compute_layer_sequentialSANI(self, currentActivationTime, hiddenLayerIdx, segmentIdx, device, "activationCount", timeIndexMax, timeIndexMin)

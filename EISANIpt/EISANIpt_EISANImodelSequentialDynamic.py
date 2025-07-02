@@ -127,10 +127,10 @@ def expandArrays(self, hiddenLayerIdx: int, additionalRequired: int) -> None:
 
 	#expand activation arrays (new sizes will be retained when processing next batch during reinitialisation);
 	layerIdx = hiddenLayerIdx+1
-	activationPadding = torch.zeros((self.config.batchSize, growBy,), dtype=torch.bool, device=device)
+	activationPadding = torch.zeros((self.batchSize, growBy,), dtype=torch.bool, device=device)
 	self.layerActivation[layerIdx] = torch.cat([self.layerActivation[layerIdx], activationPadding.bool()], dim=1)
 	self.layerActivationTime[layerIdx] = torch.cat([self.layerActivationTime[layerIdx], activationPadding.int()], dim=1)
-	if(useSequentialSANIactivationStrength):
+	if(self.useSequentialSANIactivationStrength):
 		self.layerActivationDistance[layerIdx] = torch.cat([self.layerActivationDistance[layerIdx], activationPadding.int()], dim=1)
 		self.layerActivationCount[layerIdx] = torch.cat([self.layerActivationCount[layerIdx], activationPadding.int()], dim=1)
 	self.layerActivationStrength = torch.cat([self.layerActivationStrength, activationPadding.float()], dim=1)	#temporary var
