@@ -282,4 +282,23 @@ def prune_output_rows(outputConnectionMat: torch.Tensor, hiddenNeuronsRemoved: t
 	...
 	#COMPLETE THIS FUNCTION
 
+---
+useStochasticUpdates (Codex IDE GPT5 prompt);
 
+Add option useStochasticUpdates=True in EISANIpt_EISANI_globalDefs.py, which changes the learning (i.e. network generation) algorithm to be stochastic: testing individual connection changes on output loss independently. 
+
+Please implementation useStochasticUpdates for both case useDynamicGeneratedHiddenConnections=True and useDynamicGeneratedHiddenConnections=False;
+- When useDynamicGeneratedHiddenConnections=False, useStochasticUpdates=True simply tests whether a candidate change in an existing network connection value (+1/-1) produces a positive or negative effect on the loss. If the candidate change produces a decrease in loss then the change is retained, else the change is discarded.
+- When useDynamicGeneratedHiddenConnections= True, useStochasticUpdates=True tests whether a new connection (of value +1/-1) between two randomly selected network neurons (of adjacent layers) has a positive or negative effect on the loss. 
+a) If the candidate connection produces a decrease in loss then the new connection is retained, else it is discarded. 
+b) If i) the candidate connection already exists, ii) the candidate connection value is different than its current value (+1/-1), and iii) it produces a decrease in loss, then the change is applied (rather than creating a new connection), else the change is discarded.
+
+When useStochasticUpdates=False, the original EISANI network generation code is used (no changes should be applied).
+
+To assist you in this task, please integrate the LREANNpt_SUANN.py code provided below into EISANIpt_EISANI.py (trainOrTestModel, pertubation_function, perturb_once, update_weight, rand_index); 
+a) As EISANIpt creates a binary network (instead of float weighted network), the stochastic learning algorithm provided below will need to be updated to simply test whether a candidate independent connection change produces a positive or negative effect on the loss (rather than taking into account the precise lossDiff of the change). 
+b) As EISANIpt uses a sparse binary network rather than dense network, the code provided will need to be changed accordingly. 
+c) The code provided is more suitable for useDynamicGeneratedHiddenConnections=False, as when useDynamicGeneratedHiddenConnections=True an actual new sparse connection will often need to be tested (rather than a simple weight value change).
+
+... 
+[LREANNpt_SUANN.py code]

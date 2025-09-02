@@ -275,15 +275,16 @@ def loadModel():
 		
 def propagate(trainOrTest, batchIndex, batch, model, optim=None, l=None, fieldTypeList=None):
 	(x, y) = batch
-	y = y.long()
-	x = x.to(device)
-	y = y.to(device)
+	if(not useNLPDataset):
+		y = y.long()
+		x = x.to(device)
+		y = y.to(device)
 	if(debugDataNormalisation):
 		print("x = ", x)
 		print("y = ", y)
 	
 	if(useAlgorithmEISANI):
-		loss, accuracy = model(trainOrTest, x, y, optim, l, batchIndex, fieldTypeList)
+		loss, accuracy = ANNpt_algorithm.trainOrTestModel(model, trainOrTest, x, y, optim, l, batchIndex, fieldTypeList)
 	else:
 		loss, accuracy = model(trainOrTest, x, y, optim, l)
 	return loss, accuracy
@@ -302,6 +303,5 @@ def print_tqdm_output(epoch: int, start_time: float, batch_index: int, loss: flo
 					
 if(__name__ == '__main__'):
 	main()
-
 
 

@@ -52,9 +52,9 @@ def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 				self.hiddenNeuronUsage[uniqueLayerIndex] = self.hiddenNeuronUsage[uniqueLayerIndex] + currentActivation.sum(dim=0)	#sum across batch dim
 			
 			# -------------------------
-			# Dynamic hidden connection growth
+			# Dynamic hidden connection growth (disabled when stochastic updates enabled)
 			# -------------------------
-			if (trainOrTest and useDynamicGeneratedHiddenConnections):
+			if (trainOrTest and useDynamicGeneratedHiddenConnections and not useStochasticUpdates):
 				for _ in range(numberNeuronSegmentsGeneratedPerSample):
 					if(useDynamicGeneratedHiddenConnectionsVectorised):
 						EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified

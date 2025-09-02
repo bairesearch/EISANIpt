@@ -18,7 +18,6 @@ EISANIpt globalDefs
 """
 
 import math
-import ANNpt_globalDefs
 
 debugEISANIoutputs = False
 printEISANImodelProperties = True
@@ -38,6 +37,7 @@ useSequentialSANIactivationStrength = False
 limitOutputConnectionsBasedOnAccuracySoftmax = False
 evalStillTrainOutputConnections = False
 debugOnlyPrintStreamedWikiArticleTitles = False
+useSlidingWindow = False
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -62,7 +62,7 @@ elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
 	useSequentialSANI = True	#sequentially activated neuronal input (else use summation activated neuronal input)
-	useNeuronActivationMemory = True	#emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#incomplete
+	useSlidingWindow = True	#emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#mandatory	#useNeuronActivationMemory
 	#enforceSequenceContiguity = True	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
 	useDefaultSegmentSizeParam = False	#currently use smaller number of requisite active connections
 	if(useSequentialSANI):
@@ -107,7 +107,12 @@ if(useSequentialSANI):
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
 	debugSequentialSANIpropagationVerify = False
 	
-	evalOnlyUsingTimeInvariance = True  #default: True	#orig: False	#Assume EISANImodel is created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
+	# Stochastic update option: try random independent connection changes
+	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)
+	# For sequential/NLP, still reuse the same per-batch trial count heuristic
+	stochasticUpdatesPerBatch = 10
+
+	evalOnlyUsingTimeInvariance = False  #default: True	#orig: False	#Assume EISANImodel is created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
 	if(evalOnlyUsingTimeInvariance):
 		evalStillTrainOutputConnections = False	#default: False	#orig: False	#still train output connections during eval phase - enables tweaking of output predictions based on time invariant network propagation during eval phase
 	
@@ -119,7 +124,7 @@ if(useSequentialSANI):
 	numberOfSynapsesPerSegment = 1	#mandatory: 1	#FUTURE; with numberOfSynapsesPerSegment=1; consider updating the connectivity implementation to use simple one-to-one indexing (of previous layer neurons) rather than sparse tensors (modify compute_layer_sequentialSANI and sequentialSANI_dynamic_hidden_growth_pairwise)
 	#for redundancy; numberOfSynapsesPerSegment = numberOfLayers	#number of layers in network
 	sequentialSANIoverlappingSegments = True	#default: True	#orig: True	#False: contiguous segments only #disable for algorithm debug (trace activations/network gen)	#required for non-even tree structure for neuron input	#recommended for sequentialSANIsegmentRequirement == "both", optional for "any"/"first"
-	sequentialSANItimeInvariance = True	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
+	sequentialSANItimeInvariance = False	 #default: True  #enables redundancy more immediate tokens, closer to timeIndex of the last token in the segment
 	if(sequentialSANItimeInvariance):
 		debugSequentialSANItimeInvarianceDisable = False	#disable time invariance for temp debug, but still print all time invariance (distance/proximity) calculations in useSequentialSANIactivationStrength
 		debugSequentialSANItimeInvarianceVerify = False
@@ -168,6 +173,9 @@ else:
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 
+	# Stochastic update option: try random independent connection changes
+	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)
+
 	useConnectionWeights = True	 #mandatory: True: use sparse or dense weight tensors
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 	useDynamicGeneratedHiddenConnections = True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
@@ -183,6 +191,7 @@ else:
 	segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based on dataset index. Using 0 as a placeholder.
 
 	targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
+
 	if(useDefaultNumNeuronSegmentsParam):
 		EISANITABcontinuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronSegmentsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
 		numberNeuronSegmentsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
@@ -211,6 +220,9 @@ else:
 		useActiveBias = False
 		numberNeuronSegmentsGeneratedPerSample = numberNeuronSegmentsGeneratedPerSample*2
 		#useDefaultNumLayersParam = False	#disable to increase number of layers
+
+	# Number of stochastic proposals per batch (heuristic: reuse generation count)
+	stochasticUpdatesPerBatch = 10	#numberNeuronSegmentsGeneratedPerSample
 
 	recursiveLayers = False	#default: False
 	if(recursiveLayers): 
@@ -279,6 +291,8 @@ else:
 if(useSequentialSANIactivationStrength):
 	assert useBinaryOutputConnections == False
 
+useNLPDatasetSelectTokenisation = True
+useCustomLearningAlgorithm = True	#mandatory (disable all backprop optimisers)
 trainLocal = True	#local learning rule	#required
 
 #sublayer paramters:	
@@ -289,4 +303,3 @@ workingDrive = '/large/source/ANNpython/EISANIpt/'
 dataDrive = workingDrive	#'/datasets/'
 
 modelName = 'modelEISANI'
-

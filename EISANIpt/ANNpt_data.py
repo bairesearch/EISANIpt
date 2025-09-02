@@ -648,80 +648,33 @@ elif(useNLPDataset):
 				print(batch["title"])
 			return enc   # already {"input_ids": [...], ...}
 			
-	if(useNeuronActivationMemory):
-		def collate(batch):
-			# batch_size==1 in your new set-up but keep it generic
-			seqs   = [item for item in batch]
-			pad_id = NLPcharacterInputPadTokenID
-			max_L  = max(len(s) for s in seqs)
-			padded = pt.full((len(seqs), max_L), pad_id, dtype=pt.long)
-			for i, s in enumerate(seqs):
-				padded[i, : len(s)] = s
-			x = padded
-			y = padded	 # no target yet (redundant)
-			return x, y
+	def collate(batch):
+		# batch_size==1 in your new set-up but keep it generic
+		seqs   = [item for item in batch]
+		pad_id = NLPcharacterInputPadTokenID
+		max_L  = max(len(s) for s in seqs)
+		padded = pt.full((len(seqs), max_L), pad_id, dtype=pt.long)
+		for i, s in enumerate(seqs):
+			padded[i, : len(s)] = s
+		x = padded
+		y = padded	 # no target yet (redundant)
+		return x, y
 
-		class RawSampleDataset(TorchIterableDataset):
-			 """
-			 Pass-through: yields one dict {'input_ids': Tensor[seq_len]} per article.
-			 No left-shift / crop logic here any more.
-			 """
-			 def __init__(self, hf_iterable):
-				 super().__init__()
-				 self.hf_ds = hf_iterable
+	class RawSampleDataset(TorchIterableDataset):
+		 """
+		 Pass-through: yields one dict {'input_ids': Tensor[seq_len]} per article.
+		 No left-shift / crop logic here any more.
+		 """
+		 def __init__(self, hf_iterable):
+			 super().__init__()
+			 self.hf_ds = hf_iterable
 
-			 def __iter__(self):
-				 for art in self.hf_ds:
-					 ids = art["input_ids"]
-					 if not isinstance(ids, pt.Tensor):
-						 ids = pt.tensor(ids, dtype=pt.long)
-					 yield ids
-	else:
-		def collate(batch):
-			x = pt.stack([b[0] for b in batch])
-			y = pt.stack([b[1] for b in batch])
-			return x, y
-
-		# Expand each article into many (x, y) samples  -----------------
-		class ShiftedSampleDataset(TorchIterableDataset):
-			def __init__(self, hf_iterable, pad_token_id: int, ctx: int):
-				super().__init__()
-				self.hf_ds = hf_iterable
-				self.pad   = pad_token_id
-				self.ctx   = ctx
-
-			def _generate_samples(self, input_ids: pt.Tensor):
-				"""Yield (x, y) per non-pad token."""
-				# Strip trailing pads so maxNonPaddedTokenIndex is easy
-				non_pad = (input_ids != self.pad)
-				if not pt.any(non_pad):
-					return
-
-				max_idx = pt.nonzero(non_pad, as_tuple=True)[0][-1].item()
-				real_tokens = input_ids[:max_idx + 1]           # length L
-				extra_shift = self.ctx - max_idx                # >= 1
-
-				for i in range(max_idx + 1):                    # 0...max_idx
-					shift = i + extra_shift
-					seq  = pt.full((self.ctx,), self.pad, dtype=input_ids.dtype)
-					copy_len = min(real_tokens.size(0), self.ctx - shift)
-					if copy_len > 0:
-						seq[shift:shift + copy_len] = real_tokens[:copy_len]
-					yield (seq, seq[-1])        # x, y
-
-			def __iter__(self):
-				for art in self.hf_ds:
-					ids = art["input_ids"]
-
-					# new;
-					# HF delivers lists when padding=False -> convert once
-					if not isinstance(ids, pt.Tensor):
-						ids = pt.tensor(ids, dtype=pt.long)
-					# Add a trailing PAD to guarantee len >= 1
-					ids = pt.cat([ids, pt.tensor([self.pad])])
-
-					for sample in self._generate_samples(ids):
-						yield sample	
+		 def __iter__(self):
+			 for art in self.hf_ds:
+				 ids = art["input_ids"]
+				 if not isinstance(ids, pt.Tensor):
+					 ids = pt.tensor(ids, dtype=pt.long)
+				 yield ids
 	
 	def createDataLoaderNLP(dataset: "Dataset | HFDIterable"):
 		"""Return DataLoader that yields (x, y) batches per the spec above."""
@@ -735,10 +688,7 @@ elif(useNLPDataset):
 		else:
 			ds_iter = ds_tok.to_iterable_dataset()   # map-style -> convert
 
-		if(useNeuronActivationMemory):
-			ds = RawSampleDataset(ds_iter)
-		else:
-			ds = ShiftedSampleDataset(ds_iter, NLPcharacterInputPadTokenID, contextSizeMax)
+		ds = RawSampleDataset(ds_iter)
 		
 		loader = DataLoader(ds, batch_size=batchSize, collate_fn=collate, num_workers=numWorkers, pin_memory=pt.cuda.is_available())
 

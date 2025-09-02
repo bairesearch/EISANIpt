@@ -368,19 +368,16 @@ class EISANImodel(nn.Module):
 		#assert (self.batchSize == self.config.batchSize), "Batch size must match config.batchSize"
 		device = x.device
 
-		if(useNLPDataset):
-			if(useNeuronActivationMemory):
-				# --- updated for full-batch processing ---
-				seq	= x	# Tensor [batchSize, sequenceLength]
-				non_pad	= (seq != NLPcharacterInputPadTokenID)		# [B, L]
-				if not pt.any(non_pad):
-					return
-				lengths	= non_pad.sum(-1)							# [B]
-				max_len = int(lengths.max().item())
-				numSubsamples = max(1, max_len - 1)				# predict *next* token only
-				extra = contextSizeMax - lengths					# [B]
-			else:
-				numSubsamples = 1
+		if(useSlidingWindow):
+			# --- updated for full-batch processing ---
+			seq	= x	# Tensor [batchSize, sequenceLength]
+			non_pad	= (seq != NLPcharacterInputPadTokenID)		# [B, L]
+			if not pt.any(non_pad):
+				return
+			lengths	= non_pad.sum(-1)							# [B]
+			max_len = int(lengths.max().item())
+			numSubsamples = max(1, max_len - 1)				# predict *next* token only
+			extra = contextSizeMax - lengths					# [B]
 		else:
 			numSubsamples = 1
 		
@@ -399,7 +396,7 @@ class EISANImodel(nn.Module):
 			# -----------------------------
 			# Apply sliding window (sequence input only)
 			# -----------------------------
-			if(useNLPDataset and useNeuronActivationMemory):
+			if(useSlidingWindow):
 				# --- one-token sliding window: output shape = [B,1] ---
 				token_idx = slidingWindowIndex								# scalar int
 				idx = pt.full((self.batchSize, 1), token_idx, dtype=pt.long, device=device)
@@ -460,7 +457,8 @@ class EISANImodel(nn.Module):
 				accuracyAllWindows += accuracy
 		
 		accuracy = accuracyAllWindows / numSubsamples
-		loss = Loss(0.0)
+		# Provide a scalar loss usable for stochastic comparison (lower is better)
+		loss = Loss(1.0 - float(accuracy))
 		
 		return loss, accuracy
 
