@@ -799,4 +799,3 @@ def draw_indices(onMask: torch.Tensor, n: int) -> torch.Tensor:
 		samples.append(pool[rnd])
 
 	return torch.stack(samples)                            # (G, n)
-

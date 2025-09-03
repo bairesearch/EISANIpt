@@ -175,6 +175,8 @@ else:
 
 	# Stochastic update option: try random independent connection changes
 	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)
+	# Number of stochastic proposals per batch (heuristic: reuse generation count)
+	stochasticUpdatesPerBatch = 10	#numberNeuronSegmentsGeneratedPerSample
 
 	useConnectionWeights = True	 #mandatory: True: use sparse or dense weight tensors
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
@@ -220,9 +222,6 @@ else:
 		useActiveBias = False
 		numberNeuronSegmentsGeneratedPerSample = numberNeuronSegmentsGeneratedPerSample*2
 		#useDefaultNumLayersParam = False	#disable to increase number of layers
-
-	# Number of stochastic proposals per batch (heuristic: reuse generation count)
-	stochasticUpdatesPerBatch = 10	#numberNeuronSegmentsGeneratedPerSample
 
 	recursiveLayers = False	#default: False
 	if(recursiveLayers): 

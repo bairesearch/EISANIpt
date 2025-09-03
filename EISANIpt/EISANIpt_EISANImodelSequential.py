@@ -325,7 +325,7 @@ def calculate_segment_times_diff(layerIndex: int) -> int:
 		r'''
 		\/  \/  \/  \/
 		 \  /    \  /
-    	   \      /
+		   \      /
 		layerIdx=0; [N/A]
 		layerIdx=1; 1
 		layerIdx=2; 2
@@ -348,7 +348,7 @@ def count_predicted(layerIndex: int) -> int:
 	
 	\/  \/  \/  \/
 	 \  /    \  /
-       \      /
+	   \      /
 	   
 	layerIdx=0; 1
 	layerIdx=1; 3
@@ -377,7 +377,7 @@ def distance_predicted(layerIndex: int) -> int:
 		r'''
 		\/  \/  \/  \/
 		 \  /    \  /
-    	   \      /
+		   \      /
 		layerIdx=0; 0
 		layerIdx=1; (0+0)+1 = 1		#layerSegment1or2ActivationDistance=0, (layerSegment1Time-layerSegment2Time)=1
 		layerIdx=2; (1+1)+2 = 4		#layerSegment1or2ActivationDistance=1, (layerSegment1Time-layerSegment2Time)=2

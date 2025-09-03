@@ -161,8 +161,8 @@ def generateActivationLayer(self, layerIndex, config, positive=True):
 	return generateActivationFunction(activationFunctionType, positive)
 
 class ReLUNeg(nn.Module):
-    def forward(self, x):
-        return pt.relu(-x)
+	def forward(self, x):
+		return pt.relu(-x)
 		
 def generateActivationFunction(activationFunctionType, positive=True):
 	if(activationFunctionType=="softmax"):
@@ -431,7 +431,7 @@ def printLayerWeights(name, weights):
 		print(name, " = ", weights)
 
 def custom_formatter(array):
-    return f"{array}"
+	return f"{array}"
 		
 def weightsSetPositiveModel(self):
 	if(useSignedWeights):
@@ -572,4 +572,3 @@ def convReshapeOut(self, x, layerIndex):
 	else:
 		x = x.reshape(batch_size, out_features)
 	return x
-

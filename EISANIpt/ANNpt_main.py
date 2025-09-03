@@ -304,4 +304,3 @@ def print_tqdm_output(epoch: int, start_time: float, batch_index: int, loss: flo
 if(__name__ == '__main__'):
 	main()
 
-
