@@ -134,10 +134,13 @@ def compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, de
 	return aExc, aInh
 
 def segmentActivationFunction(self, z_all_segments):
-	# z_all_segments has shape [B, numNeurons, numberOfSegmentsPerNeuron]
-	# A segment fires if its activation sum meets the threshold.
-	segment_fires = z_all_segments >= segmentActivationThreshold # [B, numNeurons, numberOfSegmentsPerNeuron] (bool)
-	return segment_fires
+    # When using stochastic updates, treat any positive net input as a fire.
+    # Otherwise use the configured segmentActivationThreshold.
+    if useStochasticUpdates:
+        segment_fires = z_all_segments > 0
+    else:
+        segment_fires = z_all_segments >= segmentActivationThreshold
+    return segment_fires
 
 def neuronActivationFunction(self, a_all_segments_list):
 	#for EISANI summation activated neuronal input assume neuron is activated when any segments are activated

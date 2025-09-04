@@ -311,3 +311,13 @@ a) When useStochasticUpdates=True, I want every hidden neuron in the network to 
 b) When useStochasticUpdates=True, the output connections are learnt by performing single layer backprop between the output neurons (classes) and every hidden neuron in the network.
 
 Please also confirm that you understand the purpose of useStochasticUpdates and why I am performing this upgrade.
+
+---
+useStochasticUpdates (Codex IDE GPT5 prompt);
+
+upgrade useStochasticUpdates such that the input layer is initialised with (on average) equal numbers of active and inactive neurons. update continuousVarEncoding to convert input to float of size EISANICNNcontinuousVarEncodingNumBits, then convert directly to binary.
+
+---
+useStochasticUpdates (Codex IDE GPT5 prompt);
+
+upgrade useStochasticUpdates - the neuron activation function fires when input activation is above 0, else it does not fire

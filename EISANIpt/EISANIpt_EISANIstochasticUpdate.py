@@ -41,12 +41,10 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 	"""
 
 	with pt.no_grad():
-		# Baseline: evaluate loss with outputs FROZEN (no train step),
-		# and snapshot/restore to avoid mutating any auxiliary stats.
-		snap = _snapshot_output_state(model)
-		loss_obj, acc = model(False, x, y, optim, l, batchIndex, fieldTypeList)
-		best_loss = float(loss_obj.item())
-		_restore_output_state(model, snap)
+		# Baseline: use a more sensitive scoring function than discrete accuracy
+		# so that small random changes in hidden connections can be detected
+		# even when predictions (argmax) do not flip.
+		best_loss = _score_batch_cross_entropy(model, x, y)
 
 		trials = max(1, int(stochasticUpdatesPerBatch))
 		for trialIndex in range(trials):
@@ -61,11 +59,9 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 				continue
 
 			_apply_change(model, change)
-			# Score with outputs frozen; snapshot/restore to keep side-effect free
-			snap_trial = _snapshot_output_state(model)
-			new_loss_obj, _ = model(False, x, y, optim, l, batchIndex, fieldTypeList)
-			new_loss = float(new_loss_obj.item())
-			_restore_output_state(model, snap_trial)
+			# Score with outputs frozen; no model() call to avoid any side-effects
+			# such as optional stats updates. Evaluate CE over current logits.
+			new_loss = _score_batch_cross_entropy(model, x, y)
 			print("new_loss = ", new_loss)
 			print("best_loss = ", best_loss)
 
@@ -123,6 +119,48 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 			model.outputConnectionMatrix[lidx] = model.outputConnectionMatrix[lidx].float().add_( -lr * grad )
 
 		return EISANIpt_EISANImodel.Loss(1.0 - float(accuracy)), float(accuracy)
+
+
+def _score_batch_cross_entropy(model, x, y) -> float:
+	"""Compute a smooth loss (mean cross-entropy) from current hidden weights.
+
+	This uses the same hidden-pass and dense output aggregation as the
+	post-trial update step, but without mutating model state. It is more
+	sensitive than accuracy-based scoring, allowing random proposals to
+	produce measurable loss differences even when argmax is unchanged.
+	"""
+	# Encode inputs and obtain hidden activations without any dynamic growth
+	initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
+	if initActivation is None:
+		return 1.0
+	if 'useSequentialSANI' in globals() and useSequentialSANI:
+		import EISANIpt_EISANImodelSequential as _modelSeq
+		layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, None, 0, initActivation)
+	else:
+		import EISANIpt_EISANImodelSummation as _modelSum
+		layerActivations = _modelSum.summationSANIpassHiddenLayers(model, False, initActivation)
+
+	# Aggregate logits over configured hidden layers
+	C = int(model.config.numberOfClasses)
+	B = int(x.size(0))
+	logits = pt.zeros((B, C), device=x.device, dtype=pt.float32)
+	actLayerIndex = 0
+	for layerIdSuperblock in range(recursiveSuperblocksNumber):
+		for layerIdHidden in range(model.config.numberOfHiddenLayers):
+			isLastLayer = (layerIdSuperblock==recursiveSuperblocksNumber-1) and (layerIdHidden==model.config.numberOfHiddenLayers-1)
+			if (not useOutputConnectionsLastLayer) or isLastLayer:
+				act = layerActivations[actLayerIndex].float()
+				uniqueLayerIndex = model._getUniqueLayerIndex(layerIdSuperblock, layerIdHidden)
+				W = model.outputConnectionMatrix[uniqueLayerIndex].float()
+				logits = logits + act @ W
+			actLayerIndex += 1
+
+	# Cross-entropy (no autograd): -mean log p(y|x)
+	log_probs = pt.log_softmax(logits, dim=1)
+	# Guard against invalid labels (e.g., padding) by clamping
+	y_clamped = y.clamp(min=0, max=C-1)
+	ce = -log_probs[pt.arange(B, device=x.device), y_clamped].mean()
+	return float(ce.item())
 
 
 def rand_index(t: pt.Tensor) -> int:
@@ -243,17 +281,17 @@ def _propose_change(model):
 					return change
 			return None
 	else:
-		# Dynamic: single random connection between existing neurons
+		# Dynamic: propose single random addition or flip
 		i = int(pt.randint(layerSize, (1,), device=pt.device('cpu')).item())
 		j = int(pt.randint(prevSize,  (1,), device=pt.device('cpu')).item())
 		if useSparseHiddenMatrix:
 			co = mat.coalesce()
 			idx = co.indices()
 			vals = co.values()
-			mask = (idx[0] == i) & (idx[1] == j)
-			if mask.any():
-				# flip existing
-				kpos = int(mask.nonzero(as_tuple=False)[0, 0].item())
+			mask_ij = (idx[0] == i) & (idx[1] == j)
+			if mask_ij.any():
+				# flip existing single connection
+				kpos = int(mask_ij.nonzero(as_tuple=False)[0, 0].item())
 				old_val = bool(vals[kpos].item())
 				return {
 					'type': 'flip_existing_sparse',
@@ -264,7 +302,7 @@ def _propose_change(model):
 					'old': old_val,
 				}
 			else:
-				# add new with random sign (True=>+1, False=>-1)
+				# add a single random connection
 				val_bool = bool(int(pt.randint(2, (1,), device=pt.device('cpu')).item()))
 				return {
 					'type': 'add_new_sparse',
