@@ -302,3 +302,12 @@ c) The code provided is more suitable for useDynamicGeneratedHiddenConnections=F
 
 ... 
 [LREANNpt_SUANN.py code]
+
+---
+useStochasticUpdates (Codex IDE GPT5 prompt);
+
+I want you to perform a major upgrade to useStochasticUpdates that should also solve this issue;
+a) When useStochasticUpdates=True, I want every hidden neuron in the network to be connected to every output neuron (use a dense matrix).
+b) When useStochasticUpdates=True, the output connections are learnt by performing single layer backprop between the output neurons (classes) and every hidden neuron in the network.
+
+Please also confirm that you understand the purpose of useStochasticUpdates and why I am performing this upgrade.

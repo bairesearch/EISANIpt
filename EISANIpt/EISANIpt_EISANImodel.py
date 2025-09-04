@@ -226,6 +226,20 @@ class EISANImodel(nn.Module):
 			else:
 				self.outputConnectionMatrix: List[torch.Tensor] = [torch.zeros(outConnShape, dtype=dtype_out, device=device) for _ in range(self.numberUniqueHiddenLayers)]
 
+			# -------------------------------------------------------------
+			# Stochastic mode: dense, fully-connected outputs with random init
+			# -------------------------------------------------------------
+			if useStochasticUpdates:
+				def _init_dense_output():
+					W = torch.empty(outConnShape, dtype=torch.float32, device=device)
+					torch.nn.init.uniform_(W, -0.01, 0.01)
+					return W
+				if(useOutputConnectionsLastLayer):
+					self.outputConnectionMatrix = [None for _ in range(self.numberUniqueHiddenLayers)]
+					self.outputConnectionMatrix[self.numberUniqueHiddenLayers-1] = _init_dense_output()
+				else:
+					self.outputConnectionMatrix = [_init_dense_output() for _ in range(self.numberUniqueHiddenLayers)]
+
 		# -------------------------------------------------------------
 		# limitConnections
 		# -------------------------------------------------------------

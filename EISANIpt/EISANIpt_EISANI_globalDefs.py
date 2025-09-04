@@ -177,6 +177,8 @@ else:
 	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)
 	# Number of stochastic proposals per batch (heuristic: reuse generation count)
 	stochasticUpdatesPerBatch = 10	#numberNeuronSegmentsGeneratedPerSample
+	# Learning rate for dense output-layer backprop when useStochasticUpdates=True
+	stochasticOutputLearningRate = 0.05
 
 	useConnectionWeights = True	 #mandatory: True: use sparse or dense weight tensors
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
@@ -233,6 +235,7 @@ else:
 	else:
 		recursiveSuperblocksNumber = 1
 	generateConnectionsAfterPropagating = True	#default: True
+	
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False
@@ -286,6 +289,9 @@ else:
 	else:
 		useOutputConnectionsNormalised = True	#uses tanh to normalise output connection weights between 0 and 1
 		useOutputConnectionsNormalisationRange = 1.0	#divide tanh input by useOutputConnectionsNormalisationRange
+	# In stochastic mode, train dense output weights directly; disable normalisation
+	if(useStochasticUpdates):
+		useOutputConnectionsNormalised = False
 
 if(useSequentialSANIactivationStrength):
 	assert useBinaryOutputConnections == False
