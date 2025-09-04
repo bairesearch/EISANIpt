@@ -64,7 +64,14 @@ def encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
 			B, L = x.shape
 			x = x.view(B, L)
 
-	if useContinuousVarEncodeMethod=="grayCode":
+	if useStochasticUpdates:
+		use_direct_binary = True
+	else:
+		use_direct_binary = False
+
+	if use_direct_binary:
+		encoded_bits_list = binary_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
+	elif useContinuousVarEncodeMethod=="grayCode":
 		encoded_bits_list = gray_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
 	elif useContinuousVarEncodeMethod=="thermometer":
 		encoded_bits_list = thermometer_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
@@ -89,6 +96,41 @@ def encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
 			code = code.reshape(B, L*E*numBits)
 
 	return code
+
+def binary_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
+	"""Direct binary encoding (batch, features, bits).
+
+	Maps continuous values to integer levels then bit-slices directly. Boolean features pass-through as 1-bit.
+	Designed to provide, on average, balanced 0/1 per bit for uniformly distributed inputs.
+	"""
+	batch_size, num_features = x.shape
+	device = x.device
+
+	# Identify Boolean columns
+	isBool = torch.zeros(num_features, dtype=torch.bool, device=device)
+	if encodeDatasetBoolValuesAs1Bit and fieldTypeList:
+		limit = min(num_features, len(fieldTypeList))
+		isBool[:limit] = torch.tensor([ft == 'bool' for ft in fieldTypeList[:limit]], device=device)
+
+	# Boolean bits
+	boolBits = x[:, isBool].float()
+
+	# Continuous -> integer levels -> bit-slice
+	if (~isBool).any():
+		xCont = x[:, ~isBool]
+		intLevels = continuous_to_int(self, xCont, numBits, minVal, maxVal)  # (batch, nCont)
+		bitPos = torch.arange(numBits, device=device)
+		contBits = ((intLevels.unsqueeze(-1) >> bitPos) & 1).float()  # (batch, nCont, numBits)
+	else:
+		contBits = x.new_empty(batch_size, 0, numBits)
+
+	# Interleave back
+	encoded_bits_list: list[torch.Tensor] = []
+	bool_iter = iter(boolBits.unbind(dim=1))
+	cont_iter = iter(contBits.unbind(dim=1))
+	for flag in isBool:
+		encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
+	return encoded_bits_list
 
 def gray_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
 	"""Vectorised Gray-code encoding (batch, features, bits) with no costly Python loop."""
