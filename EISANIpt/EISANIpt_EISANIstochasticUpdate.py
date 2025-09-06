@@ -19,11 +19,14 @@ Based on LREANNpt_SUANN.py
 
 """
 
+import torch as pt
 from ANNpt_globalDefs import *
 import EISANIpt_EISANImodel
 import EISANIpt_EISANImodelContinuousVarEncoding
-import torch as pt
-
+if useSequentialSANI:
+	import EISANIpt_EISANImodelSequential as _modelSeq
+else:
+	import EISANIpt_EISANImodelSummation as _modelSum
 
 # -------------------------------------------------------------
 # Stochastic update wrapper (trial-and-keep)
@@ -82,11 +85,9 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 		if initActivation is None:
 			return EISANIpt_EISANImodel.Loss(1.0), 0.0
 		# Get hidden activations without triggering any dynamic growth
-		if 'useSequentialSANI' in globals() and useSequentialSANI:
-			import EISANIpt_EISANImodelSequential as _modelSeq
+		if useSequentialSANI:
 			layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, batchIndex, 0, initActivation)
 		else:
-			import EISANIpt_EISANImodelSummation as _modelSum
 			layerActivations = _modelSum.summationSANIpassHiddenLayers(model, False, initActivation)
 
 		# Build logits and collect per-layer activations for gradient update
@@ -115,13 +116,14 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 		probs = pt.softmax(logits, dim=1)
 		y_onehot = pt.nn.functional.one_hot(y, num_classes=C).to(probs.dtype)
 		delta = (probs - y_onehot) / max(1, B)
-		lr = float(stochasticOutputLearningRate) if 'stochasticOutputLearningRate' in globals() else 0.05
+		lr = stochasticOutputLearningRate
 		for act, lidx in zip(per_layer_acts, per_layer_idx):
 			grad = act.t() @ delta
 			model.outputConnectionMatrix[lidx] = model.outputConnectionMatrix[lidx].float().add_( -lr * grad )
 
-		return EISANIpt_EISANImodel.Loss(1.0 - float(accuracy)), float(accuracy)
-
+		loss = EISANIpt_EISANImodel.Loss(1.0 - float(accuracy))
+		accuracy = float(accuracy)
+		return loss, accuracy
 
 def _score_batch_cross_entropy(model, x, y) -> float:
 	"""Compute a smooth loss (mean cross-entropy) from current hidden weights.
@@ -135,11 +137,9 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 	initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
 	if initActivation is None:
 		return 1.0
-	if 'useSequentialSANI' in globals() and useSequentialSANI:
-		import EISANIpt_EISANImodelSequential as _modelSeq
+	if useSequentialSANI:
 		layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, None, 0, initActivation)
 	else:
-		import EISANIpt_EISANImodelSummation as _modelSum
 		layerActivations = _modelSum.summationSANIpassHiddenLayers(model, False, initActivation)
 
 	# Aggregate logits over configured hidden layers

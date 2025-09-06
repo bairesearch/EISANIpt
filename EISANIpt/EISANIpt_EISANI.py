@@ -80,6 +80,8 @@ def createModel(dataset):
 			print("\t\t datasetTestRows = ", datasetTestRows)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)
+		print("\t stochasticUpdatesPerBatch = ", stochasticUpdatesPerBatch)
+		print("\t stochasticOutputLearningRate = ", stochasticOutputLearningRate)
 		
 		
 	config = EISANIpt_EISANImodel.EISANIconfig(
