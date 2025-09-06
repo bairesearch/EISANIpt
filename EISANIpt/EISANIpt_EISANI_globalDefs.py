@@ -171,14 +171,18 @@ if(useSequentialSANI):
 else:
 	debugSequentialSANIactivationsLoops = False
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
-	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
+	debugEISANIdynamicUsage = True	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 
+	debugStochasticUpdates = False
 	# Stochastic update option: try random independent connection changes
 	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)
 	# Number of stochastic proposals per batch (heuristic: reuse generation count)
-	stochasticUpdatesPerBatch = 10	#numberNeuronSegmentsGeneratedPerSample
+	stochasticUpdatesPerBatch = 100	#numberNeuronSegmentsGeneratedPerSample
 	# Learning rate for dense output-layer backprop when useStochasticUpdates=True
-	stochasticOutputLearningRate = 0.05
+	stochasticOutputLearningRate = 0.005	#0.05
+	# Optional bias toward earlier layers during stochastic hidden-layer sampling.
+	# 0.0 => uniform over hidden layers; >0 => weight ~ 1/(i+1)^bias
+	stochasticLayerBias = 0.0
 
 	useConnectionWeights = True	 #mandatory: True: use sparse or dense weight tensors
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
@@ -205,12 +209,16 @@ else:
 	if(useEIneurons):
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
-	if(useDynamicGeneratedHiddenConnections):
-		hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
-		initialiseSANIlayerWeightsUsingCPU = False
+	if(useStochasticUpdates):
+		hiddenLayerSizeSANI = 100000
+		trainNumberOfEpochs = 1000
 	else:
-		hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
-		initialiseSANIlayerWeightsUsingCPU = False 	#optional
+		if(useDynamicGeneratedHiddenConnections):
+			hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
+			initialiseSANIlayerWeightsUsingCPU = False
+		else:
+			hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
+			initialiseSANIlayerWeightsUsingCPU = False 	#optional
 
 	if(useDefaultSegmentSizeParam):
 		numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation

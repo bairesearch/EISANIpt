@@ -61,14 +61,17 @@ def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers
 	if(useSequentialSANI):
 		hiddenLayerSizeSANI = -1	#hidden layers are dynamically sized [input layer == encodedFeatureSize = sequenceLength*EISANINLPcontinuousVarEncodingNumBits]
 	else:
-		if(useDynamicGeneratedHiddenConnections):
-			datasetSizeRounded = round_up_to_power_of_2(datasetSize)
-			hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
-		else:
+		if(useStochasticUpdates):
 			hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
-		if(recursiveLayers):
-			maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
-			hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer
+		else:
+			if(useDynamicGeneratedHiddenConnections):
+				datasetSizeRounded = round_up_to_power_of_2(datasetSize)
+				hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+			else:
+				hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+			if(recursiveLayers):
+				maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
+				hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer
 	return hiddenLayerSizeSANI
 		
 class EISANIconfig():

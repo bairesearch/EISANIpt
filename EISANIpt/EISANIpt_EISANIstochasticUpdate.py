@@ -48,13 +48,11 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 
 		trials = max(1, int(stochasticUpdatesPerBatch))
 		for trialIndex in range(trials):
-			print("trialIndex = ", trialIndex)
 			# Specification (updated): always propose a RANDOM change.
 			# - Static: flip a single random existing connection.
 			# - Dynamic: choose a random (i,j); if absent add a single new connection with random sign,
 			#            else flip the sign of the existing connection.
 			change = _propose_change(model)
-			print("proposed change = ", change)
 			if change is None:
 				continue
 
@@ -62,8 +60,12 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 			# Score with outputs frozen; no model() call to avoid any side-effects
 			# such as optional stats updates. Evaluate CE over current logits.
 			new_loss = _score_batch_cross_entropy(model, x, y)
-			print("new_loss = ", new_loss)
-			print("best_loss = ", best_loss)
+
+			if(debugStochasticUpdates):
+				print("trialIndex = ", trialIndex)
+				print("proposed change = ", change)
+				print("new_loss = ", new_loss)
+				print("best_loss = ", best_loss)
 
 			if new_loss < best_loss:
 				# keep the change, update baseline
@@ -204,18 +206,29 @@ def update_weight(model, idx: int, backup, name: str, p, e, loss1, loss2):
 # -------------------------------------------------------------
 
 def _get_prev_layer_size(model, hiddenLayerIdx: int) -> int:
-	# For non-sequential summation model: first hidden layer connects from encodedFeatureSize
-	if hiddenLayerIdx == 0:
-		return int(model.encodedFeatureSize)
-	else:
-		return int(model.config.hiddenLayerSize)
+	"""Return the input size feeding into `hiddenLayerIdx`.
 
+	This inspects the shape of the existing hidden connection matrix so it
+	works for any layer index (eg. with recursive or dynamically generated
+	layers) rather than assuming only the first layer differs in size.
+	"""
+	mat = model.hiddenConnectionMatrix[hiddenLayerIdx][0]
+	return int(mat.shape[1])
 
 def _choose_random_layer_and_segment(model):
-	# Focus early growth on the first hidden layer so new inputs can
-	# actually propagate. This avoids proposing changes on deeper layers
-	# that have no upstream activation yet.
-	hiddenLayerIdx = 0
+	"""Select a random hidden layer and segment for a proposal.
+
+	By default layers are selected uniformly from the range
+	``[0, model.numberUniqueHiddenLayers)``.  If a global variable
+	``stochasticLayerBias`` (>0) is defined, earlier layers are favoured by
+	weighting the sampling probability as ``1/(i+1)**stochasticLayerBias``.
+	"""
+	if stochasticLayerBias and stochasticLayerBias > 0:
+		weights = pt.tensor([1.0 / ((i + 1) ** stochasticLayerBias) for i in range(model.numberUniqueHiddenLayers)], dtype=pt.float32)
+		probs = weights / weights.sum()
+		hiddenLayerIdx = int(pt.multinomial(probs, 1).item())
+	else:
+		hiddenLayerIdx = int(pt.randint(model.numberUniqueHiddenLayers, (1,), device=pt.device('cpu')).item())
 	seg = int(pt.randint(numberOfSegmentsPerNeuron, (1,), device=pt.device('cpu')).item())
 	return hiddenLayerIdx, seg
 
@@ -324,6 +337,7 @@ def _propose_change(model):
 					'i': i,
 					'j': j,
 					'val': val,
+					'old': 0,
 				}
 			else:
 				return {
