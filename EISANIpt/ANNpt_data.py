@@ -274,41 +274,41 @@ if(useTabularDataset):
 		return dataset
 
 	def normaliseDataset(dataset):
-		print("normaliseDataset:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
-		datasetSize = getDatasetSize(dataset)
-		for featureIndex, featureName in enumerate(list(dataset.features)):
-			#print("featureIndex = ", featureIndex)
-			if(featureName != classFieldName):
-				fieldType = dataset.features[featureName]
-				if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
-					continue #skip normalisation for boolean fields
-				if(datasetCorrectMissingValues):
-					featureDataList = []
-					for i in range(datasetSize):
-						row = dataset[i]
-						featureCell = row[featureName]
-						if(featureCell == None):
-							featureCell = 0
-						featureDataList.append(featureCell)
-				else:
-					featureDataList = dataset[featureName]
-				featureData = np.array(featureDataList)
-				#print("featureData = ", featureData)
-				if(datasetNormaliseMinMax):
-					featureMin = np.amin(featureData)
-					featureMax = np.amax(featureData)
-					#if(featureMax - featureMin == 0):
-					#	print("warning: (featureMax - featureMin == 0)")
-					featureData = (featureData - featureMin) / (featureMax - featureMin + 1e-8) #featureData/featureMax
-				elif(datasetNormaliseStdAvg):
-					featureMean = np.mean(featureData)
-					featureStd = np.std(featureData)
-					featureData = featureData-featureMean
-					featureData = featureData/featureStd
-				featureDataList = featureData.tolist()
-				dataset = dataset.remove_columns(featureName)
-				dataset = dataset.add_column(featureName, featureDataList)
-		return dataset
+                print("normaliseDataset:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
+                featureNames = []
+                for featureName, fieldType in dataset.features.items():
+                        if featureName == classFieldName:
+                                continue
+                        if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
+                                continue
+                        featureNames.append(featureName)
+
+                featureStats = {}
+                for featureName in featureNames:
+                        if(datasetCorrectMissingValues):
+                                featureData = np.array([0 if v is None else v for v in dataset[featureName]], dtype=np.float32)
+                        else:
+                                featureData = np.array(dataset[featureName], dtype=np.float32)
+                        if(datasetNormaliseMinMax):
+                                featureStats[featureName] = (np.amin(featureData), np.amax(featureData))
+                        elif(datasetNormaliseStdAvg):
+                                featureStats[featureName] = (np.mean(featureData), np.std(featureData))
+
+                def _normalise_batch(batch):
+                        for featureName in featureNames:
+                                data = np.array(batch[featureName], dtype=np.float32)
+                                if(datasetCorrectMissingValues):
+                                        data = np.nan_to_num(data)
+                                if(datasetNormaliseMinMax):
+                                        fmin, fmax = featureStats[featureName]
+                                        batch[featureName] = ((data - fmin) / (fmax - fmin + 1e-8)).tolist()
+                                elif(datasetNormaliseStdAvg):
+                                        fmean, fstd = featureStats[featureName]
+                                        batch[featureName] = ((data - fmean) / (fstd + 1e-8)).tolist()
+                        return batch
+
+                dataset = dataset.map(_normalise_batch, batched=True)
+                return dataset
 
 	def repeatDataset(dataset):
 		datasetSize = getDatasetSize(dataset)
