@@ -31,7 +31,7 @@ def createModel(dataset):
 	numberOfFeatures = ANNpt_data.countNumberFeatures(dataset)	#note "numberOfFeatures" is the raw continuous var input (without x-bit encoding)	#not used
 	numberOfClasses, numberOfClassSamples = ANNpt_data.countNumberClasses(dataset)
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
-	hiddenLayerSizeSANI = EISANIpt_EISANImodel.generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers)
+	hiddenLayerSizeSANI = EISANIpt_EISANImodel.generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers, hiddenLayerSize)
 
 	if(printEISANImodelProperties):
 		print("Creating new model:")

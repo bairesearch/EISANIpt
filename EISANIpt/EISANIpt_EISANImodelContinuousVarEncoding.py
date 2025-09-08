@@ -64,12 +64,7 @@ def encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
 			B, L = x.shape
 			x = x.view(B, L)
 
-	if useStochasticUpdates:
-		use_direct_binary = True
-	else:
-		use_direct_binary = False
-
-	if use_direct_binary:
+	if useContinuousVarEncodeMethod=="directBinary":
 		encoded_bits_list = binary_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
 	elif useContinuousVarEncodeMethod=="grayCode":
 		encoded_bits_list = gray_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
@@ -129,7 +124,7 @@ def binary_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVa
 	bool_iter = iter(boolBits.unbind(dim=1))
 	cont_iter = iter(contBits.unbind(dim=1))
 	for flag in isBool:
-		encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
+		encoded_bits_list.append(next(bool_iter).unsqueeze(1) if flag else next(cont_iter))	
 	return encoded_bits_list
 
 def gray_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
@@ -161,7 +156,7 @@ def gray_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal:
 	bool_iter = iter(boolBits.unbind(dim=1))									# each - (batch,)
 	cont_iter = iter(contBits.unbind(dim=1))								# each - (batch, numBits)
 	for flag in isBool:														# trivial loop
-		encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
+		encoded_bits_list.append(next(bool_iter).unsqueeze(1) if flag else next(cont_iter))
 	return encoded_bits_list
 
 def thermometer_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
@@ -188,7 +183,7 @@ def thermometer_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVa
 	bool_iter = iter(boolBits.unbind(dim=1))
 	cont_iter = iter(contBits.unbind(dim=1))
 	for flag in isBool:
-		encoded_bits_list.append(next(bool_iter) if flag else next(cont_iter))
+		encoded_bits_list.append(next(bool_iter).unsqueeze(1) if flag else next(cont_iter))
 	return encoded_bits_list
 
 def continuous_to_int(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:

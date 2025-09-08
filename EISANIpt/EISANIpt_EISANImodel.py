@@ -56,13 +56,13 @@ def getNumberUniqueHiddenLayers(recursiveLayers, recursiveSuperblocksNumber, num
 		numberUniqueHiddenLayers = numberOfHiddenLayers
 	return numberUniqueHiddenLayers
 
-def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers):
+def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers, numberOfConvlayers, hiddenLayerSize):
 	numberOfHiddenLayers = generateNumberHiddenLayers(numberOfLayers, numberOfConvlayers)
 	if(useSequentialSANI):
 		hiddenLayerSizeSANI = -1	#hidden layers are dynamically sized [input layer == encodedFeatureSize = sequenceLength*EISANINLPcontinuousVarEncodingNumBits]
 	else:
 		if(useStochasticUpdates):
-			hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+			hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
 		else:
 			if(useDynamicGeneratedHiddenConnections):
 				datasetSizeRounded = round_up_to_power_of_2(datasetSize)

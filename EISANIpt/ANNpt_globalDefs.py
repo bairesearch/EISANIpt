@@ -47,6 +47,7 @@ else:
 usePairedDataset = False
 datasetNormalise = False
 datasetRepeat = False
+datasetRepeatEpochModifier = '/'	#default: '/'	#orig: 'None'
 datasetRepeatSize = 1
 datasetShuffle = False	#automatically performed by generateVICRegANNpairedDatasets
 datasetOrderByClass = False	#automatically performed by generateVICRegANNpairedDatasets
@@ -139,7 +140,6 @@ dataloaderRepeatSampler = False
 dataloaderRepeatLoop = False		#legacy (depreciate)
 debugCullDatasetSamples = False
 
-
 #import algorithm specific globalDefs;
 useTabularDataset = False
 useImageDataset = False
@@ -214,6 +214,7 @@ if(useTabularDataset):
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 144	#default: 144	#orig: 144	#old 800	#144=288/2 [input features padded / 2]
 		numberOfSamplesK = 52.4
+		datasetEqualiseClassSamples = False	#extremely imbalanced classes
 	elif(datasetName == 'titanic'):
 		datasetNameFull = 'victor/titanic'
 		classFieldName = '2urvived'
@@ -229,7 +230,6 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10
-			trainNumberOfEpochs //= 10
 	elif(datasetName == 'red-wine'):
 		datasetNameFull = 'lvwerra/red-wine'
 		classFieldName = 'quality'
@@ -244,7 +244,6 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10
-			trainNumberOfEpochs //= 10
 	elif(datasetName == 'breast-cancer-wisconsin'):
 		datasetNameFull = 'scikit-learn/breast-cancer-wisconsin'
 		classFieldName = 'diagnosis'
@@ -262,7 +261,6 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10	#required for batchSize ~= 64
-			trainNumberOfEpochs //= 10
 	elif(datasetName == 'diabetes-readmission'):
 		datasetNameFull = 'imodels/diabetes-readmission'
 		classFieldName = 'readmitted'
@@ -339,7 +337,6 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10	#required for batchSize ~= 64
-			trainNumberOfEpochs //= 10
 		numberOfSamplesK = 0.215*datasetRepeatSize
 	#elif ...
 
@@ -347,7 +344,14 @@ if(useTabularDataset):
 		datasetShuffle = True	#default: True	#required for high dataloader initialisation efficiency with large datasets
 		dataloaderShuffle = False	#default: False	#required for high dataloader initialisation efficiency with large datasets
 		disableDatasetCache = True	#default: False #requires high CPU ram	#prevents large cache from being created on disk #only suitable with datasetLocalFile
-		
+	
+	if(datasetRepeat):
+		if(datasetRepeatEpochModifier == '*'):	#equalise the number of samples between datasets trained
+			trainNumberOfEpochs *= datasetRepeatSize
+		elif(datasetRepeatEpochModifier == '/'):	#use the original number of samples for each dataset during training
+			trainNumberOfEpochs //= datasetRepeatSize
+		elif(datasetRepeatEpochModifier == 'none'):
+			pass			
 	if(dataloaderRepeat):
 		dataloaderRepeatSize = 10	#number of repetitions
 		dataloaderRepeatLoop = False	#legacy (depreciate)
@@ -429,11 +433,6 @@ if(useAlgorithmEISANI):
 		numberOfLayers += 1
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = 100
-	if(useMultipleTrainEpochsSmallDatasetsOnly):
-		if(datasetName in ['titanic', 'red-wine', 'breast-cancer-wisconsin', 'new-thyroid']):
-			trainNumberOfEpochs = 10
-		else:
-			trainNumberOfEpochs = 1
 				
 	if(not useDefaultNumLayersParam):
 		numberOfLayers = numberOfLayers*2

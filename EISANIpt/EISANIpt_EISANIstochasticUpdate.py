@@ -44,46 +44,46 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 	"""
 
 	with pt.no_grad():
-		# Baseline: use a more sensitive scoring function than discrete accuracy
-		# so that small random changes in hidden connections can be detected
-		# even when predictions (argmax) do not flip.
-		best_loss = _score_batch_cross_entropy(model, x, y)
+	
+		if not debugStochasticUpdatesDisableGrowth:
+			# Baseline: use a more sensitive scoring function than discrete accuracy
+			# so that small random changes in hidden connections can be detected
+			# even when predictions (argmax) do not flip.
+			best_loss = _score_batch_cross_entropy(model, x, y)
 
-		trials = max(1, int(stochasticUpdatesPerBatch))
-		for trialIndex in range(trials):
-			# Specification (updated): always propose a RANDOM change.
-			# - Static: flip a single random existing connection.
-			# - Dynamic: choose a random (i,j); if absent add a single new connection with random sign,
-			#            else flip the sign of the existing connection.
-			change = _propose_change(model)
-			if change is None:
-				continue
+			trials = max(1, int(stochasticUpdatesPerBatch))
+			for trialIndex in range(trials):
+				# Specification (updated): always propose a RANDOM change.
+				# - Static: flip a single random existing connection.
+				# - Dynamic: choose a random (i,j); if absent add a single new connection with random sign,
+				#            else flip the sign of the existing connection.
+				change = _propose_change(model)
+				if change is None:
+					continue
 
-			_apply_change(model, change)
-			# Score with outputs frozen; no model() call to avoid any side-effects
-			# such as optional stats updates. Evaluate CE over current logits.
-			new_loss = _score_batch_cross_entropy(model, x, y)
+				_apply_change(model, change)
+				# Score with outputs frozen; no model() call to avoid any side-effects
+				# such as optional stats updates. Evaluate CE over current logits.
+				new_loss = _score_batch_cross_entropy(model, x, y)
 
-			if(debugStochasticUpdates):
-				print("trialIndex = ", trialIndex)
-				print("proposed change = ", change)
-				print("new_loss = ", new_loss)
-				print("best_loss = ", best_loss)
+				if(debugStochasticUpdates):
+					print("trialIndex = ", trialIndex)
+					print("proposed change = ", change)
+					print("new_loss = ", new_loss)
+					print("best_loss = ", best_loss)
 
-			if new_loss < best_loss:
-				# keep the change, update baseline
-				best_loss = new_loss
-				_finalise_change(model, change, keep=True)
-			else:
-				# revert
-				_finalise_change(model, change, keep=False)
+				if new_loss < best_loss:
+					# keep the change, update baseline
+					best_loss = new_loss
+					_finalise_change(model, change, keep=True)
+				else:
+					# revert
+					_finalise_change(model, change, keep=False)
 
 		# Dense output-layer backprop: fully-connected hidden->output when useStochasticUpdates
 		# Compute hidden activations once, update dense output weights with a single-layer SGD step,
 		# and report accuracy/loss based on current logits.
 		initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
-		if initActivation is None:
-			return EISANIpt_EISANImodel.Loss(1.0), 0.0
 		# Get hidden activations without triggering any dynamic growth
 		if useSequentialSANI:
 			layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, batchIndex, 0, initActivation)

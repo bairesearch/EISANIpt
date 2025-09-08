@@ -167,6 +167,7 @@ if(useSequentialSANI):
 	useCPU = False
 else:
 	debugStochasticUpdates = False
+	debugStochasticUpdatesDisableGrowth = False
 	debugSequentialSANIactivationsLoops = False
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
@@ -178,6 +179,7 @@ else:
 
 	if(useStochasticUpdates):
 		useDynamicGeneratedHiddenConnections = False	#default: False
+		#useContinuousVarEncodeMethod = "directBinary" #orig
 	else:
 		useDynamicGeneratedHiddenConnections = True	#default: True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 	if(useDynamicGeneratedHiddenConnections):
@@ -205,8 +207,8 @@ else:
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
 	if(useStochasticUpdates):
-		hiddenLayerSizeSANI = 10000		#sparse networks require significantly more hidden layer neurons than dense networks (regardless of useStochasticUpdates)
-		trainNumberOfEpochs = 100	#useStochasticUpdates applied to sparse network currently requires significantly more epochs to train
+		hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
+		trainNumberOfEpochs = 10	#useStochasticUpdates applied to sparse network currently requires significantly more epochs to train
 	else:
 		if(useDynamicGeneratedHiddenConnections):
 			hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
@@ -248,7 +250,8 @@ if(useInitOrigParam):
 	useOutputConnectionsLastLayer = False	
 	datasetEqualiseClassSamples = False	
 	datasetEqualiseClassSamplesTest = False	
-	useMultipleTrainEpochsSmallDatasetsOnly = True #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
+	trainNumberOfEpochs = 1 #emulate original dataset repeat x10 and epochs x10 for 4 small datasets (titanic, red-wine, breast-cancer-wisconsin, new-thyroid)
+	datasetRepeatEpochModifier = '*'
 	limitConnections = False
 	useBinaryOutputConnectionsEffective = False
 	useOutputConnectionsNormalised = False
@@ -261,7 +264,10 @@ else:
 	useOutputConnectionsLastLayer = False	#use output connections only from last hidden layer to output neurons
 	datasetEqualiseClassSamples = True	#default: True		#optional - advantage depends on dataset class distribution
 	datasetEqualiseClassSamplesTest = False	#default: False	
-	useMultipleTrainEpochsSmallDatasetsOnly = False
+	trainNumberOfEpochs = 10
+	datasetRepeatEpochModifier = '/'
+	if(useStochasticUpdates):
+		datasetRepeatEpochModifier = 'None'	#default: 'None'
 	useBinaryOutputConnectionsEffective = False	
 	limitConnections = False
 	if(limitConnections):
