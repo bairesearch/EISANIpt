@@ -167,16 +167,18 @@ if(useSequentialSANI):
 	useCPU = False
 else:
 	debugStochasticUpdates = False
-	debugStochasticUpdatesDisableGrowth = False
 	debugSequentialSANIactivationsLoops = False
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 
 	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
-	stochasticUpdatesPerBatch = 10	#default: 10	#number of stochastic proposals per batch
-	stochasticOutputLearningRate = 0.005	#default: 0.005	#learning rate for dense output-layer backprop when useStochasticUpdates=True
-	stochasticLayerBias = 0.0	#if bias=0 select random layer	#optional bias toward earlier layers during stochastic hidden-layer sampling	#0.0 => uniform over hidden layers; >0 => weight ~ 1/(i+1)^bias
-
+	if(useStochasticUpdates):
+		useStochasticUpdatesHiddenUnitLearning = False	#default: False	#orig: True
+		stochasticHiddenUpdatesPerBatch = 100	#default: 10	#number of hidden unit stochastic proposals per batch
+		stochasticOutputLearningRate = 0.001	#default: 0.005	#learning rate for dense output-layer backprop when useStochasticUpdates=True
+		stochasticLayerBias = 0.0	#if bias=0 select random layer	#optional bias toward earlier layers during stochastic hidden-layer sampling	#0.0 => uniform over hidden layers; >0 => weight ~ 1/(i+1)^bias
+		useDefaultNumNeuronSegmentsParam = False	#set EISANITABcontinuousVarEncodingNumBits=16
+		
 	if(useStochasticUpdates):
 		useDynamicGeneratedHiddenConnections = False	#default: False
 		#useContinuousVarEncodeMethod = "directBinary" #orig
@@ -207,8 +209,7 @@ else:
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
 	if(useStochasticUpdates):
-		hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
-		trainNumberOfEpochs = 10	#useStochasticUpdates applied to sparse network currently requires significantly more epochs to train
+		hiddenLayerSizeSANImultiplier = 1000	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
 	else:
 		if(useDynamicGeneratedHiddenConnections):
 			hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
@@ -264,10 +265,12 @@ else:
 	useOutputConnectionsLastLayer = False	#use output connections only from last hidden layer to output neurons
 	datasetEqualiseClassSamples = True	#default: True		#optional - advantage depends on dataset class distribution
 	datasetEqualiseClassSamplesTest = False	#default: False	
-	trainNumberOfEpochs = 10
-	datasetRepeatEpochModifier = '/'
 	if(useStochasticUpdates):
+		trainNumberOfEpochs = 100	#useStochasticUpdates applied to sparse network currently requires significantly more epochs to train
 		datasetRepeatEpochModifier = 'None'	#default: 'None'
+	else:
+		trainNumberOfEpochs = 10
+		datasetRepeatEpochModifier = '/'
 	useBinaryOutputConnectionsEffective = False	
 	limitConnections = False
 	if(limitConnections):

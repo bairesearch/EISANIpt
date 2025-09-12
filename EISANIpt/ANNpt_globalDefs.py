@@ -338,7 +338,8 @@ if(useTabularDataset):
 		if(datasetRepeat):
 			datasetRepeatSize = 10	#required for batchSize ~= 64
 		numberOfSamplesK = 0.215*datasetRepeatSize
-	#elif ...
+	else:
+		printe("error: datasetName undefined")
 
 	if(datasetLocalFileOptimise):
 		datasetShuffle = True	#default: True	#required for high dataloader initialisation efficiency with large datasets
@@ -348,9 +349,12 @@ if(useTabularDataset):
 	if(datasetRepeat):
 		if(datasetRepeatEpochModifier == '*'):	#equalise the number of samples between datasets trained
 			trainNumberOfEpochs *= datasetRepeatSize
+			print("1 trainNumberOfEpochs = ", trainNumberOfEpochs)
 		elif(datasetRepeatEpochModifier == '/'):	#use the original number of samples for each dataset during training
 			trainNumberOfEpochs //= datasetRepeatSize
-		elif(datasetRepeatEpochModifier == 'none'):
+			print("2 trainNumberOfEpochs = ", trainNumberOfEpochs)
+		elif(datasetRepeatEpochModifier == 'None'):
+			print("3 trainNumberOfEpochs = ", trainNumberOfEpochs)
 			pass			
 	if(dataloaderRepeat):
 		dataloaderRepeatSize = 10	#number of repetitions

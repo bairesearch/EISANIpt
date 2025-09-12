@@ -67,10 +67,10 @@ def createModel(dataset):
 		print("\t useOutputConnectionsNormalised = ", useOutputConnectionsNormalised)
 		if(limitConnections and limitOutputConnections):
 			print("\t limitOutputConnectionsBasedOnPrevalence = ", limitOutputConnectionsBasedOnPrevalence)
-			print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)
+			print("\t limitOutputConnectionsBasedOnAccuracy = ", limitOutputConnectionsBasedOnAccuracy)	
 		if(useNLPDataset):
 			print("\t ---")
-			print("\t useNLPDataset:")
+			print("\t useNLPDataset:")	
 			print("\t\t evalOnlyUsingTimeInvariance = ", evalOnlyUsingTimeInvariance)
 			print("\t\t evalStillTrainOutputConnections = ", evalStillTrainOutputConnections)
 			print("\t\t sequentialSANItimeInvariance = ", sequentialSANItimeInvariance)
@@ -80,9 +80,11 @@ def createModel(dataset):
 			print("\t\t datasetTestRows = ", datasetTestRows)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)
-		print("\t stochasticUpdatesPerBatch = ", stochasticUpdatesPerBatch)
-		print("\t stochasticOutputLearningRate = ", stochasticOutputLearningRate)
-		
+		if(useStochasticUpdates):
+			print("\t\t useStochasticUpdatesHiddenUnitLearning = ", useStochasticUpdatesHiddenUnitLearning)
+			print("\t\t stochasticHiddenUpdatesPerBatch = ", stochasticHiddenUpdatesPerBatch)
+			print("\t\t stochasticOutputLearningRate = ", stochasticOutputLearningRate)
+
 		
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,

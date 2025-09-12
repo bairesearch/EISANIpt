@@ -45,13 +45,13 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 
 	with pt.no_grad():
 	
-		if not debugStochasticUpdatesDisableGrowth:
+		if useStochasticUpdatesHiddenUnitLearning:
 			# Baseline: use a more sensitive scoring function than discrete accuracy
 			# so that small random changes in hidden connections can be detected
 			# even when predictions (argmax) do not flip.
 			best_loss = _score_batch_cross_entropy(model, x, y)
 
-			trials = max(1, int(stochasticUpdatesPerBatch))
+			trials = max(1, int(stochasticHiddenUpdatesPerBatch))
 			for trialIndex in range(trials):
 				# Specification (updated): always propose a RANDOM change.
 				# - Static: flip a single random existing connection.
