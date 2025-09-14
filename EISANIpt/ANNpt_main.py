@@ -71,7 +71,8 @@ def main():
 		model = ANNpt_algorithm.createModel(dataset[datasetSplitNameTrain])	#dataset[datasetSplitNameTest] not possible as test does not contain all classes
 		processDataset(True, dataset[datasetSplitNameTrain], model)
 	if(stateTestDataset):
-		model = loadModel()
+		if not stateTrainDataset:
+			model = loadModel()
 		processDataset(False, dataset[datasetSplitNameTest], model)
 
 def createOptimizer():
@@ -232,7 +233,8 @@ def processDataset(trainOrTest, dataset, model):
 			if(not debugLimitConnectionsSequentialSANI):
 				model.executePostTrainPrune(trainOrTest)
 
-		saveModel(model)
+		if(saveModelTrain and trainOrTest):
+			saveModel(model)
 		
 	#if(useAlgorithmEISANI):
 	#	model.executePostTrainPrune(trainOrTest)
@@ -250,8 +252,9 @@ def trainBatch(batchIndex, batch, model, optim, l=None, fieldTypeList=None):
 		if(usePositiveWeightsClampModel):
 			ANNpt_linearSublayers.weightsSetPositiveModel(model)
 
-	if(batchIndex % modelSaveNumberOfBatches == 0):
-		saveModel(model)
+	if(saveModelTrainContinuous):
+		if(batchIndex % modelSaveNumberOfBatches == 0):
+			saveModel(model)
 	loss = loss.item()
 	
 	return loss, accuracy

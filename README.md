@@ -8,11 +8,11 @@ Richard Bruce Baxter - Copyright (c) 2025 Baxter AI (baxterai.com)
 
 Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) network for PyTorch - experimental
 
-#### EISANI Algorithm
+#### EISANI Summation Input Algorithm
 
-##### Comparison with SANI
+##### Comparison with SANI Sequential Input Algorithm
 
-The EISANI algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
+The EISANI summation activated neuronal input algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
 
 1. tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
 2. both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
@@ -74,11 +74,11 @@ source activate pytorchsenv
 python ANNpt_main.py
 ```
 
-## EISANI vs Backprop performance
+## EISANI vs Backprop performance (useDynamicGeneratedHiddenConnections=True)
 
 ![EISANIbackpropTestAccuracy-SMALL.png](https://github.com/bairesearch/EIANNpt/blob/master/graph/EISANIbackpropTestAccuracy-SMALL.png?raw=true)
 
-Tests conducted with default settings;
+Tests conducted with settings `useInitOrigParam`, `useDefaultNumNeuronSegmentsParam`, `useDefaultSegmentSizeParam`, `useDefaultNumLayersParam`;
 ```
 useDynamicGeneratedHiddenConnections = True
 useDynamicGeneratedHiddenConnectionsVectorised = True
@@ -103,4 +103,26 @@ To increase train/test performance, increase;
 continuousVarEncodingNumBits
 hiddenLayerSizeSANI
 numberNeuronsGeneratedPerSample
+```
+
+## EISANI vs Backprop performance (useDynamicGeneratedHiddenConnections=False)
+
+![untrainedEISANIbackpropTestAccuracy-SMALL.png](https://github.com/bairesearch/EIANNpt/blob/master/graph/untrainedEISANIbackpropTestAccuracy-SMALL.png?raw=true)
+
+Tests conducted with settings `useDefaultSegmentSizeParam`;
+```
+useDynamicGeneratedHiddenConnections = False
+useStochasticUpdates = True
+trainNumberOfEpochs = 10
+stochasticOutputLearningRate = 0.0005
+useDefaultNumLayersParam = False
+useEIneurons = False
+useSparseMatrix = True
+numberOfSynapsesPerSegment = 5
+useGrayCode = True
+continuousVarEncodingNumBits = 8
+continuousVarMin = 0.0
+continuousVarMax = 1.0
+segmentActivationThreshold = 0
+useBinaryOutputConnections = False
 ```

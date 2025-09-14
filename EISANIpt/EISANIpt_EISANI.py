@@ -48,6 +48,11 @@ def createModel(dataset):
 		print("\t datasetRepeatSize = ", datasetRepeatSize)
 		print("\t trainNumberOfEpochs = ", trainNumberOfEpochs)
 		print("\t ---")
+		#print("\t useDefaultNumNeuronSegmentsParam = ", useDefaultNumNeuronSegmentsParam)
+		#print("\t useDefaultSegmentSizeParam = ", useDefaultSegmentSizeParam)
+		print("\t useDefaultNumLayersParam = ", useDefaultNumLayersParam)
+		#print("\t useInitOrigParam = ", useInitOrigParam)
+		print("\t ---")
 		print("\t batchSize = ", batchSize)
 		print("\t numberOfLayers = ", numberOfLayers)
 		print("\t numberOfConvlayers = ", numberOfConvlayers)
@@ -84,7 +89,8 @@ def createModel(dataset):
 			print("\t\t useStochasticUpdatesHiddenUnitLearning = ", useStochasticUpdatesHiddenUnitLearning)
 			print("\t\t stochasticHiddenUpdatesPerBatch = ", stochasticHiddenUpdatesPerBatch)
 			print("\t\t stochasticOutputLearningRate = ", stochasticOutputLearningRate)
-
+			print("\t\t hiddenLayerSizeSANImultiplier = ", hiddenLayerSizeSANImultiplier)
+			
 		
 	config = EISANIpt_EISANImodel.EISANIconfig(
 		batchSize = batchSize,

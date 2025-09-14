@@ -135,9 +135,8 @@ def compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, de
 
 def segmentActivationFunction(self, z_all_segments):
     # When using stochastic updates, treat any positive net input as a fire.
-    # Otherwise use the configured segmentActivationThreshold.
     if useStochasticUpdates:
-        segment_fires = z_all_segments > 0
+        segment_fires = z_all_segments > segmentActivationThreshold
     else:
         segment_fires = z_all_segments >= segmentActivationThreshold
     return segment_fires

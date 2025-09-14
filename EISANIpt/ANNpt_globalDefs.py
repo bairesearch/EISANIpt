@@ -34,6 +34,9 @@ useAlgorithmFFANN = False
 stateTrainDataset = True
 stateTestDataset = True
 
+saveModelTrain = True
+saveModelTrainContinuous = True
+
 #cloud execution;
 useCloudExecution = False	#jupyter notebook does not support long cmd output
 if(useCloudExecution):
@@ -363,6 +366,8 @@ if(useTabularDataset):
 		if(dataloaderRepeatSampler):
 			dataloaderRepeatSamplerCustom = False	#no tqdm visualisation
 			assert not dataloaderShuffle	#dataloaderShuffle is not supported by dataloaderRepeatSampler
+	
+	saveModelTrainContinuous = False
 elif(useImageDataset):
 	datasetName = "CIFAR10"	#currently assume CIFAR-10 dataset	#expected test accuracy: ~91%
 	numberOfClasses = 10
