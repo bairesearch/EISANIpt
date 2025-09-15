@@ -38,6 +38,8 @@ limitOutputConnectionsBasedOnAccuracySoftmax = False
 evalStillTrainOutputConnections = False
 debugOnlyPrintStreamedWikiArticleTitles = False
 useSlidingWindow = False
+targetActivationSparsityFraction = -1
+numberNeuronSegmentsGeneratedPerSample = -1
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -58,6 +60,15 @@ elif(useImageDataset):
 	else:
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False	#mandatory: False	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 	trainNumberOfEpochsHigh = False	#default: False
+	EISANICNNkernelAllPermutations = False	#orig: True
+	if(EISANICNNkernelAllPermutations):
+		EISANICNNkernelTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
+	else:
+		EISANICNNkernelTernary = True	#Ternary = +1, 0, -1 weights	#no effect on number of permutations
+		if(EISANICNNkernelTernary):
+			EISANICNNkernelActivationThreshold = 0	#3
+		else:
+			EISANICNNkernelActivationThreshold = 0	#3
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
@@ -161,7 +172,6 @@ if(useSequentialSANI):
 	
 	#for print only;
 	EISANITABcontinuousVarEncodingNumBits = -1	#not used
-	numberNeuronSegmentsGeneratedPerSample = -1	#not used
 	recursiveLayers = False	#not used
 	recursiveSuperblocksNumber = 1	#not used
 	useCPU = False
@@ -171,8 +181,9 @@ else:
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 
-	useStochasticUpdates = True	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
+	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
 	if(useStochasticUpdates):
+		#useStochasticUpdates is the new default method for useDynamicGeneratedHiddenConnections=False (uses output layer backprop learning)
 		useStochasticUpdatesHiddenUnitLearning = False	#default: False	#orig: True
 		stochasticHiddenUpdatesPerBatch = 100	#default: 10	#number of hidden unit stochastic proposals per batch
 		stochasticOutputLearningRate = 0.0005	#default: 0.0005	#learning rate for dense output-layer backprop when useStochasticUpdates=True
@@ -198,14 +209,17 @@ else:
 	numberOfSegmentsPerNeuron = 1 #number of segments per neuron
 	segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based on dataset index. Using 0 as a placeholder.
 
-	targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
+	if(useDynamicGeneratedHiddenConnections):
+		targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 
 	if(useDefaultNumNeuronSegmentsParam):
 		EISANITABcontinuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronSegmentsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
-		numberNeuronSegmentsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
+		if(useDynamicGeneratedHiddenConnections):
+			numberNeuronSegmentsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
 	else:
 		EISANITABcontinuousVarEncodingNumBits = 16	#default: 16
-		numberNeuronSegmentsGeneratedPerSample = 50
+		if(useDynamicGeneratedHiddenConnections):
+			numberNeuronSegmentsGeneratedPerSample = 50
 	if(useEIneurons):
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
@@ -222,14 +236,16 @@ else:
 	if(useDefaultSegmentSizeParam):
 		numberOfSynapsesPerSegment = 5	#default: 5	#exp: 15	#number of input connections per neuron "segment"; there is 1 segment per neuron in this implementation
 		segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
-		useActiveBias = True	#bias positive (ceil) for odd k
 		if(not useInhibition):
 			numberOfSynapsesPerSegment = numberOfSynapsesPerSegment-1
+		if useDynamicGeneratedHiddenConnections: 
+			useActiveBias = True	#bias positive (ceil) for odd k
 	else:
 		numberOfSynapsesPerSegment = 3	#default: 3
 		segmentActivationThreshold = 2	#default: 2 #allowing for 1 non inhibited mismatch redundancy
-		useActiveBias = False
-		numberNeuronSegmentsGeneratedPerSample = numberNeuronSegmentsGeneratedPerSample*2
+		if useDynamicGeneratedHiddenConnections: 
+			useActiveBias = False
+			numberNeuronSegmentsGeneratedPerSample = numberNeuronSegmentsGeneratedPerSample*2
 		#if !useDynamicGeneratedHiddenConnections: useDefaultNumLayersParam = False	#disable to increase number of layers
 	if(useStochasticUpdates):
 		segmentActivationThreshold = 0

@@ -352,12 +352,9 @@ if(useTabularDataset):
 	if(datasetRepeat):
 		if(datasetRepeatEpochModifier == '*'):	#equalise the number of samples between datasets trained
 			trainNumberOfEpochs *= datasetRepeatSize
-			print("1 trainNumberOfEpochs = ", trainNumberOfEpochs)
 		elif(datasetRepeatEpochModifier == '/'):	#use the original number of samples for each dataset during training
 			trainNumberOfEpochs //= datasetRepeatSize
-			print("2 trainNumberOfEpochs = ", trainNumberOfEpochs)
 		elif(datasetRepeatEpochModifier == 'None'):
-			print("3 trainNumberOfEpochs = ", trainNumberOfEpochs)
 			pass			
 	if(dataloaderRepeat):
 		dataloaderRepeatSize = 10	#number of repetitions
@@ -381,6 +378,8 @@ elif(useImageDataset):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
 		else:
 			batchSize = 1	#default: 1
+		if(not EISANICNNkernelAllPermutations):
+			batchSize = batchSize*16
 		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
 			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
 		else:

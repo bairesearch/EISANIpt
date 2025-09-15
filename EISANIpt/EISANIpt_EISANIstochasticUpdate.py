@@ -108,7 +108,7 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 					per_layer_acts.append(act)
 					per_layer_idx.append(uniqueLayerIndex)
 				actLayerIndex += 1
-
+		
 		pred = pt.argmax(logits, dim=1)
 		correct = (pred == y).sum().item()
 		accuracy = correct / max(1, y.size(0))

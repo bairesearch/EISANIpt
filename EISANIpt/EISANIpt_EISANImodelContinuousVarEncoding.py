@@ -22,7 +22,9 @@ from ANNpt_globalDefs import *
 import torch.nn.functional as F
 if(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
-
+elif(useImageDataset):
+	import EISANIpt_EISANImodelCNN
+	
 # -------------------------------------------------------------
 # Continuous var encoding as bits
 # -------------------------------------------------------------

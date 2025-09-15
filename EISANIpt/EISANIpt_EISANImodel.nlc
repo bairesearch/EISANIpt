@@ -312,12 +312,61 @@ b) When useStochasticUpdates=True, the output connections are learnt by performi
 
 Please also confirm that you understand the purpose of useStochasticUpdates and why I am performing this upgrade.
 
+	---
+	useStochasticUpdates (Codex IDE GPT5 prompt);
+
+	upgrade useStochasticUpdates such that the input layer is initialised with (on average) equal numbers of active and inactive neurons. update continuousVarEncoding to convert input to float of size EISANICNNcontinuousVarEncodingNumBits, then convert directly to binary.
+
+	---
+	useStochasticUpdates (Codex IDE GPT5 prompt);
+
+	upgrade useStochasticUpdates - the neuron activation function fires when input activation is above 0, else it does not fire
+
 ---
-useStochasticUpdates (Codex IDE GPT5 prompt);
+useImageDataset (GPT5 prompt);
 
-upgrade useStochasticUpdates such that the input layer is initialised with (on average) equal numbers of active and inactive neurons. update continuousVarEncoding to convert input to float of size EISANICNNcontinuousVarEncodingNumBits, then convert directly to binary.
+Please add the code for case EISANICNNkernelAllPermutations=False. This new code defines 9 CNN kernel weights representing 9 unique orientations (each at a unique +45deg incremented rotation). This design specification is loosely based on the orientation pinwheel receptive fields observed in human visual cortex layer 1 (V1).
 
----
-useStochasticUpdates (Codex IDE GPT5 prompt);
+kernel #1 (0 deg);
++1 +1 +1
++1 +1 +1
+-1 -1 -1
 
-upgrade useStochasticUpdates - the neuron activation function fires when input activation is above 0, else it does not fire
+kernel #2 (45 deg);
++1 +1 +1
+-1 +1 +1
+-1 -1 +1
+
+kernel #3 (90 deg);
+-1 +1 +1
+-1 +1 +1
+-1 +1 +1
+
+etc
+etc
+etc
+etc
+etc
+etc
+
+[EISANIpt_EISANImodelCNN.py:_init_conv_layers() code]
+
+	---
+	useImageDataset (GPT5 prompt);
+	
+	Can you also provide code for this modified kernel specification;
+
+	kernel #1 (0 deg);
+	+1 +1 +1
+	0 0 0
+	-1 -1 -1
+
+	kernel #2 (45 deg);
+	0 +1 +1
+	-1 0 +1
+	-1 -1 0
+
+	kernel #3 (90 deg);
+	-1 0 +1
+	-1 0 +1
+	-1 0 +1

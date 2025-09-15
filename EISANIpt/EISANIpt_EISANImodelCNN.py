@@ -39,9 +39,60 @@ def _init_conv_layers(self) -> None:
 	"""
 	assert CNNkernelSize == 3 and CNNstride == 1, "Only 33 stride-1 kernels supported in this implementation"
 
-	# --- generate every possible 3 ï¿½ 3 BINARY mask (+1 / 0)
-	all_patterns = torch.tensor(list(itertools.product([0, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
-	all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
+	if(EISANICNNkernelAllPermutations):
+		# --- generate every possible 3 x 3 BINARY mask (+1 / -1)
+		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
+		all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
+	else:
+		if(EISANICNNkernelTernary):
+			# Oriented 3×3 kernels with a zero "band" along the orientation axis.
+			# Matches the modified spec:
+			# 0°:    top +1, middle  0, bottom -1
+			# 45°:   j>i => +1,  i=j => 0,  j<i => -1   (main diagonal is 0)
+			# 90°:   right col +1, middle col 0, left col -1
+			# 135°:  i+j<4 => +1, i+j=4 => 0,  i+j>4 => -1  (anti-diagonal is 0)
+			# 180°:  top -1, middle 0, bottom +1
+			# 225°:  j<i => +1,  i=j => 0,  j>i => -1
+			# 270°:  left col +1, middle col 0, right col -1
+			# 315°:  i+j>4 => +1, i+j=4 => 0,  i+j<4 => -1
+			# 360°:  duplicate of 0° to make 9 kernels (not used)
+			i = torch.arange(1, 4, device=device).view(3, 1).expand(3, 3)  # 1..3
+			j = torch.arange(1, 4, device=device).view(1, 3).expand(3, 3)  # 1..3
+			def tmask(pos_cond: torch.Tensor, zero_cond: torch.Tensor) -> torch.Tensor:
+				# returns +1 where pos_cond, 0 where zero_cond, else -1
+				return torch.where(
+					zero_cond, torch.zeros(3, 3, device=device),
+					torch.where(pos_cond, torch.ones(3, 3, device=device), -torch.ones(3, 3, device=device))
+				)
+			k0   = tmask(pos_cond=(i==1),          zero_cond=(i==2))
+			k45  = tmask(pos_cond=(j>i),           zero_cond=(i==j))
+			k90  = tmask(pos_cond=(j==3),          zero_cond=(j==2))
+			k135 = tmask(pos_cond=(i+j<4),         zero_cond=(i+j==4))
+			k180 = tmask(pos_cond=(i==3),          zero_cond=(i==2))
+			k225 = tmask(pos_cond=(j<i),           zero_cond=(i==j))
+			k270 = tmask(pos_cond=(j==1),          zero_cond=(j==2))
+			k315 = tmask(pos_cond=(i+j>4),         zero_cond=(i+j==4))
+			#k360 = k0.clone()
+			all_patterns = torch.stack([k0, k45, k90, k135, k180, k225, k270, k315]).reshape(8, -1)
+		else:
+			# V1 pinwheel-inspired: 9 oriented 3×3 (+1/-1) kernels at +45° steps.
+			# The first three match the spec (0°, 45°, 90°). We continue through
+			# 135°, 180°, 225°, 270°, 315°, and include 360° (= 0°) to total 9.
+			i = torch.arange(1, 4).view(3, 1).expand(3, 3)  # row indices 1..3
+			j = torch.arange(1, 4).view(1, 3).expand(3, 3)  # col indices 1..3
+			def mask(cond: torch.Tensor) -> torch.Tensor:
+				return torch.where(cond, torch.ones(3, 3), -torch.ones(3, 3))
+			k0	 = mask(i <= 2)        # 0°   : rows 1-2 positive, row 3 negative
+			k45	 = mask(j >= i)        # 45°  : upper-right triangle positive
+			k90	 = mask(j >= 2)        # 90°  : cols 2-3 positive, col 1 negative
+			k135 = mask(i + j <= 4)    # 135° : upper-left triangle positive
+			k180 = mask(i >= 2)        # 180° : rows 2-3 positive, row 1 negative
+			k225 = mask(j <= i)        # 225° : lower-left triangle positive
+			k270 = mask(j <= 2)        # 270° : cols 1-2 positive, col 3 negative
+			k315 = mask(i + j >= 4)    # 315° : lower-right triangle positive
+			#k360 = k0.clone()          # 360° : identical to 0° (included to make 9)
+			all_patterns = torch.stack([k0, k45, k90, k135, k180, k225, k270, k315]).reshape(8, -1)
+ 
 	self.convKernels = all_patterns.view(-1, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)	# (2**9)-1=511 out-channel
 	self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
 	print("self.convKernels.shape = ", self.convKernels.shape)
@@ -58,7 +109,10 @@ def _init_conv_layers(self) -> None:
 			# use *ceil* division (same as F.max_pool2d(..., ceil_mode=True))
 			H = (H + 1) // 2	#orig: H //= 2
 			W = (W + 1) // 2	#orig: W //= 2
-		ch *= (2**9)-1							# each conv multiplies channels by 511
+		if(EISANICNNkernelAllPermutations):
+			ch *= (2**9)-1							# each conv multiplies channels by 511
+		else:
+			ch *= 8	# each conv multiplies channels by 8
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 	encodedFeatureSizeMax = ch * H * W
 	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
@@ -253,14 +307,18 @@ def sparse_conv(self, convLayerIndex, x, b_idx, c_idx, B, C) -> torch.Tensor:
 	patch_sum   = F.conv2d(x_active.float(), ones_kernel, stride=1, padding=1)  # [N_active,1,H,W]
 	patch_sum   = patch_sum.repeat(1, O, 1, 1)           # broadcast to (N_active,O,H,W)
 
-	# ---------- exact-pattern match  (= AND =) ----------------------------
 	mask_sum_broad = mask_sums.view(1, O, 1, 1)
-	convOut = ((overlap == mask_sum_broad) & (patch_sum == mask_sum_broad))
-
-	if(EISANICNNoptimisationAssumeInt8):
-		convOut = convOut.to(torch.int8)
+	if EISANICNNkernelAllPermutations:
+		# ---------- exact-pattern match  (= AND =) ----------------------------
+		# exact-pattern match (binary detector)
+		convOut = ((overlap == mask_sum_broad) & (patch_sum == mask_sum_broad))
+		if EISANICNNoptimisationAssumeInt8:
+			convOut = convOut.to(torch.int8)
+		else:
+			convOut = convOut.float()
 	else:
-		convOut = convOut.float()
+		# ---------- thresholded activation function ----------------------------
+		convOut = (overlap > EISANICNNkernelActivationThreshold).to(torch.float32)
 	
 	#print("convOut.sum() = ", convOut.sum())
 	
@@ -402,11 +460,14 @@ def dense_conv(self, x: torch.Tensor) -> torch.Tensor:
 	patch_sum = F.conv2d(x.float(), ones_kernel, stride=1, groups=C)  # (B,C,H',W')
 	patch_sum = patch_sum.repeat_interleave(K, dim=1)              # (B,C*K,H',W')
 
-	# ---------- exact match : both equalities ---------------------
-	match = ((overlap == mask_sums.view(1, -1, 1, 1)) &
-	         (patch_sum == mask_sums.view(1, -1, 1, 1)))
-
-	match = match.to(torch.int8 if EISANICNNoptimisationAssumeInt8 else torch.float32)
+	if EISANICNNkernelAllPermutations:
+		# ---------- exact match : both equalities ---------------------
+		match = ((overlap == mask_sums.view(1, -1, 1, 1)) &
+				 (patch_sum == mask_sums.view(1, -1, 1, 1)))
+		match = match.to(torch.int8 if EISANICNNoptimisationAssumeInt8 else torch.float32)
+	else:
+		# ---------- thresholded activation function ---------------------
+		match = (overlap > EISANICNNkernelActivationThreshold).to(torch.float32)
 
 	B, Cnew, *spatial = match.shape
 	return match, B, Cnew
