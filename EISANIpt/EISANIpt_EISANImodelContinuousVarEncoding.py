@@ -35,8 +35,11 @@ def continuousVarEncoding(self, x):
 		initActivation = encoded.to(torch.int8)
 		numSubsamples = 1
 	elif useImageDataset:
-		encoded = encodeContinuousVarsAsBits(self, x)
-		initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers(self, encoded)	# (batch, encodedFeatureSize) int8
+		if(EISANICNNuseBinaryInput):
+			encoded = encodeContinuousVarsAsBits(self, x)
+			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_binary(self, encoded)	# (batch, encodedFeatureSize) int8
+		else:
+			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_float(self, x)	# (batch, encodedFeatureSize) int8
 	elif useNLPDataset:
 		#print("x.shape = ", x.shape)
 		#print("x = ", x)

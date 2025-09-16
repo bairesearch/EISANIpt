@@ -57,15 +57,20 @@ elif(useImageDataset):
 	trainNumberOfEpochsHigh = False	#default: False
 	EISANICNNkernelAllPermutations = False	#orig: True
 	if(EISANICNNkernelAllPermutations):
+		EISANICNNuseBinaryInput = True
 		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 		EISANICNNkernelTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
+		EISANICNNactivationFunction = True	#mandatory
 	else:
+		EISANICNNuseBinaryInput = False
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False
-		EISANICNNkernelTernary = True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
+		EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
+		EISANICNNkernelTernary = False	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
 		if(EISANICNNkernelTernary):
 			EISANICNNkernelActivationThreshold = 0	#3
 		else:
 			EISANICNNkernelActivationThreshold = 0	#3
+		EISANICNNactivationFunction = True
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
