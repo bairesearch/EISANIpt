@@ -380,17 +380,11 @@ elif(useImageDataset):
 			batchSize = 1	#default: 1
 		if(not EISANICNNkernelAllPermutations):
 			batchSize = 64	#1024	#64
-		if(EISANICNNdynamicallyGenerateLinearInputFeatures):
-			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
-		else:
-			numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
-		numberOfLinearLayers = 3
-		numberOfLayers = numberOfConvlayers+numberOfLinearLayers
 	else:
 		batchSize = 128	 #default: 128	#orig: 64
 		numberOfConvlayers = 6	#rest will be linear	#orig: 2	#default: 2, 4, 6
 		numberOfLinearLayers = 3
-		numberOfLayers = numberOfConvlayers+numberOfLinearLayers	#counts hidden and output layers (not input layer)
+	numberOfLayers = numberOfConvlayers+numberOfLinearLayers	#counts hidden and output layers (not input layer)
 	numberInputImageChannels = 3	#default: CIFAR-10 channels
 	inputImageHeight = 32	#default: CIFAR-10 image size
 	inputImageWidth = 32	#default: CIFAR-10 image size
@@ -441,9 +435,10 @@ if(useAlgorithmEISANI):
 		numberOfLayers += 1
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = 100
-				
-	if(not useDefaultNumLayersParam):
-		numberOfLayers = numberOfLayers*2
+	
+	if(useTabularDataset):			
+		if(not useDefaultNumLayersParam):	#useImageDataset etc does not support posthoc modification of numberOfLayers
+			numberOfLayers = numberOfLayers*2
 else:
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = trainNumberOfEpochs*4

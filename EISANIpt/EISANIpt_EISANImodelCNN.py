@@ -90,9 +90,14 @@ def _init_conv_layers(self) -> None:
 	ch = numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits
 	print(f"conv0: channels={ch}, H={H}, W={W}")
 	for layerIdx in range(self.config.numberOfConvlayers):
-		H = H - CNNkernelSize + 1			# stride 1 conv
-		W = W - CNNkernelSize + 1
-		if CNNmaxPool:
+		if EISANICNNpaddingPolicy=='same':
+			# 3x3 stride-1, same padding -> H,W unchanged
+			pass
+		else:
+			# 'valid' conv (no padding)	# stride 1 conv
+			H = H - CNNkernelSize + 1
+			W = W - CNNkernelSize + 1
+		if CNNmaxPool and ((layerIdx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 			# use *ceil* division (same as F.max_pool2d(..., ceil_mode=True))
 			H = (H + 1) // 2	#orig: H //= 2
 			W = (W + 1) // 2	#orig: W //= 2
@@ -101,6 +106,7 @@ def _init_conv_layers(self) -> None:
 		else:
 			ch *= EISANICNNnumberKernelOrientations	# each conv multiplies channels by EISANICNNnumberKernelOrientations
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
+		
 	encodedFeatureSizeMax = ch * H * W
 	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
 		self.encodedFeatureSize = encodedFeatureSizeDefault	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
@@ -127,7 +133,7 @@ if(EISANICNNuseBinaryInput):
 				z, b_idx, c_idx, B, C = sparse_conv(self, convLayerIndex, z, b_idx, c_idx, B, C)
 			else:
 				z, B, C = dense_conv(self, z)
-			if CNNmaxPool:
+			if CNNmaxPool and ((convLayerIndex + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				if EISANICNNoptimisationSparseConv and convLayerIndex > 0:
 					z = sparse_maxpool2d(self, z, kernel_size=2, stride=2)
 				else:
@@ -297,17 +303,13 @@ if(EISANICNNuseBinaryInput):
 		patch_sum   = patch_sum.repeat(1, O, 1, 1)           # broadcast to (N_active,O,H,W)
 
 		mask_sum_broad = mask_sums.view(1, O, 1, 1)
-		if EISANICNNkernelAllPermutations:
-			# ---------- exact-pattern match  (= AND =) ----------------------------
-			# exact-pattern match (binary detector)
-			convOut = ((overlap == mask_sum_broad) & (patch_sum == mask_sum_broad))
-			if EISANICNNoptimisationAssumeInt8:
-				convOut = convOut.to(torch.int8)
-			else:
-				convOut = convOut.float()
+		# ---------- exact-pattern match  (= AND =) ----------------------------
+		# exact-pattern match (binary detector)
+		convOut = ((overlap == mask_sum_broad) & (patch_sum == mask_sum_broad))
+		if EISANICNNoptimisationAssumeInt8:
+			convOut = convOut.to(torch.int8)
 		else:
-			# ---------- thresholded activation function ----------------------------
-			convOut = (overlap > EISANICNNkernelActivationThreshold).to(torch.float32)
+			convOut = convOut.float()
 
 		#print("convOut.sum() = ", convOut.sum())
 
@@ -443,20 +445,16 @@ if(EISANICNNuseBinaryInput):
 		# ---------- overlap = how many mask-ones are present ----------
 		overlap = F.conv2d(x.float(), kernels, stride=1, groups=C)     # (B,C*K,H',W')
 
-		if EISANICNNkernelAllPermutations:
-			# ---------- patch_sum = how many ones in *entire* patch -------
-			ones_kernel = torch.ones_like(self.convKernels[:1])            # (1,1,3,3)
-			ones_kernel = ones_kernel.repeat(C, 1, 1, 1)                   # (C,1,3,3)
-			patch_sum = F.conv2d(x.float(), ones_kernel, stride=1, groups=C)  # (B,C,H',W')
-			patch_sum = patch_sum.repeat_interleave(K, dim=1)              # (B,C*K,H',W')
+		# ---------- patch_sum = how many ones in *entire* patch -------
+		ones_kernel = torch.ones_like(self.convKernels[:1])            # (1,1,3,3)
+		ones_kernel = ones_kernel.repeat(C, 1, 1, 1)                   # (C,1,3,3)
+		patch_sum = F.conv2d(x.float(), ones_kernel, stride=1, groups=C)  # (B,C,H',W')
+		patch_sum = patch_sum.repeat_interleave(K, dim=1)              # (B,C*K,H',W')
 
-			# ---------- exact match : both equalities ---------------------
-			match = ((overlap == mask_sums.view(1, -1, 1, 1)) &
-					 (patch_sum == mask_sums.view(1, -1, 1, 1)))
-			match = match.to(torch.int8 if EISANICNNoptimisationAssumeInt8 else torch.float32)
-		else:
-			# ---------- thresholded activation function ---------------------
-			match = (overlap > EISANICNNkernelActivationThreshold).to(torch.float32)
+		# ---------- exact match : both equalities ---------------------
+		match = ((overlap == mask_sums.view(1, -1, 1, 1)) &
+				 (patch_sum == mask_sums.view(1, -1, 1, 1)))
+		match = match.to(torch.int8 if EISANICNNoptimisationAssumeInt8 else torch.float32)
 
 		B, Cnew, *spatial = match.shape
 		return match, B, Cnew
@@ -466,23 +464,31 @@ else:
 	def propagate_conv_layers_float(self, x: torch.Tensor) -> torch.Tensor:
 		"""
 		Full image pipeline:
-		 - repeat {conv -> (optional) max-pool} `numberOfConvlayers` times
+		 - repeat {conv -> (activation) -> (optional max-pool every Q layers)} numberOfConvlayers times
 		 - flatten to (batch, -1) int8
+		Notes:
+		 - Activation is applied *every* layer (right after conv).
+		 - Max-pool runs only when (layerIndex+1) % Q == 0 (typical Q=2).
 		"""
 		z = x
 		for convLayerIndex in range(self.config.numberOfConvlayers):
+			# Valid 3x3, stride=1 grouped conv (reduces H,W by 2 per layer)
 			z, B, C = conv(self, z)
+
+			# Optional pointwise activation \u2014 executed EVERY layer
 			if EISANICNNactivationFunction:
-				#Optional pointwise activation (defaults to identity)
 				z = apply_cnn_activation(self, z)
-			if CNNmaxPool:
-				# ceil_mode=True to match planner: H=(H+1)//2, W=(W+1)//2
+
+			# Max-pool only every Q layers (ceil_mode matches planner math)
+			if CNNmaxPool and ((convLayerIndex + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				z = F.max_pool2d(z.float(), kernel_size=2, stride=2, ceil_mode=True)
 
-		z = (z >= EISANICNNinputChannelThreshold)
+		# Binarize/threshold channels for the linear stage, then flatten
+		z = (z > EISANICNNinputChannelThreshold)
 		z = z.to(torch.int8)
-		linearInput = z.view(z.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
+		linearInput = z.view(z.size(0), -1)  # (batch, encodedFeatureSize)
 		return linearInput
+
 
 	def conv(self, z: torch.Tensor):
 		"""
@@ -505,6 +511,17 @@ else:
 		weight = kbank.repeat(C_in, 1, 1, 1)
 		# VALID conv: padding=0 (so H_out = H-2, W_out = W-2)
 		y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=0, groups=C_in)
+		
+		if EISANICNNpaddingPolicy == 'same':
+			if EISANICNNpaddingMode == 'zeros':
+				y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=1, groups=C_in)
+			elif EISANICNNpaddingMode == 'reflect':
+				z = F.pad(z.float(), (1, 1, 1, 1), mode=EISANICNNpaddingMode)
+				y = F.conv2d(z, weight, bias=None, stride=1, padding=0, groups=C_in)
+		else:
+			# VALID conv: padding=0 (so H_out = H-2, W_out = W-2)
+			y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=0, groups=C_in)
+
 		return y, B, y.shape[1]
 
 	def apply_cnn_activation(self, z: torch.Tensor) -> torch.Tensor:

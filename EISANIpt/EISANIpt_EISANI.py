@@ -83,6 +83,10 @@ def createModel(dataset):
 			print("\t\t sequentialSANIoverlappingSegments = ", sequentialSANIoverlappingSegments)
 			print("\t\t datasetTrainRows = ", datasetTrainRows)
 			print("\t\t datasetTestRows = ", datasetTestRows)
+		elif(useImageDataset):
+			print("\t ---")
+			print("\t useImageDataset:")	
+			print("\t\t EISANICNNnumberKernelOrientations = ", EISANICNNnumberKernelOrientations)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)
 		if(useStochasticUpdates):

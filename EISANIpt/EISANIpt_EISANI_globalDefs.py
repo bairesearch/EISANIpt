@@ -45,32 +45,45 @@ if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 elif(useImageDataset):
 	debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
+
 	useContinuousVarEncodeMethod = "grayCode"
 	CNNkernelSize = 3
 	CNNstride = 1
 	CNNmaxPool = True
 	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#8	#number of bits to encode image pixels
 	encodedFeatureSizeDefault = 12800000*math.ceil(EISANICNNcontinuousVarEncodingNumBits/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
-	EISANICNNinputChannelThreshold = 0.5
 	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
 	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
 	trainNumberOfEpochsHigh = False	#default: False
-	EISANICNNkernelAllPermutations = False	#orig: True
+	EISANICNNkernelAllPermutations = False	#default: False	#orig: True
 	if(EISANICNNkernelAllPermutations):
+		EISANICNNnumberKernelOrientations = -1
+		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		EISANICNNuseBinaryInput = True
 		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
 		EISANICNNkernelTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
 		EISANICNNactivationFunction = True	#mandatory
+		EISANICNNpaddingPolicy = 'none'
 	else:
+		EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
+		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		EISANICNNuseBinaryInput = False
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False
-		EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
 		EISANICNNkernelTernary = False	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
-		if(EISANICNNkernelTernary):
-			EISANICNNkernelActivationThreshold = 0	#3
-		else:
-			EISANICNNkernelActivationThreshold = 0	#3
-		EISANICNNactivationFunction = True
+		EISANICNNactivationFunction = True	#default: True
+		EISANICNNpaddingPolicy = 'same'	#default: same, orig: none
+		EISANICNNpaddingMode = 'reflect'	#default: reflect #or zeros
+		
+	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
+	else:
+		numberOfConvlayers = 4	#rest will be linear	#default: 2, 4, 6
+	numberOfLinearLayers = 3
+	if(numberOfConvlayers == 2):
+		EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
+	else:
+		EISANICNNmaxPoolEveryQLayers = 2	#default: 2
+		
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
@@ -183,21 +196,18 @@ else:
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of linear layer hidden features used
 
+	#useStochasticUpdates is the new default method for useDynamicGeneratedHiddenConnections=False (uses output layer backprop learning)
 	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
 	if(useStochasticUpdates):
-		#useStochasticUpdates is the new default method for useDynamicGeneratedHiddenConnections=False (uses output layer backprop learning)
 		useStochasticUpdatesHiddenUnitLearning = False	#default: False	#orig: True
 		stochasticHiddenUpdatesPerBatch = 100	#default: 10	#number of hidden unit stochastic proposals per batch
 		if(useImageDataset):
-			if(EISANICNNkernelAllPermutations):
-				stochasticOutputLearningRate = 0.0005	#assume batchSize ~= 1
-			else:
-				stochasticOutputLearningRate = 0.0005	#assume batchSize ~= 64	#assume batchSize ~= 1024: 0.01
+			stochasticOutputLearningRate = 0.0005	#assume batchSize ~= 64	#assume batchSize ~= 1024: 0.01
 		else:
 			stochasticOutputLearningRate = 0.0005	#default: 0.0005	#learning rate for dense output-layer backprop when useStochasticUpdates=True	#assume batchSize ~= 64
+			useDefaultNumLayersParam = False	#disable to increase number of layers (*2)
 		stochasticLayerBias = 0.0	#if bias=0 select random layer	#optional bias toward earlier layers during stochastic hidden-layer sampling	#0.0 => uniform over hidden layers; >0 => weight ~ 1/(i+1)^bias
 		useDefaultNumNeuronSegmentsParam = True	#set EISANITABcontinuousVarEncodingNumBits=8
-		useDefaultNumLayersParam = False	#disable to increase number of layers
 		
 	if(useStochasticUpdates):
 		useDynamicGeneratedHiddenConnections = False	#default: False
@@ -232,7 +242,10 @@ else:
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
 	if(useStochasticUpdates):
-		hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
+		if(useImageDataset):
+			hiddenLayerSizeSANImultiplier = 100	#default: 100
+		else:
+			hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
 	else:
 		if(useDynamicGeneratedHiddenConnections):
 			hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
