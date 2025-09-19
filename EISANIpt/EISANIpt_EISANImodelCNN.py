@@ -44,7 +44,7 @@ def _init_conv_layers(self) -> None:
 		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
 		all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
 	else:
-		# --- Arbitrary-o oriented 3�3 *float* kernels on the given device.
+		# --- Arbitrary-o oriented 3x3 *float* kernels on the given device.
 		# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
 		# Define u (axis-aligned) and v (perpendicular) via rotation:
 		#   u =  X*cos0 + Y*sin0
@@ -169,9 +169,9 @@ if(EISANICNNuseBinaryInput):
 
 		Internals
 		---------
-		• self.cnn_to_linear_map : 1-D LongTensor of length C*H*W
-	    	- maps each flat CNN feature index → fixed linear-layer column (or -1)
-		• self.nextLinearCol     : scalar Python int = first free column index
+		* self.cnn_to_linear_map : 1-D LongTensor of length C*H*W
+	    	- maps each flat CNN feature index -> fixed linear-layer column (or -1)
+		* self.nextLinearCol     : scalar Python int = first free column index
 		These two tensors are created lazily on the first call.
 		"""
 		device = CNNoutputLayerFeatures.device
@@ -211,7 +211,7 @@ if(EISANICNNuseBinaryInput):
 		# ------------------------------------------------------------------ #
 		# 3. Allocate columns for *new* CNN features (pure tensor ops)        #
 		# ------------------------------------------------------------------ #
-		current_cols = self.cnn_to_linear_map[flat_idx]							# (K,) may be −1
+		current_cols = self.cnn_to_linear_map[flat_idx]							# (K,) may be -1
 		new_mask = current_cols.eq(-1)											# bool (K,)
 		if new_mask.any():
 			# Unique flat indices that still need a column
@@ -507,21 +507,49 @@ else:
 		kbank = self.convKernels.to(device).float()
 		assert kbank.ndim == 4 and kbank.shape[1] == 1 and kbank.shape[2:] == (3, 3), f"self.convKernels must be (K,1,3,3); got {tuple(kbank.shape)}"
 		K = kbank.shape[0]
-		# Depthwise replicate bank across input channels \u2192 (C_in*K,1,3,3)
-		weight = kbank.repeat(C_in, 1, 1, 1)
-		# VALID conv: padding=0 (so H_out = H-2, W_out = W-2)
-		y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=0, groups=C_in)
+		
+		# Reshape so that each (batch, channel) pair becomes its own single-channel sample.
+		# This allows us to reuse the kernel bank without repeating it ``C_in`` times and, more
+		# importantly, makes it possible to chunk the convolution along this expanded batch axis
+		# to stay within PyTorch's 32-bit indexing limits.
+		z_contig = z.contiguous()
+		BC = B * C_in
+		z_reshaped = z_contig.view(BC, 1, H, W)
 		
 		if EISANICNNpaddingPolicy == 'same':
-			if EISANICNNpaddingMode == 'zeros':
-				y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=1, groups=C_in)
-			elif EISANICNNpaddingMode == 'reflect':
-				z = F.pad(z.float(), (1, 1, 1, 1), mode=EISANICNNpaddingMode)
-				y = F.conv2d(z, weight, bias=None, stride=1, padding=0, groups=C_in)
+			H_out, W_out = H, W
 		else:
-			# VALID conv: padding=0 (so H_out = H-2, W_out = W-2)
-			y = F.conv2d(z.float(), weight, bias=None, stride=1, padding=0, groups=C_in)
-
+			H_out = H - CNNkernelSize + 1
+			W_out = W - CNNkernelSize + 1
+		
+		int32_max = 2**31 - 1
+		# Determine how many (batch, channel) slices we can process per convolution call
+		# without exceeding 32-bit indexing requirements for either the input or the output.
+		max_slices_input = max(1, int32_max // (H * W))
+		max_slices_output = max(1, int32_max // (K * H_out * W_out))
+		chunk_size = min(BC, max_slices_input, max_slices_output)
+		
+		outputs = []
+		for start in range(0, BC, chunk_size):
+			end = min(start + chunk_size, BC)
+			chunk = z_reshaped[start:end].to(torch.float32)
+			if EISANICNNpaddingPolicy == 'same':
+				if EISANICNNpaddingMode == 'zeros':
+					y_chunk = F.conv2d(chunk, kbank, bias=None, stride=1, padding=1)
+				elif EISANICNNpaddingMode == 'reflect':
+					chunk = F.pad(chunk, (1, 1, 1, 1), mode=EISANICNNpaddingMode)
+					y_chunk = F.conv2d(chunk, kbank, bias=None, stride=1, padding=0)
+				else:
+					printe(f"Unsupported EISANICNNpaddingMode: {EISANICNNpaddingMode}")
+					y_chunk = F.conv2d(chunk, kbank, bias=None, stride=1, padding=1)
+			else:
+				y_chunk = F.conv2d(chunk, kbank, bias=None, stride=1, padding=0)
+			outputs.append(y_chunk)
+		
+		y = torch.cat(outputs, dim=0) if len(outputs) > 1 else outputs[0]
+		y = y.view(B, C_in, K, H_out, W_out)
+		y = y.reshape(B, C_in * K, H_out, W_out)
+		
 		return y, B, y.shape[1]
 
 	def apply_cnn_activation(self, z: torch.Tensor) -> torch.Tensor:
