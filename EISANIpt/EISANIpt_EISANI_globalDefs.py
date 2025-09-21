@@ -30,7 +30,7 @@ useInitOrigParam = False	#use original test parameters
 useTabularDataset = True
 useImageDataset = False
 useNLPDataset = False	#aka useSequenceDataset
-
+		
 #init derived params (do not modify here);
 useSequentialSANI = False
 useSequentialSANIactivationStrength = False
@@ -45,12 +45,15 @@ if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 elif(useImageDataset):
 	debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
-
-	useContinuousVarEncodeMethod = "grayCode"
+	debugEISANICNNprintKernels = True
+	
 	CNNkernelSize = 3
 	CNNstride = 1
 	CNNmaxPool = True
+	useContinuousVarEncodeMethod = "grayCode"
 	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#8	#number of bits to encode image pixels
+	useContinuousVarEncodeMethodAfterCNN = "grayCode"
+	EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 1	#orig: 1
 	encodedFeatureSizeDefault = 12800000*math.ceil(EISANICNNcontinuousVarEncodingNumBits/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
 	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
 	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
@@ -281,7 +284,18 @@ else:
 	else:
 		recursiveSuperblocksNumber = 1
 	generateConnectionsAfterPropagating = True	#default: True
-	
+
+
+if(useTabularDataset):
+	datasetType = "useTabularDataset"
+	EISANIcontinuousVarEncodingNumBits = EISANITABcontinuousVarEncodingNumBits
+elif(useImageDataset):
+	datasetType = "useImageDataset"
+	EISANIcontinuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
+elif(useImageDataset):
+	datasetType = "useNLPDataset"
+	EISANIcontinuousVarEncodingNumBits = EISANINLPcontinuousVarEncodingNumBits
+
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
 	useDynamicGeneratedHiddenConnectionsUniquenessChecks = False

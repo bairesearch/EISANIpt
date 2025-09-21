@@ -31,37 +31,45 @@ elif(useImageDataset):
 
 def continuousVarEncoding(self, x):
 	if useTabularDataset:
-		encoded = encodeContinuousVarsAsBits(self, x)
+		encoded = encodeContinuousVarsAsBitsWrapper(self, x)
 		initActivation = encoded.to(torch.int8)
 		numSubsamples = 1
 	elif useImageDataset:
 		if(EISANICNNuseBinaryInput):
-			encoded = encodeContinuousVarsAsBits(self, x)
-			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_binary(self, encoded)	# (batch, encodedFeatureSize) int8
+			encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_binary(self, encoded)	# (batch, encodedFeatureSize)
 		else:
 			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_float(self, x)	# (batch, encodedFeatureSize) int8
+			if(EISANITABcontinuousVarEncodingNumBitsAfterCNN == 1):
+				# Binarize/threshold channels for the linear stage, then flatten
+				initActivation = (initActivation > EISANICNNinputChannelThreshold)
+			else:
+				initActivation = encodeContinuousVarsAsBits(self, initActivation, "useTabularDataset", useContinuousVarEncodeMethodAfterCNN, EISANITABcontinuousVarEncodingNumBitsAfterCNN, useVectorisedImplementation=True) 
+			initActivation = initActivation.to(torch.int8)	# (batch, encodedFeatureSize) int8
 	elif useNLPDataset:
 		#print("x.shape = ", x.shape)
 		#print("x = ", x)
 		embedding = EISANIpt_EISANImodelNLP.encodeTokensInputIDs(self, x)	# (batch, sequenceLength, embeddingSize) float32
 		#print("embedding.shape = ", embedding.shape)
-		encoded = encodeContinuousVarsAsBits(self, embedding)	#int8	#[batchSize, sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
+		encoded = encodeContinuousVarsAsBitsWrapper(self, embedding)	#int8	#[batchSize, sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
 		#print("encoded = ", encoded)
 		initActivation = encoded.to(torch.int8)
 		#encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()	#sequenceLength*embeddingSize*EISANINLPcontinuousVarEncodingNumBits
 	return initActivation
 
-def encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
-	if(useTabularDataset):
-		numBits = EISANITABcontinuousVarEncodingNumBits
-	if(useImageDataset):
-		numBits = EISANICNNcontinuousVarEncodingNumBits
+def encodeContinuousVarsAsBitsWrapper(self, x: torch.Tensor) -> torch.Tensor:
+	#!useVectorisedImplementation is required for encodeDatasetBoolValuesAs1Bit
+	return encodeContinuousVarsAsBits(self, x, datasetType, useContinuousVarEncodeMethod, EISANIcontinuousVarEncodingNumBits, useVectorisedImplementation=False)	
+		
+def encodeContinuousVarsAsBits(self, x: torch.Tensor, encodeDataset, encodeMethod, numBits, useVectorisedImplementation) -> torch.Tensor:
+	if(encodeDataset=="useTabularDataset"):
+		B, L = x.shape
+	if(encodeDataset=="useImageDataset"):
 		if numBits == 1:
 			return x
 		B, C, H, W = x.shape
 		x = x.view(B, C * H * W)  # Flatten pixel dimensions
-	elif(useNLPDataset):
-		numBits = EISANINLPcontinuousVarEncodingNumBits
+	elif(encodeDataset=="useNLPDataset"):
 		if(useTokenEmbedding):
 			B, L, E = x.shape
 			x = x.view(B, L * E)
@@ -69,33 +77,117 @@ def encodeContinuousVarsAsBits(self, x: torch.Tensor) -> torch.Tensor:
 			B, L = x.shape
 			x = x.view(B, L)
 
-	if useContinuousVarEncodeMethod=="directBinary":
-		encoded_bits_list = binary_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
-	elif useContinuousVarEncodeMethod=="grayCode":
-		encoded_bits_list = gray_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
-	elif useContinuousVarEncodeMethod=="thermometer":
-		encoded_bits_list = thermometer_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
-	elif useContinuousVarEncodeMethod=="onehot":
-		encoded_bits = F.one_hot(x, num_classes=numBits)	# (B, L, numBits)
-
-	if(useTabularDataset):
-		code = torch.cat(encoded_bits_list, dim=1) # Concatenate along the feature/bit dimension	#[B, nCont*numBits]
-	elif(useImageDataset):
-		code = torch.stack(encoded_bits_list, dim=2) 	#[B, C*H*W, EISANICNNcontinuousVarEncodingNumBits]
+	if useVectorisedImplementation:
+		if encodeMethod=="directBinary":
+			encoded_bits = binary_code_encode_vectorised(self, x, numBits, continuousVarMin, continuousVarMax)
+		elif encodeMethod=="grayCode":
+			encoded_bits = gray_code_encode_vectorised(self, x, numBits, continuousVarMin, continuousVarMax)
+		elif encodeMethod=="thermometer":
+			encoded_bits = thermometer_encode_vectorised(self, x, numBits, continuousVarMin, continuousVarMax)
+		elif encodeMethod=="onehot":
+			encoded_bits = F.one_hot(x, num_classes=numBits)	# (B, L, numBits)
+		else:
+			printe("invalid encodeMethod: ", encodeMethod)
+	else:
+		if encodeMethod=="directBinary":
+			encoded_bits_list = binary_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
+		elif encodeMethod=="grayCode":
+			encoded_bits_list = gray_code_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
+		elif encodeMethod=="thermometer":
+			encoded_bits_list = thermometer_encode(self, x, numBits, continuousVarMin, continuousVarMax, self.config.fieldTypeList)
+		elif encodeMethod=="onehot":
+			encoded_bits = F.one_hot(x, num_classes=numBits)	# (B, L, numBits)
+		else:
+			printe("invalid encodeMethod: ", encodeMethod)
+				
+	if(encodeDataset=="useTabularDataset"):
+		if useVectorisedImplementation:
+			code = encoded_bits.reshape(B, -1)	# encoded_bits: [B, nCont, numBits] -> [B, nCont*numBits]
+		else:
+			code = torch.cat(encoded_bits_list, dim=1) # Concatenate along the feature/bit dimension	#[B, nCont*numBits]
+	elif(encodeDataset=="useImageDataset"):
+		if useVectorisedImplementation:
+			pass	#already [B, C*H*W, EISANICNNcontinuousVarEncodingNumBits]
+		else:
+			code = torch.stack(encoded_bits_list, dim=2) 	#[B, C*H*W, EISANICNNcontinuousVarEncodingNumBits]
 		code = code.view(B, C, H, W, numBits)	#unflatten pixel dimensions
 		code = code.permute(0, 1, 4, 2, 3)  # Rearrange dimensions to [B, C, numBits, H, W]
 		code = code.reshape(B, C*numBits, H, W)
-	elif(useNLPDataset):
-		if useContinuousVarEncodeMethod=="onehot":
+	elif(encodeDataset=="useNLPDataset"):
+		if encodeMethod=="onehot":
 			code = encoded_bits.view(B, L, numBits) 	#[B, L*numBits]
 			#FUTURE: update EISANIpt_EISANImodel and EISANIpt_EISANImodelDynamic to support useNLPDataset with dim [batchSize sequenceLength, EISANINLPcontinuousVarEncodingNumBits]
 			code = code.reshape(B, L*numBits)
 		else:
-			code = torch.stack(encoded_bits_list, dim=1) 	#[B, L, numBits]
+			if useVectorisedImplementation:
+				code = encoded_bits	#[B, L, numBits]
+			else:
+				code = torch.stack(encoded_bits_list, dim=1) 	#[B, L, numBits]
 			#code = code.reshape(B, L, E*numBits)		#FUTURE: update EISANIpt_EISANImodel and EISANIpt_EISANImodelDynamic to support useNLPDataset with dim [batchSize sequenceLength, embeddingSize*EISANINLPcontinuousVarEncodingNumBits]
 			code = code.reshape(B, L*E*numBits)
 
 	return code
+
+def continuous_to_int_vectorised(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
+	"""
+	Map (B, L) continuous tensor to integer levels in [0, 2**numBits - 1].
+	Robust to minVal == maxVal.
+	"""
+	if numBits <= 0:
+		raise ValueError("numBits must be >= 1")
+	x = x if x.is_floating_point() else x.to(torch.float32)
+	xClamped = torch.clamp(x, minVal, maxVal)
+	denom = max(maxVal - minVal, torch.finfo(xClamped.dtype).tiny)
+	norm = (xClamped - minVal) / denom
+	scaled = norm * ((1 << numBits) - 1)
+	return scaled.round().to(torch.long)
+
+
+def binary_code_encode_vectorised(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
+	"""
+	Direct binary (base-2) encoding. Returns bits as LSB-first.
+	Shape: (B, L, numBits), values {0.0, 1.0}.
+	"""
+	intLevels = continuous_to_int_vectorised(self, x, numBits, minVal, maxVal)  # (B, L), ints in [0, 2**numBits-1]
+	bitPositions = torch.arange(numBits, device=x.device, dtype=torch.long)  # [0..numBits-1], LSB-first
+	bits = ((intLevels.unsqueeze(-1) >> bitPositions) & 1).to(x.dtype)
+	return bits
+
+
+def gray_code_encode_vectorised(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
+	"""
+	Vectorized Gray-code encoding. Returns bits as LSB-first.
+	Shape: (B, L, numBits), values {0.0, 1.0}.
+	"""
+	intLevels = continuous_to_int_vectorised(self, x, numBits, minVal, maxVal)  # (B, L)
+	grayLevels = intLevels ^ (intLevels >> 1)                   # (B, L)
+	bitPositions = torch.arange(numBits, device=x.device, dtype=torch.long)
+	bits = ((grayLevels.unsqueeze(-1) >> bitPositions) & 1).to(x.dtype)
+	return bits
+
+
+def thermometer_encode_vectorised(x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
+	"""
+	Vectorized thermometer encoding with exactly `numBits` thresholds.
+	Encodes into LSB-first order where bit k indicates level >= k.
+	Shape: (B, L, numBits), values {0.0, 1.0}.
+
+	Note: Thermometer encoding uses `numBits` discrete levels (0..numBits-1),
+	not 2**numBits levels like binary/Gray.
+	"""
+	if numBits <= 0:
+		raise ValueError("numBits must be >= 1")
+	xf = x if x.is_floating_point() else x.to(torch.float32)
+	xClamped = torch.clamp(xf, minVal, maxVal)
+	denom = max(maxVal - minVal, torch.finfo(xClamped.dtype).tiny)
+	norm = (xClamped - minVal) / denom  # [0,1]
+	levels = (norm * (numBits - 1)).round().to(torch.long)  # (B, L), in [0, numBits-1]
+
+	thresholds = torch.arange(numBits, device=x.device, dtype=torch.long)  # 0..numBits-1
+	bits = (levels.unsqueeze(-1) >= thresholds).to(x.dtype)  # (B, L, numBits)
+	return bits
+
+
 
 def binary_code_encode(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float, fieldTypeList: list) -> list[torch.Tensor]:
 	"""Direct binary encoding (batch, features, bits).

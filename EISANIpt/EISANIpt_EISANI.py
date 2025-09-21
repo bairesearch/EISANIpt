@@ -87,6 +87,7 @@ def createModel(dataset):
 			print("\t ---")
 			print("\t useImageDataset:")	
 			print("\t\t EISANICNNnumberKernelOrientations = ", EISANICNNnumberKernelOrientations)
+			print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)
 		if(useStochasticUpdates):

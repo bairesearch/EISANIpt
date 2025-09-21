@@ -44,7 +44,7 @@ def _init_conv_layers(self) -> None:
 		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
 		all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
 	else:
-		# --- Arbitrary-o oriented 3x3 *float* kernels on the given device.
+		# --- Arbitrary-o oriented 3�3 *float* kernels on the given device.
 		# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
 		# Define u (axis-aligned) and v (perpendicular) via rotation:
 		#   u =  X*cos0 + Y*sin0
@@ -80,6 +80,19 @@ def _init_conv_layers(self) -> None:
 		kbank = kbank / (kbank.norm(dim=(1,2), keepdim=True) + 1e-8)
 		all_patterns = kbank.view(o, -1)
 
+	# --- pretty-print kernels for manual review (prints all by default) ---
+	if debugEISANICNNprintKernels:
+		_ksz = int(CNNkernelSize)
+		_kernels = all_patterns.view(-1, _ksz, _ksz).detach().float().cpu()
+		_K = _kernels.shape[0]
+		print(f"[EISANICNN] Generated {_K} kernels ({_ksz}x{_ksz}):")
+		for _idx in range(_K):
+			print(f"kernel {_idx+1}/{_K}:")
+			for _r in range(_ksz):
+				_row = " ".join(f"{v:+.3f}" for v in _kernels[_idx, _r].tolist())
+				print("\t" + _row)
+			print()
+
 	self.convKernels = all_patterns.view(-1, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)	# (2**9)-1=511 out-channel
 	self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
 	print("self.convKernels.shape = ", self.convKernels.shape)
@@ -107,7 +120,7 @@ def _init_conv_layers(self) -> None:
 			ch *= EISANICNNnumberKernelOrientations	# each conv multiplies channels by EISANICNNnumberKernelOrientations
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 		
-	encodedFeatureSizeMax = ch * H * W
+	encodedFeatureSizeMax = ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN
 	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
 		self.encodedFeatureSize = encodedFeatureSizeDefault	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	else:
@@ -169,9 +182,9 @@ if(EISANICNNuseBinaryInput):
 
 		Internals
 		---------
-		* self.cnn_to_linear_map : 1-D LongTensor of length C*H*W
-	    	- maps each flat CNN feature index -> fixed linear-layer column (or -1)
-		* self.nextLinearCol     : scalar Python int = first free column index
+		• self.cnn_to_linear_map : 1-D LongTensor of length C*H*W
+	    	- maps each flat CNN feature index → fixed linear-layer column (or -1)
+		• self.nextLinearCol     : scalar Python int = first free column index
 		These two tensors are created lazily on the first call.
 		"""
 		device = CNNoutputLayerFeatures.device
@@ -211,7 +224,7 @@ if(EISANICNNuseBinaryInput):
 		# ------------------------------------------------------------------ #
 		# 3. Allocate columns for *new* CNN features (pure tensor ops)        #
 		# ------------------------------------------------------------------ #
-		current_cols = self.cnn_to_linear_map[flat_idx]							# (K,) may be -1
+		current_cols = self.cnn_to_linear_map[flat_idx]							# (K,) may be −1
 		new_mask = current_cols.eq(-1)											# bool (K,)
 		if new_mask.any():
 			# Unique flat indices that still need a column
@@ -483,9 +496,6 @@ else:
 			if CNNmaxPool and ((convLayerIndex + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				z = F.max_pool2d(z.float(), kernel_size=2, stride=2, ceil_mode=True)
 
-		# Binarize/threshold channels for the linear stage, then flatten
-		z = (z > EISANICNNinputChannelThreshold)
-		z = z.to(torch.int8)
 		linearInput = z.view(z.size(0), -1)  # (batch, encodedFeatureSize)
 		return linearInput
 
