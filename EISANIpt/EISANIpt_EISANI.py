@@ -88,6 +88,12 @@ def createModel(dataset):
 			print("\t useImageDataset:")	
 			print("\t\t EISANICNNnumberKernelOrientations = ", EISANICNNnumberKernelOrientations)
 			print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
+			print("\t\t EISANICNNkernelEdgesSharp = ", EISANICNNkernelEdgesSharp)
+			print("\t\t EISANICNNkernelEdgesTernary = ", EISANICNNkernelEdgesTernary)
+			print("\t\t EISANICNNkernelEdges = ", EISANICNNkernelEdges)
+			print("\t\t EISANICNNkernelCorners = ", EISANICNNkernelCorners)
+			print("\t\t EISANICNNkernelCentroids = ", EISANICNNkernelCentroids)
+			print("\t\t EISANICNNmaxPoolEveryQLayers = ", EISANICNNmaxPoolEveryQLayers)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)
 		if(useStochasticUpdates):

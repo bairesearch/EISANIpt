@@ -37,14 +37,16 @@ def _init_conv_layers(self) -> None:
 	 self.convKernels	 (511,1,3,3) binary +1/0 (stored as float for conv2d)
 	 self.encodedFeatureSize
 	"""
-	assert CNNkernelSize == 3 and CNNstride == 1, "Only 33 stride-1 kernels supported in this implementation"
+	assert CNNstride == 1, "Only stride-1 kernels supported in this implementation"
 
 	if(EISANICNNkernelAllPermutations):
+		assert CNNkernelSize == 3
 		# --- generate every possible 3 x 3 BINARY mask (+1 / -1)
-		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.uint8)
+		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.int8)
 		all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
-	else:
-		# --- Arbitrary-o oriented 3×3 *float* kernels on the given device.
+	else:		
+		ksz = int(CNNkernelSize)
+		# --- Arbitrary-o oriented ksz×ksz *float* kernels on the given device.
 		# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
 		# Define u (axis-aligned) and v (perpendicular) via rotation:
 		#   u =  X*cos0 + Y*sin0
@@ -53,32 +55,79 @@ def _init_conv_layers(self) -> None:
 		# Ternary mode additionally gates with a soft zero-band around v\u22480.
 		o = EISANICNNnumberKernelOrientations
 		assert o >= 1, "EISANICNN: orientations (o) must be >= 1"
-		sigma = float(globals().get('EISANICNNsigma', 0.85))  # Gaussian envelope sigma
-		tau   = float(globals().get('EISANICNNtau',   0.35))  # tanh slope (smaller = sharper)
-		band  = float(globals().get('EISANICNNkernelZeroBandHalfWidth', 1e-6))  # ternary soft band
-		Y, X = torch.meshgrid(
-			torch.tensor([-1., 0., 1.], device=device, dtype=torch.float32),
-			torch.tensor([-1., 0., 1.], device=device, dtype=torch.float32),
-			indexing='ij'
-		)  # (3,3)
+		sigma = EISANICNNsigma
+		tau = EISANICNNtau
+		band = EISANICNNkernelZeroBandHalfWidth
+
+		half = (ksz - 1) / 2.0
+		coords = torch.arange(ksz, device=device, dtype=torch.float32) - half
+		Y, X = torch.meshgrid(coords, coords, indexing='ij')  # (ksz,ksz)
+
 		angles = torch.arange(o, device=device, dtype=torch.float32) * (2*torch.pi / o)  # [0,2pi)
 		s = angles.sin().view(o, 1, 1)  # (o,1,1)
 		c = angles.cos().view(o, 1, 1)  # (o,1,1)
 		u = (X*c + Y*s)                 # (o,3,3) after broadcasting
-		v = (-X*s + Y*c)                # perpendicular distance (o,3,3)
-		env = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma**2)))  # (3,3)
-		env = env.view(1, 3, 3).expand(o, -1, -1)             # (o,3,3)
-		core = -torch.tanh(v / tau)       # odd-symmetric across the axis (o,3,3)
-		if EISANICNNkernelTernary:
-			# Soft zero-band: suppress magnitudes near the axis, ~0 for |v| << band, \u21921 for |v| >> band
-			band_gate = 1.0 - torch.exp(- (v.abs() / (band + 1e-12)).pow(2.0))
-			kbank = env * band_gate * core
-		else:
-			kbank = env * core
-		# Per-kernel zero-mean + unit-L2 normalization (stable channel scales)
-		kbank = kbank - kbank.mean(dim=(1,2), keepdim=True)
-		kbank = kbank / (kbank.norm(dim=(1,2), keepdim=True) + 1e-8)
-		all_patterns = kbank.view(o, -1)
+		v = (-X*s + Y*c)                # perpendicular distance (o,ksz,ksz)
+		env = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma**2)))  # (ksz,ksz)
+		env = env.view(1, ksz, ksz).expand(o, -1, -1)         # (o,ksz,ksz)
+
+		K_total = 0
+		core_edge = -torch.tanh(v / tau)	# (kept for possible future use)
+		banks = []
+		# hard threshold (in grid units) so at theta=0 and ksz=3 we get:
+		# Edge:   [+1 +1 +1; 0 0 0; -1 -1 -1]
+		# Corner: [+1 +1 +1; -1 -1 +1; -1 -1 +1]
+		t = float(globals().get('EISANICNNbandThreshold', 0.5))
+		if EISANICNNkernelEdges:
+			if(EISANICNNkernelEdgesSharp):
+				# Oriented EDGES (hard-banded): +1 / 0 / -1 by perpendicular distance v
+				if EISANICNNkernelEdgesTernary:
+					pos = (v >=  t).to(v.dtype)
+					zer = (v.abs() < t).to(v.dtype)
+					neg = (v <= -t).to(v.dtype)
+					k_edges = (+1.0 * pos) + (0.0 * zer) + (-1.0 * neg)
+				else:
+					# binary edge (no zero band) \u2014 include the tie (v\u22480) on the positive side
+					eps = EISANICNNedgeTieEps = 1e-6
+					k_edges = torch.where(v >= -eps, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
+				# no envelope \u21d2 rows/columns stay uniform within a band
+				k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
+				k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
+			else:
+				# Oriented EDGES (existing)
+				if EISANICNNkernelEdgesTernary:
+					k_edges = env * core_edge
+				else:
+					printe("!EISANICNNkernelEdgesTernary not currently supported")
+				k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
+				k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
+			banks.append(k_edges)						# (o,ksz,ksz)
+			K_total = K_total+o
+		if EISANICNNkernelCorners:
+			# Oriented CORNERS (L-junction): +1 if (u >= t) OR (v >= t), else -1
+			pos = ((u >= t) | (v >= t)).to(v.dtype)
+			k_corners = torch.where(pos > 0, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
+			k_corners = k_corners - k_corners.mean(dim=(1,2), keepdim=True)
+			k_corners = k_corners / (k_corners.norm(dim=(1,2), keepdim=True) + 1e-8)
+			banks.append(k_corners)
+			K_total = K_total+o
+		if EISANICNNkernelCentroids:
+			# CENTROIDS (isotropic center-surround, not oriented) \u2014 1 kernel
+			sigma_c = EISANICNNcentroidSigma
+			gamma = EISANICNNcentroidScaleRatio
+			sigma_s = sigma_c * gamma
+			Gc = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_c**2)))	# (ksz,ksz)
+			Gs = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_s**2)))	# (ksz,ksz)
+			lam = (Gc.sum() / (Gs.sum() + 1e-12))
+			k_cent = (Gc - lam * Gs).view(1, ksz, ksz)			# (1,ksz,ksz)
+			k_cent = k_cent - k_cent.mean(dim=(1,2), keepdim=True)
+			k_cent = k_cent / (k_cent.norm(dim=(1,2), keepdim=True) + 1e-8)
+			banks.append(k_cent)
+			K_total = K_total+1
+
+		assert len(banks) > 0, "EISANICNN: enable at least one kernel family (Edges/Corners/Hooks/Centroids)"
+		kbank = torch.cat(banks, dim=0)					# (K_total,ksz,ksz)
+		all_patterns = kbank.view(-1, ksz * ksz)
 
 	# --- pretty-print kernels for manual review (prints all by default) ---
 	if debugEISANICNNprintKernels:
@@ -93,7 +142,7 @@ def _init_conv_layers(self) -> None:
 				print("\t" + _row)
 			print()
 
-	self.convKernels = all_patterns.view(-1, 1, 3, 3).float().to(device)		# (outCh,inCh,H,W)	# (2**9)-1=511 out-channel
+	self.convKernels = all_patterns.view(-1, 1, ksz, ksz).float().to(device)	# (outCh,inCh,H,W))		#EISANICNNkernelAllPermutations: (2**9)-1=511 out-channel
 	self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
 	print("self.convKernels.shape = ", self.convKernels.shape)
 	
@@ -117,7 +166,7 @@ def _init_conv_layers(self) -> None:
 		if(EISANICNNkernelAllPermutations):
 			ch *= (2**9)-1							# each conv multiplies channels by 511
 		else:
-			ch *= EISANICNNnumberKernelOrientations	# each conv multiplies channels by EISANICNNnumberKernelOrientations
+			ch *= K_total	#eg each conv multiplies channels by EISANICNNnumberKernelOrientations
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 		
 	encodedFeatureSizeMax = ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN

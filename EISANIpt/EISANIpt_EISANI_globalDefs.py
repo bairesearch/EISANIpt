@@ -50,42 +50,67 @@ elif(useImageDataset):
 	CNNkernelSize = 3
 	CNNstride = 1
 	CNNmaxPool = True
-	useContinuousVarEncodeMethod = "grayCode"
-	EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1	#8	#number of bits to encode image pixels
-	useContinuousVarEncodeMethodAfterCNN = "grayCode"
-	EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 1	#orig: 1
-	encodedFeatureSizeDefault = 12800000*math.ceil(EISANICNNcontinuousVarEncodingNumBits/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
+	encodedFeatureSizeDefault = 12800000*math.ceil(1/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
 	EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
 	EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
 	trainNumberOfEpochsHigh = False	#default: False
 	EISANICNNkernelAllPermutations = False	#default: False	#orig: True
 	if(EISANICNNkernelAllPermutations):
+		useContinuousVarEncodeMethod = "grayCode"
+		EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1		#number of bits to encode image pixels
 		EISANICNNnumberKernelOrientations = -1
 		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		EISANICNNuseBinaryInput = True
 		EISANICNNdynamicallyGenerateLinearInputFeatures = True	#default: True	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
-		EISANICNNkernelTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
+		EISANICNNkernelEdgesTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
 		EISANICNNactivationFunction = True	#mandatory
 		EISANICNNpaddingPolicy = 'none'
+		
+		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
+		EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
 	else:
+		
+		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1	#retain float do not convert to bits
+		useContinuousVarEncodeMethodAfterCNN = "grayCode"
+		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 1	#orig: 1
 		EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
 		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		EISANICNNuseBinaryInput = False
 		EISANICNNdynamicallyGenerateLinearInputFeatures = False
-		EISANICNNkernelTernary = False	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
 		EISANICNNactivationFunction = True	#default: True
 		EISANICNNpaddingPolicy = 'same'	#default: same, orig: none
 		EISANICNNpaddingMode = 'reflect'	#default: reflect #or zeros
 		
-	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
-		numberOfConvlayers = 2	#rest will be linear	#default: 2, 4, 6
-	else:
+		useOrigCNNParam = True
+		if(useOrigCNNParam):
+			EISANICNNkernelEdgesSharp = False
+			EISANICNNkernelEdgesTernary = True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations	#currently required for !EISANICNNkernelEdgesSharp
+			EISANICNNkernelEdges = True
+			EISANICNNkernelCorners = False
+			EISANICNNkernelCentroids = False
+		else:
+			EISANICNNkernelEdgesSharp = True
+			EISANICNNkernelEdgesTernary = False	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
+			EISANICNNkernelEdges = True
+			EISANICNNkernelCorners = True
+			EISANICNNkernelCentroids = True
+		
+		EISANICNNsigma = 0.85	# Gaussian envelope sigma
+		EISANICNNtau = 0.35	# tanh slope (smaller = sharper)
+		EISANICNNkernelZeroBandHalfWidth = 1e-6	 # ternary soft band
+		EISANICNNcentroidSigma = max(0.5, EISANICNNsigma * 0.75)
+		EISANICNNcentroidScaleRatio = 1.6
+		
 		numberOfConvlayers = 4	#rest will be linear	#default: 2, 4, 6
+		if(numberOfConvlayers == 2):
+			EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
+		else:
+			if(EISANICNNkernelEdges and EISANICNNkernelCorners):
+				EISANICNNmaxPoolEveryQLayers = 1	#default: 1	#effectively every filter type is applied per layer
+			else:
+				EISANICNNmaxPoolEveryQLayers = 2	#default: 2
+		
 	numberOfLinearLayers = 3
-	if(numberOfConvlayers == 2):
-		EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
-	else:
-		EISANICNNmaxPoolEveryQLayers = 2	#default: 2
 		
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
@@ -290,8 +315,9 @@ if(useTabularDataset):
 	datasetType = "useTabularDataset"
 	EISANIcontinuousVarEncodingNumBits = EISANITABcontinuousVarEncodingNumBits
 elif(useImageDataset):
-	datasetType = "useImageDataset"
-	EISANIcontinuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
+	if(EISANICNNuseBinaryInput):
+		datasetType = "useImageDataset"
+		EISANIcontinuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
 elif(useImageDataset):
 	datasetType = "useNLPDataset"
 	EISANIcontinuousVarEncodingNumBits = EISANINLPcontinuousVarEncodingNumBits
