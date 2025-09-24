@@ -370,3 +370,35 @@ etc
 	-1 0 +1
 	-1 0 +1
 	-1 0 +1
+
+---
+EISANICNNarchitectureSparseRandom/DenseRandom/DensePretrained (Codex IDE GPT5Codex prompt);
+	
+Please upgrade EISANIpt_EISANImodelCNN.py (specifically init_conv_layers, propagate_conv_layers_sparse_random, EISANICNNarchitectureDenseRandom, EISANICNNarchitectureDensePretrained) to support additional implementation options EISANICNNarchitectureSparseRandom, EISANICNNarchitectureDenseRandom, and EISANICNNarchitectureDensePretrained. Retain the current codebase as is (do not change the EISANICNNarchitectureDivergeAllKernelPermutations and EISANICNNarchitectureDivergeLimitedKernelPermutations implementations). I have already upgraded EISANIpt_EISANI_globalDefs.py and EISANIpt_EISANImodelContinuousVarEncoding.py with the required parameters to make it easy for you to implement these architectures. Retain respect for shared numberOfConvlayers and EISANICNNmaxPoolEveryQLayers parameters (the actually number of layers of the CNN or the maxpooling methodology does not change across architectures).
+
+1. EISANICNNarchitectureSparseRandom algorithm: 
+
+Upgrade EISANIpt_EISANImodelCNN.py:init_conv_layers/EISANICNNarchitectureSparseRandom to generate custom sparse EISANI CNN. It needs to be implemented fully vectorised in pytorch - only the layers can be processed sequentially using python for loops.
+
+For every binaryStateIndex in EISANICNNnumberOfRandomlySelectedInputBinaryStates:
+	generate binary input from float input based on probability distribution given by float values - process each in batch (ALREADY DONE)
+	For every layer in numberOfConvlayers:
+		For every pixel in the layer (note that EISANICNNpaddingPolicy='same'):
+			For every kernel in EISANICNNnumberKernels:
+				For every pixel in the 3x3 kernel (note that CNNkernelSize=3):
+					For every EISANI neuron in EISANICNNkernelSizeSANI:
+						calculate its neuron activation			
+		You should be able to execute summationSANIpassCNNlayer(self, prevActivation, layerIdCNN) to process every pixel in the layer in parallel:
+			This executes EISANI EISANIpt_EISANImodelSummation.py:compute_layer_EI/compute_layer_standard (please ensure that the existing EISANIpt_EISANImodelSummation.py codebase supports EISANICNN model)
+			I have already created class EISANIpt_EISANImodelCNN:EISANICNNmodel based on EISANIpt_EISANImodel and initialised self.EISANICNNmodel with the required sparse EISANI CNN parameters (weights).
+
+Note EISANICNNcontinuousVarEncodingNumBits=1, however EISANICNNarchitectureSparseRandom uses EISANICNNnumberOfRandomlySelectedInputBinaryStates>1, so the binary input values are generated based on the probability distribution given by the input float values. Assume binaryStateIndices have already been produced and the batch has been expanded by a multiple of EISANICNNnumberOfRandomlySelectedInputBinaryStates - see EISANIpt_EISANImodelContinuousVarEncoding.py:sample_binary_states_from_probs() for the implementation.
+
+2. EISANICNNarchitectureDenseRandom algorithm:
+
+Upgrade EISANIpt_EISANImodelCNN.py:init_conv_layers/EISANICNNarchitectureDenseRandom to generate a standard CNN architecture with randomly initialised weights.
+
+3. EISANICNNarchitectureDensePretrained algorithm:
+
+Upgrade EISANIpt_EISANImodelCNN.cy:init_conv_layers/EISANICNNarchitectureDensePretrained to execute the CNN layers (ie non-FF layers) of a standard trained architecture for the specific dataset (eg CIFAR-10). I have provided Resnet18-breakaway/resnet18_breakaway.py code whose CNN layers can be executed in "full" (ie backprop) mode. Assume it has already been separetely pretrained to produce model parameters resnet18_full.pth (the required trained input weights).  
+	

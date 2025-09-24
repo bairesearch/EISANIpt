@@ -17,6 +17,8 @@ EISANIpt model CNN
 
 """
 
+import os
+import importlib.util
 import torch
 from torch import nn
 from ANNpt_globalDefs import *
@@ -25,126 +27,255 @@ import torch.nn.functional as F
 import math 
 
 
+if(EISANICNNarchitectureSparseRandom):
+	import EISANIpt_EISANImodelSummation
+	
+	class EISANICNNconfig():
+		def __init__(self, hiddenLayerSize):
+			self.numberOfConvlayers = numberOfConvlayers
+			self.hiddenLayerSize = hiddenLayerSize
+		
+	class EISANICNNmodel(nn.Module):
+		"""Custom CNN binary neural network implementing the EISANI specification."""
+
+		def __init__(self, config: EISANIconfig) -> None:
+			super().__init__()
+
+			self.numberUniqueHiddenLayers = config.numberOfConvlayers
+			
+			if(useConnectionWeights):
+				# -----------------------------
+				# Hidden connection matrices
+				# -----------------------------
+				self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+				self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+				self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+
+				for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
+					for segmentIdx in range(numberOfSegmentsPerNeuron):
+						if useEIneurons: # Corrected: use useEIneurons
+							if useInhibition:
+								excitSize = config.hiddenLayerSize // 2
+								inhibSize = config.hiddenLayerSize - excitSize
+							else:
+								excitSize = config.hiddenLayerSize  # All neurons are excitatory
+								inhibSize = 0
+							excMat = self._initialise_layer_weights(excitSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+							self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
+							if useInhibition and inhibSize > 0:
+								inhMat = self._initialise_layer_weights(inhibSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+								self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
+							else:
+								# Create empty inhibitory matrix when inhibition is disabled
+								self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(torch.empty(0, prevSize, device=device))
+						else:
+							mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
+							self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
+					prevSize = config.hiddenLayerSize
+			else:
+				printe("useConnectionWeights is required for EISANIpt_EISANImodelCNN")
+
+	def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN):
+		uniqueLayerIndex = layerIdCNN
+		if useEIneurons:
+			aExc, aInh = EISANIpt_EISANImodelSummation.compute_layer_EI(self, uniqueLayerIndex, prevActivation, device)
+			currentActivation = torch.cat([aExc, aInh], dim=1)
+		else:
+			currentActivation = EISANIpt_EISANImodelSummation.compute_layer_standard(self, uniqueLayerIndex, prevActivation, device)
+		return currentActivation	
+
 # ---------------------------------------------------------
 # IMAGE helpers (init & propagation)
 # ---------------------------------------------------------
 
-def _init_conv_layers(self) -> None:
-	"""
-	Initialise binary kernel bank (3  3, 1) and compute flattened
-	output size after `numberOfConvlayers` (+ optional max-pooling).
-	Sets:
-	 self.convKernels	 (511,1,3,3) binary +1/0 (stored as float for conv2d)
-	 self.encodedFeatureSize
-	"""
+def init_conv_layers(self) -> None:
 	assert CNNstride == 1, "Only stride-1 kernels supported in this implementation"
 
-	if(EISANICNNkernelAllPermutations):
-		assert CNNkernelSize == 3
-		# --- generate every possible 3 x 3 BINARY mask (+1 / -1)
-		all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.int8)
-		all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
-	else:		
-		ksz = int(CNNkernelSize)
-		# --- Arbitrary-o oriented ksz×ksz *float* kernels on the given device.
-		# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
-		# Define u (axis-aligned) and v (perpendicular) via rotation:
-		#   u =  X*cos0 + Y*sin0
-		#   v = -X*sin0 + Y*cos0
-		# We shape odd-symmetric filters with tanh(v/\u03c4), localized by a Gaussian envelope.
-		# Ternary mode additionally gates with a soft zero-band around v\u22480.
-		o = EISANICNNnumberKernelOrientations
-		assert o >= 1, "EISANICNN: orientations (o) must be >= 1"
-		sigma = EISANICNNsigma
-		tau = EISANICNNtau
-		band = EISANICNNkernelZeroBandHalfWidth
+	if(EISANICNNarchitectureSparseRandom):
+		assert EISANICNNpaddingPolicy == 'same', "Sparse random CNN currently supports 'same' padding only"
+		self.sparse_random_layers = []
+		self._sparse_random_out_channels = []
+		in_channels = numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits
+		for layerIdx in range(self.config.numberOfConvlayers):
+			out_channels = EISANICNNnumberKernels
+			patch_size = in_channels * CNNkernelSize * CNNkernelSize
+			total_neurons = out_channels * EISANICNNkernelSizeSANI
+			synapses = max(1, numberOfSynapsesPerSegment)
+			indices = torch.randint(patch_size, (total_neurons, synapses), device=device, dtype=torch.long)
+			signs = torch.randint(0, 2, (total_neurons, synapses), device=device, dtype=torch.float32)
+			signs = signs.mul_(2.0).sub_(1.0)
+			max_elems = 8_388_608
+			chunk = max(1, max_elems // max(1, total_neurons * synapses))
+			chunk = min(chunk, 8192)
+			layer_spec = {
+				"indices": indices,
+				"indices_flat": indices.reshape(-1),
+				"signs": signs,
+				"total_neurons": total_neurons,
+				"out_channels": out_channels,
+				"sani_per_kernel": EISANICNNkernelSizeSANI,
+				"synapses": synapses,
+				"patch_size": patch_size,
+				"threshold": float(segmentActivationThreshold),
+				"chunk_size": chunk,
+			}
+			self.sparse_random_layers.append(layer_spec)
+			self._sparse_random_out_channels.append(out_channels)
+			in_channels = out_channels
+	elif(EISANICNNarchitectureDenseRandom):
+		self.cnn_dense_layers = nn.ModuleList()
+		self._dense_random_out_channels = []
+		in_channels = numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits
+		base_channels = 64
+		max_channels = 512
+		for layerIdx in range(self.config.numberOfConvlayers):
+			scale = layerIdx // max(1, EISANICNNmaxPoolEveryQLayers)
+			out_channels = min(base_channels * (2 ** scale), max_channels)
+			padding = CNNkernelSize // 2 if EISANICNNpaddingPolicy == 'same' else 0
+			conv = nn.Conv2d(in_channels, out_channels, kernel_size=CNNkernelSize, stride=1, padding=padding, bias=False)
+			nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
+			self.cnn_dense_layers.append(conv)
+			self._dense_random_out_channels.append(out_channels)
+			in_channels = out_channels
+	elif(EISANICNNarchitectureDensePretrained):
+		module_path = os.path.join(os.path.dirname(__file__), 'Resnet18-breakaway', 'resnet18_breakaway.py')
+		spec = importlib.util.spec_from_file_location('resnet18_breakaway', module_path)
+		if spec is None or spec.loader is None:
+			raise RuntimeError('Unable to load ResNet18 backbone description')
+		resnet_module = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(resnet_module)
+		backbone = resnet_module.ResNet18Breakaway(num_classes=numberOfClasses)
+		weights_path = os.path.join(os.path.dirname(__file__), 'Resnet18-breakaway', 'resnet18_full.pth')
+		if not os.path.exists(weights_path):
+			raise FileNotFoundError(f"Pretrained weights not found at {weights_path}")
+		state = torch.load(weights_path, map_location=device)
+		backbone.load_state_dict(state)
+		backbone.to(device)
+		backbone.eval()
+		for param in backbone.parameters():
+			param.requires_grad_(False)
+		self.cnn_pretrained = backbone
+		dummy = torch.zeros(1, numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits, inputImageHeight, inputImageWidth, device=device)
+		with torch.no_grad():
+			features = backbone._forward_body(dummy)
+			pooled = backbone.gap(features)
+		self._pretrained_feature_shape = pooled.shape[1:]
+		self.encodedFeatureSize = pooled.view(1, -1).shape[1] * EISANITABcontinuousVarEncodingNumBitsAfterCNN
+		return
+	elif(EISANICNNarchitectureDivergeAllKernelPermutations or EISANICNNarchitectureDivergeLimitedKernelPermutations):
+		if(EISANICNNarchitectureDivergeAllKernelPermutations):
+			"""
+			Initialise binary kernel bank (3  3, 1) and compute flattened
+			output size after `numberOfConvlayers` (+ optional max-pooling).
+			Sets:
+			 self.convKernels	 (511,1,3,3) binary +1/0 (stored as float for conv2d)
+			 self.encodedFeatureSize
+			"""
+			assert CNNkernelSize == 3
+			# --- generate every possible 3 x 3 BINARY mask (+1 / -1)
+			all_patterns = torch.tensor(list(itertools.product([-1, 1], repeat=CNNkernelSize * CNNkernelSize)), dtype=torch.int8)
+			all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
+		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):		
+			ksz = int(CNNkernelSize)
+			# --- Arbitrary-o oriented ksz×ksz *float* kernels on the given device.
+			# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
+			# Define u (axis-aligned) and v (perpendicular) via rotation:
+			#   u =  X*cos0 + Y*sin0
+			#   v = -X*sin0 + Y*cos0
+			# We shape odd-symmetric filters with tanh(v/\u03c4), localized by a Gaussian envelope.
+			# Ternary mode additionally gates with a soft zero-band around v\u22480.
+			o = EISANICNNnumberKernelOrientations
+			assert o >= 1, "EISANICNN: orientations (o) must be >= 1"
+			sigma = EISANICNNsigma
+			tau = EISANICNNtau
+			band = EISANICNNkernelZeroBandHalfWidth
 
-		half = (ksz - 1) / 2.0
-		coords = torch.arange(ksz, device=device, dtype=torch.float32) - half
-		Y, X = torch.meshgrid(coords, coords, indexing='ij')  # (ksz,ksz)
+			half = (ksz - 1) / 2.0
+			coords = torch.arange(ksz, device=device, dtype=torch.float32) - half
+			Y, X = torch.meshgrid(coords, coords, indexing='ij')  # (ksz,ksz)
 
-		angles = torch.arange(o, device=device, dtype=torch.float32) * (2*torch.pi / o)  # [0,2pi)
-		s = angles.sin().view(o, 1, 1)  # (o,1,1)
-		c = angles.cos().view(o, 1, 1)  # (o,1,1)
-		u = (X*c + Y*s)                 # (o,3,3) after broadcasting
-		v = (-X*s + Y*c)                # perpendicular distance (o,ksz,ksz)
-		env = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma**2)))  # (ksz,ksz)
-		env = env.view(1, ksz, ksz).expand(o, -1, -1)         # (o,ksz,ksz)
+			angles = torch.arange(o, device=device, dtype=torch.float32) * (2*torch.pi / o)  # [0,2pi)
+			s = angles.sin().view(o, 1, 1)  # (o,1,1)
+			c = angles.cos().view(o, 1, 1)  # (o,1,1)
+			u = (X*c + Y*s)                 # (o,3,3) after broadcasting
+			v = (-X*s + Y*c)                # perpendicular distance (o,ksz,ksz)
+			env = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma**2)))  # (ksz,ksz)
+			env = env.view(1, ksz, ksz).expand(o, -1, -1)         # (o,ksz,ksz)
 
-		K_total = 0
-		core_edge = -torch.tanh(v / tau)	# (kept for possible future use)
-		banks = []
-		# hard threshold (in grid units) so at theta=0 and ksz=3 we get:
-		# Edge:   [+1 +1 +1; 0 0 0; -1 -1 -1]
-		# Corner: [+1 +1 +1; -1 -1 +1; -1 -1 +1]
-		t = float(globals().get('EISANICNNbandThreshold', 0.5))
-		if EISANICNNkernelEdges:
-			if(EISANICNNkernelEdgesSharp):
-				# Oriented EDGES (hard-banded): +1 / 0 / -1 by perpendicular distance v
-				if EISANICNNkernelEdgesTernary:
-					pos = (v >=  t).to(v.dtype)
-					zer = (v.abs() < t).to(v.dtype)
-					neg = (v <= -t).to(v.dtype)
-					k_edges = (+1.0 * pos) + (0.0 * zer) + (-1.0 * neg)
+			K_total = 0
+			core_edge = -torch.tanh(v / tau)	# (kept for possible future use)
+			banks = []
+			# hard threshold (in grid units) so at theta=0 and ksz=3 we get:
+			# Edge:   [+1 +1 +1; 0 0 0; -1 -1 -1]
+			# Corner: [+1 +1 +1; -1 -1 +1; -1 -1 +1]
+			t = float(globals().get('EISANICNNbandThreshold', 0.5))
+			if EISANICNNkernelEdges:
+				if(EISANICNNkernelEdgesSharp):
+					# Oriented EDGES (hard-banded): +1 / 0 / -1 by perpendicular distance v
+					if EISANICNNkernelEdgesTernary:
+						pos = (v >=  t).to(v.dtype)
+						zer = (v.abs() < t).to(v.dtype)
+						neg = (v <= -t).to(v.dtype)
+						k_edges = (+1.0 * pos) + (0.0 * zer) + (-1.0 * neg)
+					else:
+						# binary edge (no zero band) \u2014 include the tie (v\u22480) on the positive side
+						eps = EISANICNNedgeTieEps = 1e-6
+						k_edges = torch.where(v >= -eps, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
+					# no envelope \u21d2 rows/columns stay uniform within a band
+					k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
+					k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
 				else:
-					# binary edge (no zero band) \u2014 include the tie (v\u22480) on the positive side
-					eps = EISANICNNedgeTieEps = 1e-6
-					k_edges = torch.where(v >= -eps, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
-				# no envelope \u21d2 rows/columns stay uniform within a band
-				k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
-				k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
-			else:
-				# Oriented EDGES (existing)
-				if EISANICNNkernelEdgesTernary:
-					k_edges = env * core_edge
-				else:
-					printe("!EISANICNNkernelEdgesTernary not currently supported")
-				k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
-				k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
-			banks.append(k_edges)						# (o,ksz,ksz)
-			K_total = K_total+o
-		if EISANICNNkernelCorners:
-			# Oriented CORNERS (L-junction): +1 if (u >= t) OR (v >= t), else -1
-			pos = ((u >= t) | (v >= t)).to(v.dtype)
-			k_corners = torch.where(pos > 0, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
-			k_corners = k_corners - k_corners.mean(dim=(1,2), keepdim=True)
-			k_corners = k_corners / (k_corners.norm(dim=(1,2), keepdim=True) + 1e-8)
-			banks.append(k_corners)
-			K_total = K_total+o
-		if EISANICNNkernelCentroids:
-			# CENTROIDS (isotropic center-surround, not oriented) \u2014 1 kernel
-			sigma_c = EISANICNNcentroidSigma
-			gamma = EISANICNNcentroidScaleRatio
-			sigma_s = sigma_c * gamma
-			Gc = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_c**2)))	# (ksz,ksz)
-			Gs = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_s**2)))	# (ksz,ksz)
-			lam = (Gc.sum() / (Gs.sum() + 1e-12))
-			k_cent = (Gc - lam * Gs).view(1, ksz, ksz)			# (1,ksz,ksz)
-			k_cent = k_cent - k_cent.mean(dim=(1,2), keepdim=True)
-			k_cent = k_cent / (k_cent.norm(dim=(1,2), keepdim=True) + 1e-8)
-			banks.append(k_cent)
-			K_total = K_total+1
+					# Oriented EDGES (existing)
+					if EISANICNNkernelEdgesTernary:
+						k_edges = env * core_edge
+					else:
+						printe("!EISANICNNkernelEdgesTernary not currently supported")
+					k_edges = k_edges - k_edges.mean(dim=(1,2), keepdim=True)
+					k_edges = k_edges / (k_edges.norm(dim=(1,2), keepdim=True) + 1e-8)
+				banks.append(k_edges)						# (o,ksz,ksz)
+				K_total = K_total+o
+			if EISANICNNkernelCorners:
+				# Oriented CORNERS (L-junction): +1 if (u >= t) OR (v >= t), else -1
+				pos = ((u >= t) | (v >= t)).to(v.dtype)
+				k_corners = torch.where(pos > 0, torch.tensor(1.0, device=v.device), torch.tensor(-1.0, device=v.device))
+				k_corners = k_corners - k_corners.mean(dim=(1,2), keepdim=True)
+				k_corners = k_corners / (k_corners.norm(dim=(1,2), keepdim=True) + 1e-8)
+				banks.append(k_corners)
+				K_total = K_total+o
+			if EISANICNNkernelCentroids:
+				# CENTROIDS (isotropic center-surround, not oriented) \u2014 1 kernel
+				sigma_c = EISANICNNcentroidSigma
+				gamma = EISANICNNcentroidScaleRatio
+				sigma_s = sigma_c * gamma
+				Gc = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_c**2)))	# (ksz,ksz)
+				Gs = torch.exp(-(X**2 + Y**2) / (2.0 * (sigma_s**2)))	# (ksz,ksz)
+				lam = (Gc.sum() / (Gs.sum() + 1e-12))
+				k_cent = (Gc - lam * Gs).view(1, ksz, ksz)			# (1,ksz,ksz)
+				k_cent = k_cent - k_cent.mean(dim=(1,2), keepdim=True)
+				k_cent = k_cent / (k_cent.norm(dim=(1,2), keepdim=True) + 1e-8)
+				banks.append(k_cent)
+				K_total = K_total+1
 
 		assert len(banks) > 0, "EISANICNN: enable at least one kernel family (Edges/Corners/Hooks/Centroids)"
 		kbank = torch.cat(banks, dim=0)					# (K_total,ksz,ksz)
 		all_patterns = kbank.view(-1, ksz * ksz)
-
-	# --- pretty-print kernels for manual review (prints all by default) ---
-	if debugEISANICNNprintKernels:
-		_ksz = int(CNNkernelSize)
-		_kernels = all_patterns.view(-1, _ksz, _ksz).detach().float().cpu()
-		_K = _kernels.shape[0]
-		print(f"[EISANICNN] Generated {_K} kernels ({_ksz}x{_ksz}):")
-		for _idx in range(_K):
-			print(f"kernel {_idx+1}/{_K}:")
-			for _r in range(_ksz):
-				_row = " ".join(f"{v:+.3f}" for v in _kernels[_idx, _r].tolist())
-				print("\t" + _row)
-			print()
-
-	self.convKernels = all_patterns.view(-1, 1, ksz, ksz).float().to(device)	# (outCh,inCh,H,W))		#EISANICNNkernelAllPermutations: (2**9)-1=511 out-channel
-	self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
-	print("self.convKernels.shape = ", self.convKernels.shape)
+		
+		# --- pretty-print kernels for manual review (prints all by default) ---
+		if debugEISANICNNprintKernels:
+			_ksz = int(CNNkernelSize)
+			_kernels = all_patterns.view(-1, _ksz, _ksz).detach().float().cpu()
+			_K = _kernels.shape[0]
+			print(f"[EISANICNN] Generated {_K} kernels ({_ksz}x{_ksz}):")
+			for _idx in range(_K):
+				print(f"kernel {_idx+1}/{_K}:")
+				for _r in range(_ksz):
+					_row = " ".join(f"{v:+.3f}" for v in _kernels[_idx, _r].tolist())
+					print("\t" + _row)
+				print()
+		self.convKernels = all_patterns.view(-1, 1, ksz, ksz).float().to(device)	# (outCh,inCh,H,W))		#EISANICNNarchitectureDivergeAllKernelPermutations: (2**9)-1=511 out-channel
+		self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
+		print("self.convKernels.shape = ", self.convKernels.shape)
+		
 	
 	# --- compute flattened size after N conv (+max-pool) layers
 	H = inputImageHeight
@@ -163,21 +294,100 @@ def _init_conv_layers(self) -> None:
 			# use *ceil* division (same as F.max_pool2d(..., ceil_mode=True))
 			H = (H + 1) // 2	#orig: H //= 2
 			W = (W + 1) // 2	#orig: W //= 2
-		if(EISANICNNkernelAllPermutations):
+		if(EISANICNNarchitectureDivergeAllKernelPermutations):
 			ch *= (2**9)-1							# each conv multiplies channels by 511
-		else:
+		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 			ch *= K_total	#eg each conv multiplies channels by EISANICNNnumberKernelOrientations
+		elif(EISANICNNarchitectureSparseRandom):
+			ch = self._sparse_random_out_channels[layerIdx]
+		elif(EISANICNNarchitectureDenseRandom):
+			ch = self._dense_random_out_channels[layerIdx]
+		elif(EISANICNNarchitectureDensePretrained):
+			pass
+		
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 		
 	encodedFeatureSizeMax = ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN
-	if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+	if(EISANICNNdynamicallyGenerateFFInputFeatures):
 		self.encodedFeatureSize = encodedFeatureSizeDefault	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	else:
 		self.encodedFeatureSize = encodedFeatureSizeMax
 
-if(EISANICNNuseBinaryInput):
 
-	def propagate_conv_layers_binary(self, x: torch.Tensor) -> torch.Tensor:
+if(EISANICNNarchitectureSparseRandom):
+	def propagate_conv_layers_sparse_random(self, x: torch.Tensor) -> torch.Tensor:
+		if not hasattr(self, 'sparse_random_layers'):
+			raise AttributeError('Sparse random CNN layers are not initialised. Call init_conv_layers first.')
+		z = x.to(torch.float32)
+		for layer_idx, layer_spec in enumerate(self.sparse_random_layers):
+			z = sparse_random_layer_forward(self, z, layer_spec)
+			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
+				z = F.max_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
+				z = (z > 0).to(z.dtype)
+		return z.view(z.size(0), -1)
+
+	def sparse_random_layer_forward(self, inputs: torch.Tensor, layer_spec: dict) -> torch.Tensor:
+		B, C, H, W = inputs.shape
+		kernel_size = CNNkernelSize
+		padding = kernel_size // 2 if EISANICNNpaddingPolicy == 'same' else 0
+		unfolded = F.unfold(inputs, kernel_size=kernel_size, padding=padding, stride=1)
+		patch_matrix = unfolded.transpose(1, 2).reshape(-1, layer_spec['patch_size'])
+		indices_flat = layer_spec['indices_flat']
+		signs = layer_spec['signs']
+		device_local = inputs.device
+		if indices_flat.device != device_local:
+			indices_flat = indices_flat.to(device_local)
+			layer_spec['indices_flat'] = indices_flat
+		if signs.device != device_local:
+			signs = signs.to(device_local)
+			layer_spec['signs'] = signs
+		total_neurons = layer_spec['total_neurons']
+		synapses = layer_spec['synapses']
+		chunk = max(1, layer_spec['chunk_size'])
+		result = patch_matrix.new_empty((patch_matrix.size(0), total_neurons))
+		for start in range(0, patch_matrix.size(0), chunk):
+			end = min(start + chunk, patch_matrix.size(0))
+			patch_chunk = patch_matrix[start:end]
+			selected = patch_chunk.index_select(1, indices_flat)
+			selected = selected.view(-1, total_neurons, synapses)
+			sums = (selected * signs.view(1, total_neurons, synapses)).sum(dim=2)
+			result[start:end] = sums
+		threshold = layer_spec['threshold']
+		if useStochasticUpdates:
+			fired = result > threshold
+		else:
+			fired = result >= threshold
+		fired = fired.view(B, H, W, layer_spec['out_channels'], layer_spec['sani_per_kernel'])
+		fired = fired.any(dim=-1)
+		return fired.to(inputs.dtype).permute(0, 3, 1, 2)
+if(EISANICNNarchitectureDenseRandom):
+	def propagate_conv_layers_dense_random(self, x: torch.Tensor) -> torch.Tensor:
+		if not hasattr(self, 'cnn_dense_layers'):
+			raise AttributeError('Dense random CNN layers are not initialised. Call init_conv_layers first.')
+		z = x.to(torch.float32)
+		for layer_idx, conv in enumerate(self.cnn_dense_layers):
+			z = conv(z)
+			if EISANICNNactivationFunction:
+				z = F.relu(z)
+			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
+				z = F.max_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
+		return z.view(z.size(0), -1)
+if(EISANICNNarchitectureDensePretrained):
+	def propagate_conv_layers_dense_pretrained(self, x: torch.Tensor) -> torch.Tensor:
+		if not hasattr(self, 'cnn_pretrained'):
+			raise AttributeError('Pretrained CNN backbone not initialised. Call init_conv_layers first.')
+		backbone = self.cnn_pretrained
+		device_backbone = next(backbone.parameters()).device
+		z = x.to(device_backbone, dtype=torch.float32)
+		features = backbone._forward_body(z)
+		pooled = backbone.gap(features)
+		flat = pooled.view(pooled.size(0), -1)
+		if flat.device != x.device:
+			flat = flat.to(x.device)
+		return flat
+elif(EISANICNNarchitectureDivergeAllKernelPermutations):
+
+	def propagate_conv_layers_diverge_all_kernel_permutations(self, x: torch.Tensor) -> torch.Tensor:
 		"""
 		Full image pipeline:
 		 - threshold input channels at `EISANICNNinputChannelThreshold`
@@ -204,13 +414,13 @@ if(EISANICNNuseBinaryInput):
 						z = z.to(torch.int8)
 
 		if EISANICNNoptimisationSparseConv and self.config.numberOfConvlayers>1:
-			if(EISANICNNdynamicallyGenerateLinearInputFeatures):
+			if(EISANICNNdynamicallyGenerateFFInputFeatures):
 				linearInput = dynamicallyGenerateLinearInputFeaturesVectorised(self, z, b_idx, c_idx, B, C)
 			else:
 				linearInput = sparse_to_dense(self, z, b_idx, c_idx, B, C)
 		else:
-			if(EISANICNNdynamicallyGenerateLinearInputFeatures):
-				printe("EISANICNNdynamicallyGenerateLinearInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1")
+			if(EISANICNNdynamicallyGenerateFFInputFeatures):
+				printe("EISANICNNdynamicallyGenerateFFInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1")
 			else:
 				linearInput = z
 		linearInput = linearInput.view(linearInput.size(0), -1)			# (batch, encodedFeatureSize)	#flatten for linear layers
@@ -521,9 +731,9 @@ if(EISANICNNuseBinaryInput):
 		B, Cnew, *spatial = match.shape
 		return match, B, Cnew
 
-else:
+elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 
-	def propagate_conv_layers_float(self, x: torch.Tensor) -> torch.Tensor:
+	def propagate_conv_layers_diverge_limited_kernel_permutations(self, x: torch.Tensor) -> torch.Tensor:
 		"""
 		Full image pipeline:
 		 - repeat {conv -> (activation) -> (optional max-pool every Q layers)} numberOfConvlayers times

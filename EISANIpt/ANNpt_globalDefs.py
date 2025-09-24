@@ -378,13 +378,15 @@ elif(useImageDataset):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
 		else:
 			batchSize = 1	#default: 1
-		if(not EISANICNNkernelAllPermutations):
-			batchSize = 64	#1024	#64
+		if(not EISANICNNarchitectureDivergeAllKernelPermutations):
+			batchSize = 64	#default: 64	#1024
+		if(not useDefaultNumLayersParam):
+			numberOfFFLayers = numberOfFFLayers*2
 	else:
 		batchSize = 128	 #default: 128	#orig: 64
-		numberOfConvlayers = 6	#rest will be linear	#orig: 2	#default: 2, 4, 6
-		numberOfLinearLayers = 3
-	numberOfLayers = numberOfConvlayers+numberOfLinearLayers	#counts hidden and output layers (not input layer)
+		numberOfConvlayers = 6	#rest will be FF	#orig: 2	#default: 2, 4, 6
+		numberOfFFLayers = 3
+	numberOfLayers = numberOfConvlayers+numberOfFFLayers	#counts hidden and output layers (not input layer)
 	numberInputImageChannels = 3	#default: CIFAR-10 channels
 	inputImageHeight = 32	#default: CIFAR-10 image size
 	inputImageWidth = 32	#default: CIFAR-10 image size
@@ -435,7 +437,6 @@ if(useAlgorithmEISANI):
 		numberOfLayers += 1
 	if(trainNumberOfEpochsHigh):
 		trainNumberOfEpochs = 100
-	
 	if(useTabularDataset):			
 		if(not useDefaultNumLayersParam):	#useImageDataset etc does not support posthoc modification of numberOfLayers
 			numberOfLayers = numberOfLayers*2

@@ -18,6 +18,7 @@ EISANIpt model Continuous Var Encoding
 """
 
 import torch
+from typing import Optional
 from ANNpt_globalDefs import *
 import torch.nn.functional as F
 if(useNLPDataset):
@@ -36,13 +37,23 @@ def continuousVarEncoding(self, x):
 		numSubsamples = 1
 	elif useImageDataset:
 		if(EISANICNNuseBinaryInput):
-			encoded = encodeContinuousVarsAsBitsWrapper(self, x)
-			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_binary(self, encoded)	# (batch, encodedFeatureSize)
+			if(EISANICNNarchitectureDivergeAllKernelPermutations):
+				encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_all_kernel_permutations(self, encoded)	# (batch, encodedFeatureSize)
+			elif(EISANICNNarchitectureSparseRandom):
+				encoded = sample_binary_states_from_probs(self, x, numberOfRandomlySelectedInputBinaryStates)
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded)	# (batch, encodedFeatureSize)	int8
 		else:
-			initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_float(self, x)	# (batch, encodedFeatureSize) int8
+			if(EISANICNNarchitectureDivergeLimitedKernelPermutations):
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_limited_kernel_permutations(self, x)	# (batch, encodedFeatureSize) float32
+			elif(EISANICNNarchitectureDenseRandom):
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_random(self, x)	# (batch, encodedFeatureSize) float32
+			elif(EISANICNNarchitectureDensePretrained):
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_pretrained(self, x)	# (batch, encodedFeatureSize) float32
+				
 			if(EISANITABcontinuousVarEncodingNumBitsAfterCNN == 1):
 				# Binarize/threshold channels for the linear stage, then flatten
-				initActivation = (initActivation > EISANICNNinputChannelThreshold)
+				initActivation = (initActivation > EISANICNNoutputChannelThreshold)
 			else:
 				initActivation = encodeContinuousVarsAsBits(self, initActivation, "useTabularDataset", useContinuousVarEncodeMethodAfterCNN, EISANITABcontinuousVarEncodingNumBitsAfterCNN, useVectorisedImplementation=True) 
 			initActivation = initActivation.to(torch.int8)	# (batch, encodedFeatureSize) int8
@@ -56,6 +67,52 @@ def continuousVarEncoding(self, x):
 		initActivation = encoded.to(torch.int8)
 		#encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()	#sequenceLength*embeddingSize*EISANINLPcontinuousVarEncodingNumBits
 	return initActivation
+
+
+def sample_binary_states_from_probs(
+		x: torch.Tensor,
+		numberOfRandomlySelectedInputBinaryStates: int,
+		*,
+		clamp: bool = True,
+		out_dtype: torch.dtype = torch.float32,
+		generator: Optional[torch.Generator] = None
+) -> torch.Tensor:
+	"""
+	Generate N binary realizations from per-pixel probabilities and stack them on the batch dim.
+
+	Args:
+		x: Float tensor of shape (B, C, H, W). Values are probabilities in [0, 1] (can be unclamped).
+		numberOfRandomlySelectedInputBinaryStates: N, number of binary samples per original item.
+		clamp: If True, clamp x to [0,1] before sampling.
+		out_dtype: Desired dtype of the returned binary tensor (torch.float32, torch.uint8, torch.bool, etc.).
+		generator: Optional torch.Generator for reproducible sampling.
+
+	Returns:
+		Tensor of shape (B*N, C, H, W) with binary values (0/1 or bool), sampled i.i.d. per element.
+	"""
+	if not isinstance(x, torch.Tensor):
+		raise TypeError("x must be a torch.Tensor")
+	if x.dim() != 4:
+		raise ValueError(f"x must have shape (B, C, H, W); got {tuple(x.shape)}")
+	if numberOfRandomlySelectedInputBinaryStates <= 0:
+		raise ValueError("numberOfRandomlySelectedInputBinaryStates must be > 0")
+
+	B, C, H, W = x.shape
+	N = numberOfRandomlySelectedInputBinaryStates
+
+	# Ensure probabilities are valid if requested
+	probs = x.clamp_(0.0, 1.0) if clamp else x
+
+	# Sample uniform noise and threshold against probs (Bernoulli sampling)
+	# Shapes: U: (N, B, C, H, W), probs_exp: (N, B, C, H, W) via broadcast
+	U = torch.rand((N, B, C, H, W), device=probs.device, dtype=probs.dtype, generator=generator)
+	samples = (U < probs.unsqueeze(0)).permute(1, 0, 2, 3, 4).contiguous().view(B * N, C, H, W)
+
+	# Cast to requested output dtype
+	if out_dtype is torch.bool:
+		return samples
+	return samples.to(dtype=out_dtype)
+
 
 def encodeContinuousVarsAsBitsWrapper(self, x: torch.Tensor) -> torch.Tensor:
 	#!useVectorisedImplementation is required for encodeDatasetBoolValuesAs1Bit

@@ -40,8 +40,8 @@ def generateNumberHiddenLayers(numberOfLayers: int, numberOfConvlayers: int) -> 
 	if(useTabularDataset):
 		numberOfHiddenLayers = numberOfLayers - 1
 	elif(useImageDataset):
-		numberOfLinearLayers = numberOfLayers - numberOfConvlayers
-		numberOfHiddenLayers = numberOfLinearLayers - 1
+		numberOfFFLayers = numberOfLayers - numberOfConvlayers
+		numberOfHiddenLayers = numberOfFFLayers - 1
 	elif(useNLPDataset):
 		numberOfHiddenLayers = numberOfLayers - 1
 	return numberOfHiddenLayers
@@ -136,10 +136,20 @@ class EISANImodel(nn.Module):
 			else:
 				self.encodedFeatureSize = config.numberOfFeatures * EISANITABcontinuousVarEncodingNumBits
 		elif useImageDataset:
-			EISANIpt_EISANImodelCNN._init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
+			EISANIpt_EISANImodelCNN.init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
 
-			#if(EISANICNNdynamicallyGenerateLinearInputFeatures):	
+			#if(EISANICNNdynamicallyGenerateFFInputFeatures):	
 			#	self.CNNoutputEncodedFeaturesDict = {} #key: CNNoutputLayerFlatFeatureIndex, value: linearInputLayerFeatureIndex	#non-vectorised implementation
+			
+			# -----------------------------
+			# CNN connection matrices
+			# -----------------------------
+			if(EISANICNNarchitectureSparseRandom):
+				CNNconfig = EISANIpt_EISANImodelCNN.EISANICNNconfig(
+					numberOfConvlayers = numberOfConvlayers,
+					hiddenLayerSize = EISANICNNkernelSizeSANI,
+				)
+				self.EISANICNNmodel = EISANICNNmodel(CNNconfig)
 		elif useNLPDataset:
 			self.encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()
 		
@@ -147,6 +157,7 @@ class EISANImodel(nn.Module):
 		print("self.encodedFeatureSize = ", self.encodedFeatureSize)
 
 		if(useConnectionWeights):
+		
 			# -----------------------------
 			# Hidden connection matrices
 			# -----------------------------
