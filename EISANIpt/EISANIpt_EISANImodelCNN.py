@@ -32,10 +32,17 @@ if(EISANICNNarchitectureSparseRandom):
 	import EISANIpt_EISANImodelSummation
 	
 	class EISANICNNconfig():
-		def __init__(self, hiddenLayerSize, numberOfConvlayers, numberOfSynapsesPerSegment):
+		def __init__(self, hiddenLayerSize, numberOfConvlayers, numberOfSynapsesPerSegment, layer_input_sizes, sani_per_kernel, kernels_per_layer):
+			if layer_input_sizes is None:
+				raise ValueError("layer_input_sizes must be provided for sparse CNN initialisation")
+			if len(layer_input_sizes) != numberOfConvlayers:
+				raise ValueError("layer_input_sizes length must match numberOfConvlayers")
 			self.numberOfConvlayers = numberOfConvlayers
 			self.hiddenLayerSize = hiddenLayerSize
 			self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
+			self.layer_input_sizes = layer_input_sizes
+			self.sani_per_kernel = sani_per_kernel
+			self.kernels_per_layer = kernels_per_layer
 		
 	class EISANICNNmodel(nn.Module):
 		"""Custom CNN binary neural network implementing the EISANI specification."""
@@ -45,18 +52,49 @@ if(EISANICNNarchitectureSparseRandom):
 
 			self.config = config
 			self.numberUniqueHiddenLayers = config.numberOfConvlayers
-			prevSize = config.hiddenLayerSize
-			EISANIpt_EISANImodelSummation.init_layers(self, config, prevSize)
+			self.layer_input_sizes = config.layer_input_sizes
+			self.sani_per_kernel = config.sani_per_kernel
+			self.kernels_per_layer = config.kernels_per_layer
 
+			self.hiddenConnectionMatrix = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			if useEIneurons:
+				self.hiddenConnectionMatrixExcitatory = [[] for _ in range(self.numberUniqueHiddenLayers)]
+				self.hiddenConnectionMatrixInhibitory = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			else:
+				self.hiddenConnectionMatrixExcitatory = []
+				self.hiddenConnectionMatrixInhibitory = []
 
-	def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN):
-		uniqueLayerIndex = layerIdCNN
-		if useEIneurons:
-			aExc, aInh = EISANIpt_EISANImodelSummation.compute_layer_EI(self, uniqueLayerIndex, prevActivation, device)
-			currentActivation = torch.cat([aExc, aInh], dim=1)
-		else:
-			currentActivation = EISANIpt_EISANImodelSummation.compute_layer_standard(self, uniqueLayerIndex, prevActivation, device)
-		return currentActivation	
+			for hiddenLayerIdx in range(self.numberUniqueHiddenLayers):
+				prevSize = self.layer_input_sizes[hiddenLayerIdx]
+				for segmentIdx in range(numberOfSegmentsPerNeuron):
+					if useEIneurons:
+						if useInhibition:
+							excitSize = config.hiddenLayerSize // 2
+							inhibSize = config.hiddenLayerSize - excitSize
+						else:
+							excitSize = config.hiddenLayerSize
+							inhibSize = 0
+						excMat = EISANIpt_EISANImodelSummation.initialise_layer_weights(self, excitSize, prevSize, hiddenLayerIdx)
+						self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
+						if inhibSize > 0:
+							inhMat = EISANIpt_EISANImodelSummation.initialise_layer_weights(self, inhibSize, prevSize, hiddenLayerIdx)
+							self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
+						else:
+							placeholder_dtype = torch.bool if useSparseHiddenMatrix else torch.int8
+							placeholder = torch.empty((0, prevSize), dtype=placeholder_dtype, device=device)
+							self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(placeholder)
+					else:
+						mat = EISANIpt_EISANImodelSummation.initialise_layer_weights(self, config.hiddenLayerSize, prevSize, hiddenLayerIdx)
+						self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
+
+		def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN):
+			uniqueLayerIndex = layerIdCNN
+			if useEIneurons:
+				aExc, aInh = EISANIpt_EISANImodelSummation.compute_layer_EI(self, uniqueLayerIndex, prevActivation, device)
+				currentActivation = torch.cat([aExc, aInh], dim=1)
+			else:
+				currentActivation = EISANIpt_EISANImodelSummation.compute_layer_standard(self, uniqueLayerIndex, prevActivation, device)
+			return currentActivation	
 
 # ---------------------------------------------------------
 # IMAGE helpers (init & propagation)
@@ -67,35 +105,18 @@ def init_conv_layers(self) -> None:
 
 	if(EISANICNNarchitectureSparseRandom):
 		assert EISANICNNpaddingPolicy == 'same', "Sparse random CNN currently supports 'same' padding only"
-		self.sparse_random_layers = []
-		self._sparse_random_out_channels = []
-		in_channels = numberInputImageChannels*EISANICNNcontinuousVarEncodingNumBits
-		for layerIdx in range(self.config.numberOfConvlayers):
-			out_channels = EISANICNNnumberKernels
+		self._EISANICNN_layer_in_channels = []
+		self._EISANICNN_layer_input_sizes = []
+		self._EISANICNN_out_channels = []
+		self._EISANICNN_sani_per_kernel = EISANICNNkernelSizeSANI
+		self._EISANICNN_total_neurons_per_layer = EISANICNNnumberKernels * EISANICNNkernelSizeSANI
+		in_channels = numberInputImageChannels * EISANICNNcontinuousVarEncodingNumBits
+		for _ in range(self.config.numberOfConvlayers):
+			self._EISANICNN_layer_in_channels.append(in_channels)
+			self._EISANICNN_out_channels.append(EISANICNNnumberKernels)
 			patch_size = in_channels * CNNkernelSize * CNNkernelSize
-			total_neurons = out_channels * EISANICNNkernelSizeSANI
-			synapses = max(1, numberOfSynapsesPerSegment)
-			indices = torch.randint(patch_size, (total_neurons, synapses), device=device, dtype=torch.long)
-			signs = torch.randint(0, 2, (total_neurons, synapses), device=device, dtype=torch.float32)
-			signs = signs.mul_(2.0).sub_(1.0)
-			max_elems = 8_388_608
-			chunk = max(1, max_elems // max(1, total_neurons * synapses))
-			chunk = min(chunk, 8192)
-			layer_spec = {
-				"indices": indices,
-				"indices_flat": indices.reshape(-1),
-				"signs": signs,
-				"total_neurons": total_neurons,
-				"out_channels": out_channels,
-				"sani_per_kernel": EISANICNNkernelSizeSANI,
-				"synapses": synapses,
-				"patch_size": patch_size,
-				"threshold": float(segmentActivationThreshold),
-				"chunk_size": chunk,
-			}
-			self.sparse_random_layers.append(layer_spec)
-			self._sparse_random_out_channels.append(out_channels)
-			in_channels = out_channels
+			self._EISANICNN_layer_input_sizes.append(patch_size)
+			in_channels = EISANICNNnumberKernels
 	elif(EISANICNNarchitectureDenseRandom):
 		self.cnn_dense_layers = nn.ModuleList()
 		self._dense_random_out_channels = []
@@ -288,7 +309,7 @@ def init_conv_layers(self) -> None:
 		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 			ch *= K_total	#eg each conv multiplies channels by EISANICNNnumberKernelOrientations
 		elif(EISANICNNarchitectureSparseRandom):
-			ch = self._sparse_random_out_channels[layerIdx]
+			ch = self._EISANICNN_out_channels[layerIdx]
 		elif(EISANICNNarchitectureDenseRandom):
 			ch = self._dense_random_out_channels[layerIdx]
 		elif(EISANICNNarchitectureDensePretrained):
@@ -305,53 +326,37 @@ def init_conv_layers(self) -> None:
 
 if(EISANICNNarchitectureSparseRandom):
 	def propagate_conv_layers_sparse_random(self, x: torch.Tensor) -> torch.Tensor:
-		if not hasattr(self, 'sparse_random_layers'):
-			raise AttributeError('Sparse random CNN layers are not initialised. Call init_conv_layers first.')
+		if not hasattr(self, 'EISANICNNmodel'):
+			raise AttributeError('Sparse random CNN model is not initialised. Ensure init_conv_layers and EISANICNNmodel setup completed.')
+		if not hasattr(self, '_EISANICNN_layer_input_sizes'):
+			raise AttributeError('Sparse random CNN metadata missing. Call init_conv_layers before propagation.')
 		z = x.to(torch.float32)
-		for layer_idx, layer_spec in enumerate(self.sparse_random_layers):
-			z = sparse_random_layer_forward(self, z, layer_spec)
+		batch_size = z.size(0)
+		height = z.size(2)
+		width = z.size(3)
+		padding = CNNkernelSize // 2 if EISANICNNpaddingPolicy == 'same' else 0
+		for layer_idx in range(self.config.numberOfConvlayers):
+			patches = F.unfold(z, kernel_size=CNNkernelSize, padding=padding, stride=1)
+			patch_size = self._EISANICNN_layer_input_sizes[layer_idx]
+			patches = patches.transpose(1, 2).reshape(-1, patch_size)
+			prev_activation = patches.to(torch.int8)
+			layer_output = self.EISANICNNmodel.summationSANIpassCNNlayer(prev_activation, layer_idx)
+			total_neurons = self.EISANICNNmodel.config.hiddenLayerSize
+			layer_output = layer_output.view(batch_size, height * width, total_neurons)
+			layer_output = layer_output.view(batch_size, height, width, self._EISANICNN_out_channels[layer_idx], self._EISANICNN_sani_per_kernel)
+			layer_active = layer_output != 0
+			kernel_active = layer_active.any(dim=-1)
+			z = kernel_active.to(z.dtype).permute(0, 3, 1, 2)
+			if EISANICNNactivationFunction:
+				z = (z > 0).to(z.dtype)
 			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				z = F.max_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
 				z = (z > 0).to(z.dtype)
+				height = (height + 1) // 2
+				width = (width + 1) // 2
+			height, width = z.size(2), z.size(3)
 		flat = z.reshape(z.size(0), -1)
-		if flat.dtype != torch.int8:
-			flat = flat.to(torch.int8)
-		return flat
-
-	def sparse_random_layer_forward(self, inputs: torch.Tensor, layer_spec: dict) -> torch.Tensor:
-		B, C, H, W = inputs.shape
-		kernel_size = CNNkernelSize
-		padding = kernel_size // 2 if EISANICNNpaddingPolicy == 'same' else 0
-		unfolded = F.unfold(inputs, kernel_size=kernel_size, padding=padding, stride=1)
-		patch_matrix = unfolded.transpose(1, 2).reshape(-1, layer_spec['patch_size'])
-		indices_flat = layer_spec['indices_flat']
-		signs = layer_spec['signs']
-		device_local = inputs.device
-		if indices_flat.device != device_local:
-			indices_flat = indices_flat.to(device_local)
-			layer_spec['indices_flat'] = indices_flat
-		if signs.device != device_local:
-			signs = signs.to(device_local)
-			layer_spec['signs'] = signs
-		total_neurons = layer_spec['total_neurons']
-		synapses = layer_spec['synapses']
-		chunk = max(1, layer_spec['chunk_size'])
-		result = patch_matrix.new_empty((patch_matrix.size(0), total_neurons))
-		for start in range(0, patch_matrix.size(0), chunk):
-			end = min(start + chunk, patch_matrix.size(0))
-			patch_chunk = patch_matrix[start:end]
-			selected = patch_chunk.index_select(1, indices_flat)
-			selected = selected.view(-1, total_neurons, synapses)
-			sums = (selected * signs.view(1, total_neurons, synapses)).sum(dim=2)
-			result[start:end] = sums
-		threshold = layer_spec['threshold']
-		if useStochasticUpdates:
-			fired = result > threshold
-		else:
-			fired = result >= threshold
-		fired = fired.view(B, H, W, layer_spec['out_channels'], layer_spec['sani_per_kernel'])
-		fired = fired.any(dim=-1)
-		return fired.to(inputs.dtype).permute(0, 3, 1, 2)
+		return flat.to(torch.int8)
 elif(EISANICNNarchitectureDenseRandom):
 	def propagate_conv_layers_dense_random(self, x: torch.Tensor) -> torch.Tensor:
 		if not hasattr(self, 'cnn_dense_layers'):
@@ -386,11 +391,10 @@ elif(EISANICNNarchitectureDivergeAllKernelPermutations):
 		 - repeat {conv -> (optional) max-pool} `numberOfConvlayers` times
 		 - flatten to (batch, -1) int8
 		"""
-		z = (x >= EISANICNNinputChannelThreshold)
 		if(EISANICNNoptimisationAssumeInt8):
-			z = z.to(torch.int8)
+			z = x.to(torch.int8)
 		else:
-			z = z.float()
+			z = x.float()
 		b_idx, c_idx, B, C = (None, None, None, None)
 		for convLayerIndex in range(self.config.numberOfConvlayers):
 			if EISANICNNoptimisationSparseConv and convLayerIndex > 0:

@@ -62,9 +62,11 @@ elif(useImageDataset):
 	EISANICNNdynamicallyGenerateFFInputFeatures = False
 	if(EISANICNNarchitectureSparseRandom):
 		EISANICNNuseBinaryInput = True
-		EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
-		if(EISANICNNnumberOfRandomlySelectedInputBinaryStates > 1):
-			EISANICNNrandomlySelectInputBinaryStates = True
+		EISANICNNrandomlySelectInputBinaryStates = False	#default: True
+		if(EISANICNNrandomlySelectInputBinaryStates):
+			EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
+		else:
+			EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
 		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
 		EISANICNNactivationFunction = True	#mandatory
@@ -72,7 +74,7 @@ elif(useImageDataset):
 		EISANICNNnumberKernels = 16
 		EISANICNNkernelSizeSANI = 32
 		numberOfConvlayers = 4	#rest will be FF	#default: 2, 4, 6
-		EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
+		EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
 	elif(EISANICNNarchitectureDenseRandom):
 		EISANICNNuseBinaryInput = False
 		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels

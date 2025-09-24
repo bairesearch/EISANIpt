@@ -38,13 +38,13 @@ def continuousVarEncoding(self, x):
 	elif useImageDataset:
 		if(EISANICNNuseBinaryInput):
 			if(EISANICNNarchitectureDivergeAllKernelPermutations):
-				encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+				encoded = (x >= EISANICNNinputChannelThreshold)
 				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_all_kernel_permutations(self, encoded)	# (batch, encodedFeatureSize)
 			elif(EISANICNNarchitectureSparseRandom):
 				if(EISANICNNrandomlySelectInputBinaryStates):
 					encoded = sample_binary_states_from_probs(x, EISANICNNnumberOfRandomlySelectedInputBinaryStates)	# Sample multiple binary states from input probabilities
 				else:
-					encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+					encoded = (x >= EISANICNNinputChannelThreshold)
 				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded)	# (batch, encodedFeatureSize)	int8
 		else:
 			if(EISANICNNarchitectureDivergeLimitedKernelPermutations):

@@ -378,7 +378,7 @@ elif(useImageDataset):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
 		else:
 			batchSize = 1	#default: 1
-		batchSize = 64	#16	#default: 64	#1024
+		batchSize = 16	#16	#default: 64	#1024
 		if(not useDefaultNumLayersParam):
 			numberOfFFLayers = numberOfFFLayers*2
 	else:
