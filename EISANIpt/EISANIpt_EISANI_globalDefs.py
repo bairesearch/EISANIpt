@@ -40,6 +40,7 @@ debugOnlyPrintStreamedWikiArticleTitles = False
 useSlidingWindow = False
 targetActivationSparsityFraction = -1
 numberNeuronSegmentsGeneratedPerSample = -1
+EISANICNNrandomlySelectInputBinaryStates = False
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -48,7 +49,7 @@ elif(useImageDataset):
 	debugEISANICNNprintKernels = True
 	
 	EISANICNNarchitectureDivergeAllKernelPermutations = False	#orig: True
-	EISANICNNarchitectureDivergeLimitedKernelPermutations = False	#default: True
+	EISANICNNarchitectureDivergeLimitedKernelPermutations = True	#default: True
 	EISANICNNarchitectureSparseRandom = False
 	EISANICNNarchitectureDenseRandom = False
 	EISANICNNarchitectureDensePretrained = False
@@ -58,10 +59,14 @@ elif(useImageDataset):
 	CNNmaxPool = True
 	encodedFeatureSizeDefault = 12800000*math.ceil(1/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
 	trainNumberOfEpochsHigh = False	#default: False
+	EISANICNNdynamicallyGenerateFFInputFeatures = False
 	if(EISANICNNarchitectureSparseRandom):
 		EISANICNNuseBinaryInput = True
 		EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
+		if(EISANICNNnumberOfRandomlySelectedInputBinaryStates > 1):
+			EISANICNNrandomlySelectInputBinaryStates = True
 		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
+		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
 		EISANICNNactivationFunction = True	#mandatory
 		EISANICNNpaddingPolicy = 'same'
 		EISANICNNnumberKernels = 16
@@ -91,8 +96,9 @@ elif(useImageDataset):
 		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
 		useContinuousVarEncodeMethod = "grayCode"
 		EISANICNNcontinuousVarEncodingNumBits = 1	#default: 1		#number of bits to encode image pixels
-		EISANICNNnumberKernelOrientations = -1
+		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
 		EISANICNNdynamicallyGenerateFFInputFeatures = True	#default: True	#input FF layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateFFInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
+		EISANICNNnumberKernelOrientations = -1		
 		EISANICNNkernelEdgesTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
 		EISANICNNactivationFunction = True	#mandatory
 		EISANICNNpaddingPolicy = 'none'

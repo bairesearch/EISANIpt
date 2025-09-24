@@ -18,6 +18,7 @@ EISANIpt model CNN
 """
 
 import os
+import sys
 import importlib.util
 import torch
 from torch import nn
@@ -31,49 +32,22 @@ if(EISANICNNarchitectureSparseRandom):
 	import EISANIpt_EISANImodelSummation
 	
 	class EISANICNNconfig():
-		def __init__(self, hiddenLayerSize):
+		def __init__(self, hiddenLayerSize, numberOfConvlayers, numberOfSynapsesPerSegment):
 			self.numberOfConvlayers = numberOfConvlayers
 			self.hiddenLayerSize = hiddenLayerSize
+			self.numberOfSynapsesPerSegment = numberOfSynapsesPerSegment
 		
 	class EISANICNNmodel(nn.Module):
 		"""Custom CNN binary neural network implementing the EISANI specification."""
 
-		def __init__(self, config: EISANIconfig) -> None:
+		def __init__(self, config: EISANICNNconfig) -> None:
 			super().__init__()
 
+			self.config = config
 			self.numberUniqueHiddenLayers = config.numberOfConvlayers
-			
-			if(useConnectionWeights):
-				# -----------------------------
-				# Hidden connection matrices
-				# -----------------------------
-				self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-				self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-				self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			prevSize = config.hiddenLayerSize
+			EISANIpt_EISANImodelSummation.init_layers(self, config, prevSize)
 
-				for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
-					for segmentIdx in range(numberOfSegmentsPerNeuron):
-						if useEIneurons: # Corrected: use useEIneurons
-							if useInhibition:
-								excitSize = config.hiddenLayerSize // 2
-								inhibSize = config.hiddenLayerSize - excitSize
-							else:
-								excitSize = config.hiddenLayerSize  # All neurons are excitatory
-								inhibSize = 0
-							excMat = self._initialise_layer_weights(excitSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-							self.hiddenConnectionMatrixExcitatory[hiddenLayerIdx].append(excMat)
-							if useInhibition and inhibSize > 0:
-								inhMat = self._initialise_layer_weights(inhibSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-								self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(inhMat)
-							else:
-								# Create empty inhibitory matrix when inhibition is disabled
-								self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(torch.empty(0, prevSize, device=device))
-						else:
-							mat = self._initialise_layer_weights(config.hiddenLayerSize, prevSize, hiddenLayerIdx) # Corrected: added hiddenLayerIdx
-							self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
-					prevSize = config.hiddenLayerSize
-			else:
-				printe("useConnectionWeights is required for EISANIpt_EISANImodelCNN")
 
 	def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN):
 		uniqueLayerIndex = layerIdCNN
@@ -143,13 +117,28 @@ def init_conv_layers(self) -> None:
 		if spec is None or spec.loader is None:
 			raise RuntimeError('Unable to load ResNet18 backbone description')
 		resnet_module = importlib.util.module_from_spec(spec)
+		sys.modules[spec.name] = resnet_module
 		spec.loader.exec_module(resnet_module)
 		backbone = resnet_module.ResNet18Breakaway(num_classes=numberOfClasses)
 		weights_path = os.path.join(os.path.dirname(__file__), 'Resnet18-breakaway', 'resnet18_full.pth')
 		if not os.path.exists(weights_path):
 			raise FileNotFoundError(f"Pretrained weights not found at {weights_path}")
 		state = torch.load(weights_path, map_location=device)
-		backbone.load_state_dict(state)
+		if isinstance(state, dict) and 'state_dict' in state:
+			state = state['state_dict']
+		if all(k.startswith('module.') for k in state.keys()):
+			state = {k[len('module.'):]: v for k, v in state.items()}
+		filtered_state = {k: v for k, v in state.items() if not k.startswith('bk_heads.')}
+		excluded = set(state.keys()) - set(filtered_state.keys())
+		if excluded:
+			print(f"[EISANICNN] Skipping breakaway head params: {sorted(excluded)}")
+		missing, unexpected = backbone.load_state_dict(filtered_state, strict=False)
+		allowed_missing_prefixes = ('bk_heads.',)
+		missing = [key for key in missing if not key.startswith(allowed_missing_prefixes)]
+		if unexpected:
+			print(f"[EISANICNN] Unexpected keys after load_state_dict: {unexpected}")
+		if missing:
+			print(f"[EISANICNN] Missing keys after load_state_dict: {missing}")
 		backbone.to(device)
 		backbone.eval()
 		for param in backbone.parameters():
@@ -177,7 +166,7 @@ def init_conv_layers(self) -> None:
 			all_patterns = all_patterns[(all_patterns.sum(dim=1) > 0)]	# drop the all-zero mask (would match everywhere)
 		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):		
 			ksz = int(CNNkernelSize)
-			# --- Arbitrary-o oriented ksz×ksz *float* kernels on the given device.
+			# --- Arbitrary-o oriented kszï¿½ksz *float* kernels on the given device.
 			# Grid: center at (0,0), sample at X,Y E {-1,0,1}.  0_k = 2pik/o.
 			# Define u (axis-aligned) and v (perpendicular) via rotation:
 			#   u =  X*cos0 + Y*sin0
@@ -256,21 +245,21 @@ def init_conv_layers(self) -> None:
 				banks.append(k_cent)
 				K_total = K_total+1
 
-		assert len(banks) > 0, "EISANICNN: enable at least one kernel family (Edges/Corners/Hooks/Centroids)"
-		kbank = torch.cat(banks, dim=0)					# (K_total,ksz,ksz)
-		all_patterns = kbank.view(-1, ksz * ksz)
+			assert len(banks) > 0, "EISANICNN: enable at least one kernel family (Edges/Corners/Hooks/Centroids)"
+			kbank = torch.cat(banks, dim=0)					# (K_total,ksz,ksz)
+			all_patterns = kbank.view(-1, ksz * ksz)
 		
 		# --- pretty-print kernels for manual review (prints all by default) ---
 		if debugEISANICNNprintKernels:
-			_ksz = int(CNNkernelSize)
-			_kernels = all_patterns.view(-1, _ksz, _ksz).detach().float().cpu()
-			_K = _kernels.shape[0]
-			print(f"[EISANICNN] Generated {_K} kernels ({_ksz}x{_ksz}):")
-			for _idx in range(_K):
-				print(f"kernel {_idx+1}/{_K}:")
-				for _r in range(_ksz):
-					_row = " ".join(f"{v:+.3f}" for v in _kernels[_idx, _r].tolist())
-					print("\t" + _row)
+			ksz = int(CNNkernelSize)
+			kernels = all_patterns.view(-1, ksz, ksz).detach().float().cpu()
+			K = kernels.shape[0]
+			print(f"[EISANICNN] Generated {K} kernels ({ksz}x{ksz}):")
+			for idx in range(K):
+				print(f"kernel {idx+1}/{K}:")
+				for r in range(ksz):
+					row = " ".join(f"{v:+.3f}" for v in kernels[idx, r].tolist())
+					print("\t" + row)
 				print()
 		self.convKernels = all_patterns.view(-1, 1, ksz, ksz).float().to(device)	# (outCh,inCh,H,W))		#EISANICNNarchitectureDivergeAllKernelPermutations: (2**9)-1=511 out-channel
 		self.convKernels = self.convKernels.float()	#torch.conv2d currently requires float
@@ -324,7 +313,10 @@ if(EISANICNNarchitectureSparseRandom):
 			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				z = F.max_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
 				z = (z > 0).to(z.dtype)
-		return z.view(z.size(0), -1)
+		flat = z.reshape(z.size(0), -1)
+		if flat.dtype != torch.int8:
+			flat = flat.to(torch.int8)
+		return flat
 
 	def sparse_random_layer_forward(self, inputs: torch.Tensor, layer_spec: dict) -> torch.Tensor:
 		B, C, H, W = inputs.shape
@@ -360,7 +352,7 @@ if(EISANICNNarchitectureSparseRandom):
 		fired = fired.view(B, H, W, layer_spec['out_channels'], layer_spec['sani_per_kernel'])
 		fired = fired.any(dim=-1)
 		return fired.to(inputs.dtype).permute(0, 3, 1, 2)
-if(EISANICNNarchitectureDenseRandom):
+elif(EISANICNNarchitectureDenseRandom):
 	def propagate_conv_layers_dense_random(self, x: torch.Tensor) -> torch.Tensor:
 		if not hasattr(self, 'cnn_dense_layers'):
 			raise AttributeError('Dense random CNN layers are not initialised. Call init_conv_layers first.')
@@ -372,7 +364,7 @@ if(EISANICNNarchitectureDenseRandom):
 			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
 				z = F.max_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
 		return z.view(z.size(0), -1)
-if(EISANICNNarchitectureDensePretrained):
+elif(EISANICNNarchitectureDensePretrained):
 	def propagate_conv_layers_dense_pretrained(self, x: torch.Tensor) -> torch.Tensor:
 		if not hasattr(self, 'cnn_pretrained'):
 			raise AttributeError('Pretrained CNN backbone not initialised. Call init_conv_layers first.')

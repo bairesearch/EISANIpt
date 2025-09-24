@@ -84,6 +84,17 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 		# Compute hidden activations once, update dense output weights with a single-layer SGD step,
 		# and report accuracy/loss based on current logits.
 		initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
+		if(EISANICNNrandomlySelectInputBinaryStates):
+			encodedBatchSize = int(initActivation.size(0))
+			originalBatchSize = int(x.size(0))
+			if encodedBatchSize != originalBatchSize:
+				if encodedBatchSize % originalBatchSize != 0:
+					raise RuntimeError(f"Encoded batch ({encodedBatchSize}) is not an integer multiple of input batch ({originalBatchSize}).")
+				expand_factor = encodedBatchSize // originalBatchSize
+				if y is not None:
+					y = y.repeat_interleave(expand_factor)
+			else:
+				expand_factor = 1
 		# Get hidden activations without triggering any dynamic growth
 		if useSequentialSANI:
 			layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, batchIndex, 0, initActivation)
@@ -92,7 +103,10 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 
 		# Build logits and collect per-layer activations for gradient update
 		C = int(model.config.numberOfClasses)
-		B = int(x.size(0))
+		if(EISANICNNrandomlySelectInputBinaryStates):
+			B = encodedBatchSize
+		else:
+			B = int(x.size(0))
 		logits = pt.zeros((B, C), device=x.device, dtype=pt.float32)
 		per_layer_acts = []
 		per_layer_idx  = []
@@ -110,10 +124,14 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 				actLayerIndex += 1
 		
 		pred = pt.argmax(logits, dim=1)
+		if y is None:
+			raise RuntimeError("Labels are required for stochastic update training")
 		correct = (pred == y).sum().item()
 		accuracy = correct / max(1, y.size(0))
 		# Single-layer backprop gradient step (no autograd through hidden)
 		probs = pt.softmax(logits, dim=1)
+		if y is None:
+			raise RuntimeError("Labels are required for stochastic update training")
 		y_onehot = pt.nn.functional.one_hot(y, num_classes=C).to(probs.dtype)
 		delta = (probs - y_onehot) / max(1, B)
 		lr = stochasticOutputLearningRate
@@ -137,6 +155,17 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 	initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
 	if initActivation is None:
 		return 1.0
+	if(EISANICNNrandomlySelectInputBinaryStates):
+		encodedBatchSize = int(initActivation.size(0))
+		originalBatchSize = int(x.size(0))
+		if encodedBatchSize != originalBatchSize:
+			if encodedBatchSize % originalBatchSize != 0:
+				raise RuntimeError(f"Encoded batch ({encodedBatchSize}) is not an integer multiple of input batch ({originalBatchSize}).")
+			expand_factor = encodedBatchSize // originalBatchSize
+			if y is not None:
+				y = y.repeat_interleave(expand_factor)
+		else:
+			expand_factor = 1
 	if useSequentialSANI:
 		layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, None, 0, initActivation)
 	else:
@@ -144,7 +173,10 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 
 	# Aggregate logits over configured hidden layers
 	C = int(model.config.numberOfClasses)
-	B = int(x.size(0))
+	if(EISANICNNrandomlySelectInputBinaryStates):
+		B = encodedBatchSize
+	else:
+		B = int(x.size(0))
 	logits = pt.zeros((B, C), device=x.device, dtype=pt.float32)
 	actLayerIndex = 0
 	for layerIdSuperblock in range(recursiveSuperblocksNumber):
@@ -159,6 +191,8 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 
 	# Cross-entropy (no autograd): -mean log p(y|x)
 	log_probs = pt.log_softmax(logits, dim=1)
+	if y is None:
+		raise RuntimeError("Labels are required for stochastic update scoring")
 	# Guard against invalid labels (e.g., padding) by clamping
 	y_clamped = y.clamp(min=0, max=C-1)
 	ce = -log_probs[pt.arange(B, device=x.device), y_clamped].mean()
