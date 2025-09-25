@@ -86,14 +86,32 @@ def createModel(dataset):
 		elif(useImageDataset):
 			print("\t ---")
 			print("\t useImageDataset:")	
-			print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
-			if(EISANICNNarchitectureDivergeLimitedKernelPermutations):
+			if(EISANICNNarchitectureDivergeAllKernelPermutations):
+				print("\t\t EISANICNNinputChannelThreshold = ", EISANICNNinputChannelThreshold)
+				print("\t\t EISANICNNdynamicallyGenerateFFInputFeatures = ", EISANICNNdynamicallyGenerateFFInputFeatures)
+				print("\t\t EISANICNNoptimisationSparseConv = ", EISANICNNoptimisationSparseConv)
+				print("\t\t EISANICNNoptimisationAssumeInt8 = ", EISANICNNoptimisationAssumeInt8)
+			elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 				print("\t\t EISANICNNnumberKernelOrientations = ", EISANICNNnumberKernelOrientations)
 				print("\t\t EISANICNNkernelEdgesSharp = ", EISANICNNkernelEdgesSharp)
 				print("\t\t EISANICNNkernelEdgesTernary = ", EISANICNNkernelEdgesTernary)
 				print("\t\t EISANICNNkernelEdges = ", EISANICNNkernelEdges)
 				print("\t\t EISANICNNkernelCorners = ", EISANICNNkernelCorners)
 				print("\t\t EISANICNNkernelCentroids = ", EISANICNNkernelCentroids)
+				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
+				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
+			elif(EISANICNNarchitectureSparseRandom):
+				print("\t\t EISANICNNrandomlySelectInputBinaryStates = ", EISANICNNrandomlySelectInputBinaryStates)
+				print("\t\t EISANICNNnumberOfRandomlySelectedInputBinaryStates = ", EISANICNNnumberOfRandomlySelectedInputBinaryStates)
+				print("\t\t EISANICNNinputChannelThreshold = ", EISANICNNinputChannelThreshold)
+				print("\t\t EISANICNNnumberKernels = ", EISANICNNnumberKernels)
+				print("\t\t EISANICNNkernelSizeSANI = ", EISANICNNkernelSizeSANI)
+			elif(EISANICNNarchitectureDenseRandom):
+				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
+				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
+			elif(EISANICNNarchitectureDensePretrained):
+				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
+				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
 			print("\t\t EISANICNNmaxPoolEveryQLayers = ", EISANICNNmaxPoolEveryQLayers)
 		print("\t ---") 
 		print("\t useStochasticUpdates = ", useStochasticUpdates)

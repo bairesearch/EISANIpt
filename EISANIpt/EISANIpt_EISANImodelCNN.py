@@ -33,6 +33,7 @@ if(EISANICNNarchitectureSparseRandom):
 	
 	class EISANICNNconfig():
 		def __init__(self, hiddenLayerSize, numberOfConvlayers, numberOfSynapsesPerSegment, layer_input_sizes, sani_per_kernel, kernels_per_layer):
+			print("layer_input_sizes = ", layer_input_sizes)
 			if layer_input_sizes is None:
 				raise ValueError("layer_input_sizes must be provided for sparse CNN initialisation")
 			if len(layer_input_sizes) != numberOfConvlayers:
@@ -116,7 +117,8 @@ def init_conv_layers(self) -> None:
 			self._EISANICNN_out_channels.append(EISANICNNnumberKernels)
 			patch_size = in_channels * CNNkernelSize * CNNkernelSize
 			self._EISANICNN_layer_input_sizes.append(patch_size)
-			in_channels = EISANICNNnumberKernels
+			# Preserve the full SANI neuron count as the channel width for the next layer.
+			in_channels = self._EISANICNN_total_neurons_per_layer
 	elif(EISANICNNarchitectureDenseRandom):
 		self.cnn_dense_layers = nn.ModuleList()
 		self._dense_random_out_channels = []
@@ -309,7 +311,7 @@ def init_conv_layers(self) -> None:
 		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 			ch *= K_total	#eg each conv multiplies channels by EISANICNNnumberKernelOrientations
 		elif(EISANICNNarchitectureSparseRandom):
-			ch = self._EISANICNN_out_channels[layerIdx]
+			ch = self._EISANICNN_total_neurons_per_layer
 		elif(EISANICNNarchitectureDenseRandom):
 			ch = self._dense_random_out_channels[layerIdx]
 		elif(EISANICNNarchitectureDensePretrained):
@@ -343,10 +345,17 @@ if(EISANICNNarchitectureSparseRandom):
 			layer_output = self.EISANICNNmodel.summationSANIpassCNNlayer(prev_activation, layer_idx)
 			total_neurons = self.EISANICNNmodel.config.hiddenLayerSize
 			layer_output = layer_output.view(batch_size, height * width, total_neurons)
-			layer_output = layer_output.view(batch_size, height, width, self._EISANICNN_out_channels[layer_idx], self._EISANICNN_sani_per_kernel)
+			layer_output = layer_output.view(
+				batch_size,
+				height,
+				width,
+				self._EISANICNN_out_channels[layer_idx],
+				self._EISANICNN_sani_per_kernel,
+			)
 			layer_active = layer_output != 0
-			kernel_active = layer_active.any(dim=-1)
-			z = kernel_active.to(z.dtype).permute(0, 3, 1, 2)
+			prev_dtype = z.dtype
+			z = layer_active.reshape(batch_size, height, width, total_neurons)
+			z = z.permute(0, 3, 1, 2).to(prev_dtype)
 			if EISANICNNactivationFunction:
 				z = (z > 0).to(z.dtype)
 			if CNNmaxPool and ((layer_idx + 1) % EISANICNNmaxPoolEveryQLayers == 0):
