@@ -149,7 +149,7 @@ class EISANImodel(nn.Module):
 				layer_input_sizes = getattr(self, '_EISANICNN_layer_input_sizes', None)
 				kernels_per_layer = getattr(self, '_EISANICNN_out_channels', None)
 				sani_per_kernel = getattr(self, '_EISANICNN_sani_per_kernel', EISANICNNkernelSizeSANI)
-				total_neurons = getattr(self, '_EISANICNN_total_neurons_per_layer', EISANICNNnumberKernels * sani_per_kernel)
+				total_neurons = getattr(self, '_EISANICNN_total_neurons_per_layer', EISANICNNnumberKernels * EISANICNNkernelSizeSANI)
 				kernels_per_layer_value = kernels_per_layer[0] if kernels_per_layer else EISANICNNnumberKernels
 				CNNconfig = EISANIpt_EISANImodelCNN.EISANICNNconfig(
 					numberOfConvlayers = numberOfConvlayers,
@@ -363,7 +363,7 @@ class EISANImodel(nn.Module):
 			# -----------------------------
 			# Continuous var encoding as bits
 			# -----------------------------
-			initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(self, x)
+			initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(self, x, trainOrTest)
 			
 			# -----------------------------
 			# Hidden layers

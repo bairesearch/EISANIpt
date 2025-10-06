@@ -401,4 +401,9 @@ Upgrade EISANIpt_EISANImodelCNN.py:init_conv_layers/EISANICNNarchitectureDenseRa
 3. EISANICNNarchitectureDensePretrained algorithm:
 
 Upgrade EISANIpt_EISANImodelCNN.cy:init_conv_layers/EISANICNNarchitectureDensePretrained to execute the CNN layers (ie non-FF layers) of a standard trained architecture for the specific dataset (eg CIFAR-10). I have provided Resnet18-breakaway/resnet18_breakaway.py code whose CNN layers can be executed in "full" (ie backprop) mode. Assume it has already been separetely pretrained to produce model parameters resnet18_full.pth (the required trained input weights).  
-	
+
+---
+EISANICNNarchitectureSparseRandom:useDynamicGeneratedHiddenConnections (Codex IDE GPT5Codex prompt);
+
+Please upgrade useImageDataset:EISANICNNarchitectureSparseRandom to support useDynamicGeneratedCNNConnections (based on the useDynamicGeneratedHiddenConnections algorithm).
+

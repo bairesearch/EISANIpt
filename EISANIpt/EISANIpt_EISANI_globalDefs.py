@@ -19,20 +19,31 @@ EISANIpt globalDefs
 
 import math
 
+#debug parameters;
 debugEISANIoutputs = False
 printEISANImodelProperties = True
 
+#testharness parameters;
 useDefaultNumNeuronSegmentsParam = True	#default: True (use low network width)
 useDefaultSegmentSizeParam = True	#default: True (use moderate segment size/num synapses)
 useDefaultNumLayersParam = True	#default: True (use low num layers)
 useInitOrigParam = False	#use original test parameters
 
+#dataset selection;
 useTabularDataset = True
 useImageDataset = False
 useNLPDataset = False	#aka useSequenceDataset
-		
+
+#architecture selection;
+if(useNLPDataset):
+	useSequentialSANI = True	#mandatory: True	#sequentially activated neuronal input (else use summation activated neuronal input)
+	useStochasticUpdates = False	#mandatory: False (not currently supported by useSequentialSANI)
+else:
+	useSequentialSANI = False	#mandatory: False
+	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
+	#useStochasticUpdates is the new default method for useDynamicGeneratedHiddenConnections=False (uses output layer backprop learning only)
+
 #init derived params (do not modify here);
-useSequentialSANI = False
 useSequentialSANIactivationStrength = False
 limitOutputConnectionsBasedOnAccuracySoftmax = False
 evalStillTrainOutputConnections = False
@@ -41,6 +52,8 @@ useSlidingWindow = False
 targetActivationSparsityFraction = -1
 numberNeuronSegmentsGeneratedPerSample = -1
 EISANICNNrandomlySelectInputBinaryStates = False
+useDynamicGeneratedCNNConnections = False
+EISANICNNarchitectureDensePretrained = False
 
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
@@ -49,8 +62,8 @@ elif(useImageDataset):
 	debugEISANICNNprintKernels = True
 	
 	EISANICNNarchitectureDivergeAllKernelPermutations = False	#orig: True
-	EISANICNNarchitectureDivergeLimitedKernelPermutations = True	#default 1: True
-	EISANICNNarchitectureSparseRandom = False	#default 2: True
+	EISANICNNarchitectureDivergeLimitedKernelPermutations = False	#default 1: True
+	EISANICNNarchitectureSparseRandom = True	#default 2: True
 	EISANICNNarchitectureDenseRandom = False
 	EISANICNNarchitectureDensePretrained = False
 	
@@ -64,6 +77,7 @@ elif(useImageDataset):
 		EISANICNNuseBinaryInput = True
 		EISANICNNrandomlySelectInputBinaryStates = False	#default: False
 		if(EISANICNNrandomlySelectInputBinaryStates):
+			EISANICNNinputChannelThreshold = -1	#no fixed threshold
 			EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
 		else:
 			EISANICNNinputChannelThreshold = 0.5 #default: 0.5
@@ -72,10 +86,14 @@ elif(useImageDataset):
 		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
 		EISANICNNactivationFunction = True	#mandatory
 		EISANICNNpaddingPolicy = 'same'
-		EISANICNNnumberKernels = 16	#default: 16
-		EISANICNNkernelSizeSANI = 32	#default: 32
+		EISANICNNnumberKernels = 64	#default: 16
+		EISANICNNkernelSizeSANI = 64	#default: 32
 		numberOfConvlayers = 4	#rest will be FF	#default: 2, 4, 6
 		EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
+		useDynamicGeneratedCNNConnections = True
+		if(useDynamicGeneratedCNNConnections):
+			useDynamicGeneratedCNNConnectionsVectorised = True	#execute entire batch simultaneously
+			useDynamicGeneratedCNNConnectionsUniquenessChecks = True
 	elif(EISANICNNarchitectureDenseRandom):
 		EISANICNNuseBinaryInput = False
 		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
@@ -90,7 +108,7 @@ elif(useImageDataset):
 		EISANICNNuseBinaryInput = False
 		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
 		useContinuousVarEncodeMethodAfterCNN = "grayCode"
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 8	#default: 8
+		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 8
 		EISANICNNoutputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
 		EISANICNNactivationFunction = True	#mandatory
 		EISANICNNpaddingPolicy = 'same'
@@ -150,7 +168,6 @@ elif(useImageDataset):
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
-	useSequentialSANI = True	#sequentially activated neuronal input (else use summation activated neuronal input)
 	useSlidingWindow = True	#emulate SANI (sequentially activated neuronal input) requirement by reusing neuron activations from previous sliding window iteration	#mandatory	#useNeuronActivationMemory
 	#enforceSequenceContiguity = True	#FUTURE: perform sequence contiguity test for generated synaptic inputs (see SANI specification)
 	useDefaultSegmentSizeParam = False	#currently use smaller number of requisite active connections
@@ -196,8 +213,6 @@ if(useSequentialSANI):
 	debugGenerateConnectionsBeforePropagating = False	#will artificially increase prediction accuracy
 	debugSequentialSANIpropagationVerify = False
 	
-	useStochasticUpdates = False	#mandatory: False (not currently supported by useSequentialSANI)	#stochastic update option: try random independent connection changes
-
 	evalOnlyUsingTimeInvariance = False  #default: True	#orig: False	#Assume EISANImodel is created and trained with sequentialSANItimeInvariance and useSequentialSANIactivationStrength disabled, and then loaded with sequentialSANItimeInvariance and useSequentialSANIactivationStrength enabled for inference
 	if(evalOnlyUsingTimeInvariance):
 		evalStillTrainOutputConnections = False	#default: False	#orig: False	#still train output connections during eval phase - enables tweaking of output predictions based on time invariant network propagation during eval phase
@@ -259,8 +274,6 @@ else:
 	debugEISANIfractionActivated = False	#print fractionActive of each layer
 	debugEISANIdynamicUsage = False	#print neuronSegmentAssignedMask available.numel() - number of FF layer hidden features used
 
-	#useStochasticUpdates is the new default method for useDynamicGeneratedHiddenConnections=False (uses output layer backprop learning)
-	useStochasticUpdates = False	#default: False (when True, learning uses stochastic trials)	#stochastic update option: try random independent connection changes
 	if(useStochasticUpdates):
 		useStochasticUpdatesHiddenUnitLearning = False	#default: False	#orig: True
 		stochasticHiddenUpdatesPerBatch = 100	#default: 10	#number of hidden unit stochastic proposals per batch
@@ -280,27 +293,36 @@ else:
 		useDynamicGeneratedHiddenConnections = True	#default: True	#dynamically generate hidden neuron connections (else use randomly initialised hidden connections)
 	if(useDynamicGeneratedHiddenConnections):
 		useDynamicGeneratedHiddenConnectionsVectorised = True	#execute entire batch simultaneously
+	if(useDynamicGeneratedHiddenConnections or useDynamicGeneratedCNNConnections):
+		useDynamicGeneratedConnections = True
+	else:
+		useDynamicGeneratedConnections = False
+
 	useInhibition = True	#default: True	#if False: only use excitatory neurons/synapses
 	useConnectionWeights = True	 #mandatory: True - use sparse or dense weight tensors
 	useEIneurons = False	#use separate excitatory and inhibitory neurons (else use excitatory and inhibitory connections/synapses)
 	useSparseHiddenMatrix = True	#use sparse tensors to store connections (else use dense tensors)	#mandatory for any reasonably sized EISANI network
 	useSparseOutputMatrix = False
-	continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
-	continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
+	if(EISANICNNarchitectureDensePretrained):
+		continuousVarMin = 0.0
+		continuousVarMax = 1.0	#orig: 1.0	#max output of CNN layers is approx 1.5	#1.5
+	else:
+		continuousVarMin = 0.0	#sync with datasetNormaliseMinMax
+		continuousVarMax = 1.0	#sync with datasetNormaliseMinMax
 
 	numberOfSegmentsPerNeuron = 1 #number of segments per neuron
 	segmentIndexToUpdate = 0 # Placeholder	#TODO: update segmentIndexToUpdate based on dataset index. Using 0 as a placeholder.
 
-	if(useDynamicGeneratedHiddenConnections):
+	if(useDynamicGeneratedConnections):
 		targetActivationSparsityFraction = 0.1	#ideal number of neurons simultaneously active per layer
 
 	if(useDefaultNumNeuronSegmentsParam):
 		EISANITABcontinuousVarEncodingNumBits = 8	#default: 8	#number of bits to encode a continuous variable to	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased (eg 16), however this requires a high numberNeuronSegmentsGeneratedPerSample+hiddenLayerSizeSANI to capture the larger number of input variations
-		if(useDynamicGeneratedHiddenConnections):
+		if(useDynamicGeneratedConnections):
 			numberNeuronSegmentsGeneratedPerSample = 5	#default: 5	#heuristic: hiddenLayerSizeSANI//numberOfSynapsesPerSegment  	#for higher train performance numberNeuronSegmentsGeneratedPerSample should be increased substantially (eg 50), however this assigns a proportional number of additional neurons to the network (limited by hiddenLayerSizeSANI)
 	else:
 		EISANITABcontinuousVarEncodingNumBits = 16	#default: 16
-		if(useDynamicGeneratedHiddenConnections):
+		if(useDynamicGeneratedConnections):
 			numberNeuronSegmentsGeneratedPerSample = 50
 	if(useEIneurons):
 		EIneuronsMatchComputation = False	#default: False	#an additional layer is required to perform the same computation as !useEIneurons
@@ -323,12 +345,12 @@ else:
 		segmentActivationThreshold = 3	#default: 3; allowing for 1 inhibited mismatch redundancy or 2 non inhibited mismatch redundancy	#minimum net activation required for neuron to fire (>= value), should be less than numberOfSynapsesPerSegment	#total neuron z activation expected from summation of excitatory connections to previous layer neurons
 		if(not useInhibition):
 			numberOfSynapsesPerSegment = numberOfSynapsesPerSegment-1
-		if useDynamicGeneratedHiddenConnections: 
+		if useDynamicGeneratedConnections: 
 			useActiveBias = True	#bias positive (ceil) for odd k
 	else:
 		numberOfSynapsesPerSegment = 3	#default: 3
 		segmentActivationThreshold = 2	#default: 2 #allowing for 1 non inhibited mismatch redundancy
-		if useDynamicGeneratedHiddenConnections: 
+		if useDynamicGeneratedConnections: 
 			useActiveBias = False
 			numberNeuronSegmentsGeneratedPerSample = numberNeuronSegmentsGeneratedPerSample*2
 		#if !useDynamicGeneratedHiddenConnections: useDefaultNumLayersParam = False	#disable to increase number of layers
@@ -345,7 +367,6 @@ else:
 	else:
 		recursiveSuperblocksNumber = 1
 	generateConnectionsAfterPropagating = True	#default: True
-
 
 if(useTabularDataset):
 	datasetType = "useTabularDataset"

@@ -378,7 +378,7 @@ elif(useImageDataset):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
 		else:
 			batchSize = 1	#default: 1
-		batchSize = 16	#16	#default: 64	#1024
+		batchSize = 8	#16	#default: 64	#1024
 		if(not useDefaultNumLayersParam):
 			numberOfFFLayers = numberOfFFLayers*2
 	else:
@@ -512,7 +512,7 @@ def printe(str):
 
 
 import torch as pt
-useLovelyTensors = True
+useLovelyTensors = False
 if(useLovelyTensors):
 	import lovely_tensors as lt
 	lt.monkey_patch()

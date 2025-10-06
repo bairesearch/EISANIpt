@@ -30,6 +30,8 @@ import math
 
 if(EISANICNNarchitectureSparseRandom):
 	import EISANIpt_EISANImodelSummation
+	if useDynamicGeneratedCNNConnections:
+		import EISANIpt_EISANImodelSummationDynamic
 	
 	class EISANICNNconfig():
 		def __init__(self, hiddenLayerSize, numberOfConvlayers, numberOfSynapsesPerSegment, layer_input_sizes, sani_per_kernel, kernels_per_layer):
@@ -57,6 +59,21 @@ if(EISANICNNarchitectureSparseRandom):
 			self.sani_per_kernel = config.sani_per_kernel
 			self.kernels_per_layer = config.kernels_per_layer
 
+			self.init_layers(config)
+
+			if useDynamicGeneratedCNNConnections:
+				self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device)
+				if useDynamicGeneratedCNNConnectionsUniquenessChecks:
+					segments = numberOfSegmentsPerNeuron
+					layers_plus_one = self.numberUniqueHiddenLayers + 1
+					self.hiddenNeuronSignatures = [[dict() for _ in range(segments)] for _ in range(layers_plus_one)]
+					if useEIneurons:
+						self.hiddenNeuronSignaturesExc = [[dict() for _ in range(segments)] for _ in range(layers_plus_one)]
+						self.hiddenNeuronSignaturesInh = [[dict() for _ in range(segments)] for _ in range(layers_plus_one)]
+		
+		def init_layers(self, config):
+
+			self.useDynamicGeneratedConnections = useDynamicGeneratedCNNConnections
 			self.hiddenConnectionMatrix = [[] for _ in range(self.numberUniqueHiddenLayers)]
 			if useEIneurons:
 				self.hiddenConnectionMatrixExcitatory = [[] for _ in range(self.numberUniqueHiddenLayers)]
@@ -64,7 +81,7 @@ if(EISANICNNarchitectureSparseRandom):
 			else:
 				self.hiddenConnectionMatrixExcitatory = []
 				self.hiddenConnectionMatrixInhibitory = []
-
+			
 			for hiddenLayerIdx in range(self.numberUniqueHiddenLayers):
 				prevSize = self.layer_input_sizes[hiddenLayerIdx]
 				for segmentIdx in range(numberOfSegmentsPerNeuron):
@@ -84,17 +101,29 @@ if(EISANICNNarchitectureSparseRandom):
 							placeholder_dtype = torch.bool if useSparseHiddenMatrix else torch.int8
 							placeholder = torch.empty((0, prevSize), dtype=placeholder_dtype, device=device)
 							self.hiddenConnectionMatrixInhibitory[hiddenLayerIdx].append(placeholder)
-					else:
-						mat = EISANIpt_EISANImodelSummation.initialise_layer_weights(self, config.hiddenLayerSize, prevSize, hiddenLayerIdx)
-						self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
+				else:
+					mat = EISANIpt_EISANImodelSummation.initialise_layer_weights(self, config.hiddenLayerSize, prevSize, hiddenLayerIdx)
+					self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
 
-		def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN):
+
+		def summationSANIpassCNNlayer(self, prevActivation, layerIdCNN, trainOrTest: bool = False):
 			uniqueLayerIndex = layerIdCNN
 			if useEIneurons:
 				aExc, aInh = EISANIpt_EISANImodelSummation.compute_layer_EI(self, uniqueLayerIndex, prevActivation, device)
 				currentActivation = torch.cat([aExc, aInh], dim=1)
 			else:
 				currentActivation = EISANIpt_EISANImodelSummation.compute_layer_standard(self, uniqueLayerIndex, prevActivation, device)
+
+			if (trainOrTest and useDynamicGeneratedCNNConnections):
+				layer_device = prevActivation.device
+				for i in range(numberNeuronSegmentsGeneratedPerSample):
+					if useDynamicGeneratedCNNConnectionsVectorised:
+						EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, layer_device, segmentIndexToUpdate)
+					else:
+						for sample_idx in range(prevActivation.size(0)):
+							prev_sample = prevActivation[sample_idx : sample_idx + 1]
+							curr_sample = currentActivation[sample_idx : sample_idx + 1]
+							EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth(self, uniqueLayerIndex, prev_sample, curr_sample, layer_device, segmentIndexToUpdate)
 			return currentActivation	
 
 # ---------------------------------------------------------
@@ -142,7 +171,7 @@ def init_conv_layers(self) -> None:
 		resnet_module = importlib.util.module_from_spec(spec)
 		sys.modules[spec.name] = resnet_module
 		spec.loader.exec_module(resnet_module)
-		backbone = resnet_module.ResNet18Breakaway(num_classes=numberOfClasses)
+		backbone = resnet_module.ResNet18Breakaway(num_classes=numberOfClasses, register_breakaway=False)
 		weights_path = os.path.join(os.path.dirname(__file__), 'Resnet18-breakaway', 'resnet18_full.pth')
 		if not os.path.exists(weights_path):
 			raise FileNotFoundError(f"Pretrained weights not found at {weights_path}")
@@ -327,7 +356,7 @@ def init_conv_layers(self) -> None:
 
 
 if(EISANICNNarchitectureSparseRandom):
-	def propagate_conv_layers_sparse_random(self, x: torch.Tensor) -> torch.Tensor:
+	def propagate_conv_layers_sparse_random(self, x: torch.Tensor, trainOrTest: bool) -> torch.Tensor:
 		if not hasattr(self, 'EISANICNNmodel'):
 			raise AttributeError('Sparse random CNN model is not initialised. Ensure init_conv_layers and EISANICNNmodel setup completed.')
 		if not hasattr(self, '_EISANICNN_layer_input_sizes'):
@@ -338,20 +367,15 @@ if(EISANICNNarchitectureSparseRandom):
 		width = z.size(3)
 		padding = CNNkernelSize // 2 if EISANICNNpaddingPolicy == 'same' else 0
 		for layer_idx in range(self.config.numberOfConvlayers):
+			#print("propagate_conv_layers_sparse_random: layer_idx = ", layer_idx)
 			patches = F.unfold(z, kernel_size=CNNkernelSize, padding=padding, stride=1)
 			patch_size = self._EISANICNN_layer_input_sizes[layer_idx]
 			patches = patches.transpose(1, 2).reshape(-1, patch_size)
 			prev_activation = patches.to(torch.int8)
-			layer_output = self.EISANICNNmodel.summationSANIpassCNNlayer(prev_activation, layer_idx)
+			layer_output = self.EISANICNNmodel.summationSANIpassCNNlayer(prev_activation, layer_idx, trainOrTest)
 			total_neurons = self.EISANICNNmodel.config.hiddenLayerSize
 			layer_output = layer_output.view(batch_size, height * width, total_neurons)
-			layer_output = layer_output.view(
-				batch_size,
-				height,
-				width,
-				self._EISANICNN_out_channels[layer_idx],
-				self._EISANICNN_sani_per_kernel,
-			)
+			layer_output = layer_output.view(batch_size, height, width, self._EISANICNN_out_channels[layer_idx], self._EISANICNN_sani_per_kernel)
 			layer_active = layer_output != 0
 			prev_dtype = z.dtype
 			z = layer_active.reshape(batch_size, height, width, total_neurons)
@@ -390,6 +414,7 @@ elif(EISANICNNarchitectureDensePretrained):
 		flat = pooled.view(pooled.size(0), -1)
 		if flat.device != x.device:
 			flat = flat.to(x.device)
+		#print("flat = ", flat)
 		return flat
 elif(EISANICNNarchitectureDivergeAllKernelPermutations):
 

@@ -83,7 +83,7 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 		# Dense output-layer backprop: fully-connected hidden->output when useStochasticUpdates
 		# Compute hidden activations once, update dense output weights with a single-layer SGD step,
 		# and report accuracy/loss based on current logits.
-		initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
+		initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x, trainOrTest)
 		if(EISANICNNrandomlySelectInputBinaryStates):
 			encodedBatchSize = int(initActivation.size(0))
 			originalBatchSize = int(x.size(0))
@@ -152,7 +152,7 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 	produce measurable loss differences even when argmax is unchanged.
 	"""
 	# Encode inputs and obtain hidden activations without any dynamic growth
-	initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x)
+	initActivation = EISANIpt_EISANImodelContinuousVarEncoding.continuousVarEncoding(model, x, trainOrTest=False)
 	if initActivation is None:
 		return 1.0
 	if(EISANICNNrandomlySelectInputBinaryStates):

@@ -524,7 +524,11 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 	# ---------- 1. which samples need a neuron? ------------------------------
 	fracAct = currActivation.float().mean(dim=1)				 # [B]
 	if(debugEISANIfractionActivated):
-		print("fracAct = ", fracAct)
+		#print("prevActivation.shape = ", prevActivation.shape)
+		#print("prevActivation.count_nonzero(dim=0).count_nonzero(dim=0) = ", prevActivation.count_nonzero(dim=0).count_nonzero(dim=0))
+		#print("currActivation.shape = ", currActivation.shape)
+		#print("currActivation.count_nonzero(dim=1).count_nonzero(dim=0) = ", currActivation.count_nonzero(dim=1).count_nonzero(dim=0))
+		print("fracAct = ", fracAct, ", total = ", currActivation.shape[1])
 	growMask = fracAct < targetActivationSparsityFraction   # bool [B]
 	if not growMask.any():
 		return
@@ -545,10 +549,12 @@ def dynamic_hidden_growth_vectorised(self, hiddenLayerIdx: int, prevActivation: 
 			return
 	newRows = avail[:G] # [G] neuron indices
 	self.neuronSegmentAssignedMask[hiddenLayerIdx, segmentIndexToUpdate, newRows] = True # Modified
+	#print("G grow samples = ", G)
 
 	# ---------- 3. vectorised synapse sampling -------------------------------
 	# presynBatch: [G, P] float {0,1}
 	presynBatch = prevActivation[growSamples]
+
 	onMask	  = presynBatch > 0								# bool
 	offMask	 = ~onMask
 

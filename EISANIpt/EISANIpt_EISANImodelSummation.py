@@ -33,14 +33,18 @@ if(useDynamicGeneratedHiddenConnections):
 	import EISANIpt_EISANImodelSummationDynamic
 
 if(useConnectionWeights):
+	# -----------------------------
+	# Hidden connection matrices
+	# -----------------------------
 	def init_layers(self, config, prevSize):
-		# -----------------------------
-		# Hidden connection matrices
-		# -----------------------------
-	
+		self.useDynamicGeneratedConnections = useDynamicGeneratedHiddenConnections
 		self.hiddenConnectionMatrix: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-		self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
-		self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+		if useEIneurons: 
+			self.hiddenConnectionMatrixExcitatory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+			self.hiddenConnectionMatrixInhibitory: List[List[torch.Tensor]] = [[] for _ in range(self.numberUniqueHiddenLayers)]
+		else:
+			self.hiddenConnectionMatrixExcitatory = []
+			self.hiddenConnectionMatrixInhibitory = []
 
 		for hiddenLayerIdx in range(self.numberUniqueHiddenLayers): # Modified
 			for segmentIdx in range(numberOfSegmentsPerNeuron):
@@ -64,6 +68,9 @@ if(useConnectionWeights):
 					self.hiddenConnectionMatrix[hiddenLayerIdx].append(mat)
 			prevSize = config.hiddenLayerSize
 
+	# -----------------------------
+	# Hidden or CNN layer weight initialisation
+	# -----------------------------
 	def initialise_layer_weights(self, numNeurons: int, prevSize: int, hiddenLayerIdx: int,) -> torch.Tensor:
 		"""
 		Create the hidden connection matrix for a single layer.
@@ -87,7 +94,7 @@ if(useConnectionWeights):
 
 			sparse_dtype = torch.bool
 
-			if useDynamicGeneratedHiddenConnections:
+			if self.useDynamicGeneratedConnections:
 				# start EMPTY
 				indices = torch.empty((2, 0), dtype=torch.int64, device=device)
 				values  = torch.empty((0,),  dtype=sparse_dtype, device=device)
@@ -118,7 +125,7 @@ if(useConnectionWeights):
 			# -------------------------------------------------- dense initialisation
 			weight = torch.zeros(numNeurons, prevSize, device=device, dtype=torch.int8) # Use torch.int8 for dense
 
-			if not useDynamicGeneratedHiddenConnections:
+			if not self.useDynamicGeneratedConnections:
 				# randomly choose k unique presynaptic neurons per postsynaptic cell
 				for n in range(numNeurons):
 					syn_idx = torch.randperm(prevSize, device=device)[:k]
@@ -137,7 +144,6 @@ if(useConnectionWeights):
 # -----------------------------
 # Hidden layers
 # -----------------------------
-		
 def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 	prevActivation = initActivation
 	layerActivations: List[torch.Tensor] = []
@@ -156,7 +162,7 @@ def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 			# -------------------------
 			# Dynamic hidden connection growth (disabled when stochastic updates enabled)
 			# -------------------------
-			if (trainOrTest and useDynamicGeneratedHiddenConnections and not useStochasticUpdates):
+			if (trainOrTest and useDynamicGeneratedHiddenConnections):
 				for _ in range(numberNeuronSegmentsGeneratedPerSample):
 					if(useDynamicGeneratedHiddenConnectionsVectorised):
 						EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
@@ -170,6 +176,9 @@ def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 			prevActivation = currentActivation
 	return layerActivations
 
+# -----------------------------
+# Hidden or CNN layer compute
+# -----------------------------
 def compute_layer_standard(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> torch.Tensor:
 	activatedAllSegments = []
 
@@ -197,6 +206,9 @@ def compute_layer_standard(self, hiddenLayerIdx: int, prevActivation: torch.Tens
 	activated = neuronActivationFunction(self, activatedAllSegments)
 	return activated
 
+# -----------------------------
+# Hidden or CNN layer compute
+# -----------------------------
 def compute_layer_EI(self, hiddenLayerIdx: int, prevActivation: torch.Tensor, device: torch.device,) -> Tuple[torch.Tensor, torch.Tensor]:
 	aExcAllSegments = []
 	aInhAllSegments = []

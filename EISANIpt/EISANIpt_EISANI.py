@@ -87,11 +87,13 @@ def createModel(dataset):
 			print("\t ---")
 			print("\t useImageDataset:")	
 			if(EISANICNNarchitectureDivergeAllKernelPermutations):
+				print("\t\t EISANICNNarchitectureDivergeAllKernelPermutations = ", EISANICNNarchitectureDivergeAllKernelPermutations)
 				print("\t\t EISANICNNinputChannelThreshold = ", EISANICNNinputChannelThreshold)
 				print("\t\t EISANICNNdynamicallyGenerateFFInputFeatures = ", EISANICNNdynamicallyGenerateFFInputFeatures)
 				print("\t\t EISANICNNoptimisationSparseConv = ", EISANICNNoptimisationSparseConv)
 				print("\t\t EISANICNNoptimisationAssumeInt8 = ", EISANICNNoptimisationAssumeInt8)
 			elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
+				print("\t\t EISANICNNarchitectureDivergeLimitedKernelPermutations = ", EISANICNNarchitectureDivergeLimitedKernelPermutations)
 				print("\t\t EISANICNNnumberKernelOrientations = ", EISANICNNnumberKernelOrientations)
 				print("\t\t EISANICNNkernelEdgesSharp = ", EISANICNNkernelEdgesSharp)
 				print("\t\t EISANICNNkernelEdgesTernary = ", EISANICNNkernelEdgesTernary)
@@ -101,15 +103,18 @@ def createModel(dataset):
 				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
 				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
 			elif(EISANICNNarchitectureSparseRandom):
+				print("\t\t EISANICNNarchitectureSparseRandom = ", EISANICNNarchitectureSparseRandom)
 				print("\t\t EISANICNNrandomlySelectInputBinaryStates = ", EISANICNNrandomlySelectInputBinaryStates)
 				print("\t\t EISANICNNnumberOfRandomlySelectedInputBinaryStates = ", EISANICNNnumberOfRandomlySelectedInputBinaryStates)
 				print("\t\t EISANICNNinputChannelThreshold = ", EISANICNNinputChannelThreshold)
 				print("\t\t EISANICNNnumberKernels = ", EISANICNNnumberKernels)
 				print("\t\t EISANICNNkernelSizeSANI = ", EISANICNNkernelSizeSANI)
 			elif(EISANICNNarchitectureDenseRandom):
+				print("\t\t EISANICNNarchitectureDenseRandom = ", EISANICNNarchitectureDenseRandom)
 				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
 				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
 			elif(EISANICNNarchitectureDensePretrained):
+				print("\t\t EISANICNNarchitectureDensePretrained = ", EISANICNNarchitectureDensePretrained)
 				print("\t\t EISANITABcontinuousVarEncodingNumBitsAfterCNN = ", EISANITABcontinuousVarEncodingNumBitsAfterCNN)
 				print("\t\t EISANICNNoutputChannelThreshold = ", EISANICNNoutputChannelThreshold)
 			print("\t\t EISANICNNmaxPoolEveryQLayers = ", EISANICNNmaxPoolEveryQLayers)

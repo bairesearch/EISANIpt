@@ -30,7 +30,7 @@ elif(useImageDataset):
 # Continuous var encoding as bits
 # -------------------------------------------------------------
 
-def continuousVarEncoding(self, x):
+def continuousVarEncoding(self, x, trainOrTest):
 	if useTabularDataset:
 		encoded = encodeContinuousVarsAsBitsWrapper(self, x)
 		initActivation = encoded.to(torch.int8)
@@ -45,7 +45,7 @@ def continuousVarEncoding(self, x):
 					encoded = sample_binary_states_from_probs(x, EISANICNNnumberOfRandomlySelectedInputBinaryStates)	# Sample multiple binary states from input probabilities
 				else:
 					encoded = (x >= EISANICNNinputChannelThreshold)
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded)	# (batch, encodedFeatureSize)	int8
+				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded, trainOrTest)	# (batch, encodedFeatureSize)	int8
 		else:
 			if(EISANICNNarchitectureDivergeLimitedKernelPermutations):
 				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_limited_kernel_permutations(self, x)	# (batch, encodedFeatureSize) float32
@@ -227,7 +227,7 @@ def gray_code_encode_vectorised(self, x: torch.Tensor, numBits: int, minVal: flo
 	return bits
 
 
-def thermometer_encode_vectorised(x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
+def thermometer_encode_vectorised(self, x: torch.Tensor, numBits: int, minVal: float, maxVal: float) -> torch.Tensor:
 	"""
 	Vectorized thermometer encoding with exactly `numBits` thresholds.
 	Encodes into LSB-first order where bit k indicates level >= k.
