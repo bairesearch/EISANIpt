@@ -23,7 +23,7 @@ from ANNpt_globalDefs import *
 import torch.nn.functional as F
 if(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
-elif(useImageDataset):
+elif(useImageDataset and EISANICNN):
 	import EISANIpt_EISANImodelCNN
 	
 # -------------------------------------------------------------
@@ -34,32 +34,37 @@ def continuousVarEncoding(self, x, trainOrTest):
 	if useTabularDataset:
 		encoded = encodeContinuousVarsAsBitsWrapper(self, x)
 		initActivation = encoded.to(torch.int8)
-		numSubsamples = 1
 	elif useImageDataset:
-		if(EISANICNNuseBinaryInput):
-			if(EISANICNNarchitectureDivergeAllKernelPermutations):
-				encoded = (x >= EISANICNNinputChannelThreshold)
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_all_kernel_permutations(self, encoded)	# (batch, encodedFeatureSize)
-			elif(EISANICNNarchitectureSparseRandom):
-				if(EISANICNNrandomlySelectInputBinaryStates):
-					encoded = sample_binary_states_from_probs(x, EISANICNNnumberOfRandomlySelectedInputBinaryStates)	# Sample multiple binary states from input probabilities
-				else:
+		if(EISANICNN):
+			if(EISANICNNuseBinaryInput):
+				if(EISANICNNarchitectureDivergeAllKernelPermutations):
 					encoded = (x >= EISANICNNinputChannelThreshold)
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded, trainOrTest)	# (batch, encodedFeatureSize)	int8
-		else:
-			if(EISANICNNarchitectureDivergeLimitedKernelPermutations):
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_limited_kernel_permutations(self, x)	# (batch, encodedFeatureSize) float32
-			elif(EISANICNNarchitectureDenseRandom):
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_random(self, x)	# (batch, encodedFeatureSize) float32
-			elif(EISANICNNarchitectureDensePretrained):
-				initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_pretrained(self, x)	# (batch, encodedFeatureSize) float32
-				
-			if(EISANITABcontinuousVarEncodingNumBitsAfterCNN == 1):
-				# Binarize/threshold channels for the linear stage, then flatten
-				initActivation = (initActivation > EISANICNNoutputChannelThreshold)
+					initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_all_kernel_permutations(self, encoded)	# (batch, encodedFeatureSize)
+				elif(EISANICNNarchitectureSparseRandom):
+					if(EISANICNNrandomlySelectInputBinaryStates):
+						encoded = sample_binary_states_from_probs(x, EISANICNNnumberOfRandomlySelectedInputBinaryStates)	# Sample multiple binary states from input probabilities
+					else:
+						encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+					initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_sparse_random(self, encoded, trainOrTest)	# (batch, encodedFeatureSize)	int8
 			else:
-				initActivation = encodeContinuousVarsAsBits(self, initActivation, "useTabularDataset", useContinuousVarEncodeMethodAfterCNN, EISANITABcontinuousVarEncodingNumBitsAfterCNN, useVectorisedImplementation=True) 
-			initActivation = initActivation.to(torch.int8)	# (batch, encodedFeatureSize) int8
+				if(EISANICNNarchitectureDivergeLimitedKernelPermutations):
+					initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_diverge_limited_kernel_permutations(self, x)	# (batch, encodedFeatureSize) float32
+				elif(EISANICNNarchitectureDenseRandom):
+					initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_random(self, x)	# (batch, encodedFeatureSize) float32
+				elif(EISANICNNarchitectureDensePretrained):
+					initActivation = EISANIpt_EISANImodelCNN.propagate_conv_layers_dense_pretrained(self, x)	# (batch, encodedFeatureSize) float32
+
+				if(EISANITABcontinuousVarEncodingNumBitsAfterCNN == 1):
+					# Binarize/threshold channels for the linear stage, then flatten
+					initActivation = (initActivation > EISANICNNoutputChannelThreshold)
+				else:
+					initActivation = encodeContinuousVarsAsBits(self, initActivation, "useTabularDataset", useContinuousVarEncodeMethodAfterCNN, EISANITABcontinuousVarEncodingNumBitsAfterCNN, useVectorisedImplementation=True) 
+				initActivation = initActivation.to(torch.int8)	# (batch, encodedFeatureSize) int8
+		else:
+			encoded = encodeContinuousVarsAsBitsWrapper(self, x)
+			initActivation = encoded.to(torch.int8)
+			B, C, H, W = initActivation.shape
+			initActivation = initActivation.view(B, C * H * W)  # Flatten pixel dimensions
 	elif useNLPDataset:
 		#print("x.shape = ", x.shape)
 		#print("x = ", x)
@@ -120,7 +125,7 @@ if(EISANICNNrandomlySelectInputBinaryStates):
 
 def encodeContinuousVarsAsBitsWrapper(self, x: torch.Tensor) -> torch.Tensor:
 	#!useVectorisedImplementation is required for encodeDatasetBoolValuesAs1Bit
-	return encodeContinuousVarsAsBits(self, x, datasetType, useContinuousVarEncodeMethod, EISANIcontinuousVarEncodingNumBits, useVectorisedImplementation=False)	
+	return encodeContinuousVarsAsBits(self, x, datasetType, useContinuousVarEncodeMethod, continuousVarEncodingNumBits, useVectorisedImplementation=False)	
 		
 def encodeContinuousVarsAsBits(self, x: torch.Tensor, encodeDataset, encodeMethod, numBits, useVectorisedImplementation) -> torch.Tensor:
 	if(encodeDataset=="useTabularDataset"):

@@ -378,7 +378,7 @@ elif(useImageDataset):
 			batchSize = 64//EISANICNNcontinuousVarEncodingNumBits	#default: 64
 		else:
 			batchSize = 1	#default: 1
-		batchSize = 8	#16	#default: 64	#1024
+		batchSize = 1	#16	#default: 64	#1024
 		if(not useDefaultNumLayersParam):
 			numberOfFFLayers = numberOfFFLayers*2
 	else:
@@ -396,11 +396,11 @@ elif(useImageDataset):
 	else:
 		CNNconvergeEveryEvenLayer = False
 	hiddenLayerSize = 1024
-	imageDatasetAugment = True
+	imageDatasetAugment = False
 	if(imageDatasetAugment):
 		trainNumberOfEpochs = 100	#default: 100
 	else:
-		trainNumberOfEpochs = 10	#default: 10
+		trainNumberOfEpochs = 1	#default: 10
 	useLearningRateScheduler = True
 	learningRateSchedulerStepsize = 10	#default: 30	#orig: 10	
 	learningRateSchedulerGamma = 0.5	#default: 0.1	#orig: 0.5

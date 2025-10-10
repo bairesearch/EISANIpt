@@ -348,11 +348,10 @@ def init_conv_layers(self) -> None:
 		
 		print(f"conv{layerIdx+1}: channels={ch}, H={H}, W={W}")
 		
-	encodedFeatureSizeMax = ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN
-	if(EISANICNNdynamicallyGenerateFFInputFeatures):
+	if(EISANICNNfixedNumFFinputFeatures):
 		self.encodedFeatureSize = encodedFeatureSizeDefault	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer
 	else:
-		self.encodedFeatureSize = encodedFeatureSizeMax
+		self.encodedFeatureSize = ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN
 
 
 if(EISANICNNarchitectureSparseRandom):
@@ -487,7 +486,7 @@ elif(EISANICNNarchitectureDivergeAllKernelPermutations):
 			self.cnn_to_linear_map = torch.full((num_possible_features,), -1, dtype=torch.long, device=device)
 			self.nextLinearCol = 0												# first free column
 
-		if(debugEISANICNNdynamicallyGenerateLinearInputFeatures):
+		if(debugEISANICNNdynamicallyGenerateFFInputFeatures):
 			linearInput = sparse_to_dense(self, CNNoutputLayerFeatures, b_idx, c_idx, B, C)
 			printf("linearInput.shape = ", linearInput.shape)
 			numActive = (linearInput > 0).sum()

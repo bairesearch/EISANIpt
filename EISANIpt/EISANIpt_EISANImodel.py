@@ -26,7 +26,8 @@ import EISANIpt_EISANImodelContinuousVarEncoding
 if(useTabularDataset):
 	import EISANIpt_EISANImodelSummation
 elif(useImageDataset):
-	import EISANIpt_EISANImodelCNN
+	if(EISANICNN):
+		import EISANIpt_EISANImodelCNN
 	import EISANIpt_EISANImodelSummation
 elif(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
@@ -136,30 +137,32 @@ class EISANImodel(nn.Module):
 			else:
 				self.encodedFeatureSize = config.numberOfFeatures * EISANITABcontinuousVarEncodingNumBits
 		elif useImageDataset:
+			if EISANICNN:
+				EISANIpt_EISANImodelCNN.init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
 
-			EISANIpt_EISANImodelCNN.init_conv_layers(self)                  # fills self.convKernels & self.encodedFeatureSize
+				#if(EISANICNNdynamicallyGenerateFFInputFeatures):	
+				#	self.CNNoutputEncodedFeaturesDict = {} #key: CNNoutputLayerFlatFeatureIndex, value: linearInputLayerFeatureIndex	#non-vectorised implementation
 
-			#if(EISANICNNdynamicallyGenerateFFInputFeatures):	
-			#	self.CNNoutputEncodedFeaturesDict = {} #key: CNNoutputLayerFlatFeatureIndex, value: linearInputLayerFeatureIndex	#non-vectorised implementation
-			
-			# -----------------------------
-			# CNN connection matrices
-			# -----------------------------
-			if(EISANICNNarchitectureSparseRandom):
-				layer_input_sizes = getattr(self, '_EISANICNN_layer_input_sizes', None)
-				kernels_per_layer = getattr(self, '_EISANICNN_out_channels', None)
-				sani_per_kernel = getattr(self, '_EISANICNN_sani_per_kernel', EISANICNNkernelSizeSANI)
-				total_neurons = getattr(self, '_EISANICNN_total_neurons_per_layer', EISANICNNnumberKernels * EISANICNNkernelSizeSANI)
-				kernels_per_layer_value = kernels_per_layer[0] if kernels_per_layer else EISANICNNnumberKernels
-				CNNconfig = EISANIpt_EISANImodelCNN.EISANICNNconfig(
-					numberOfConvlayers = numberOfConvlayers,
-					hiddenLayerSize = total_neurons,
-					numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
-					layer_input_sizes = layer_input_sizes,
-					sani_per_kernel = sani_per_kernel,
-					kernels_per_layer = kernels_per_layer_value,
-				)
-				self.EISANICNNmodel = EISANIpt_EISANImodelCNN.EISANICNNmodel(CNNconfig)
+				# -----------------------------
+				# CNN connection matrices
+				# -----------------------------
+				if(EISANICNNarchitectureSparseRandom):
+					layer_input_sizes = getattr(self, '_EISANICNN_layer_input_sizes', None)
+					kernels_per_layer = getattr(self, '_EISANICNN_out_channels', None)
+					sani_per_kernel = getattr(self, '_EISANICNN_sani_per_kernel', EISANICNNkernelSizeSANI)
+					total_neurons = getattr(self, '_EISANICNN_total_neurons_per_layer', EISANICNNnumberKernels * EISANICNNkernelSizeSANI)
+					kernels_per_layer_value = kernels_per_layer[0] if kernels_per_layer else EISANICNNnumberKernels
+					CNNconfig = EISANIpt_EISANImodelCNN.EISANICNNconfig(
+						numberOfConvlayers = numberOfConvlayers,
+						hiddenLayerSize = total_neurons,
+						numberOfSynapsesPerSegment = numberOfSynapsesPerSegment,
+						layer_input_sizes = layer_input_sizes,
+						sani_per_kernel = sani_per_kernel,
+						kernels_per_layer = kernels_per_layer_value,
+					)
+					self.EISANICNNmodel = EISANIpt_EISANImodelCNN.EISANICNNmodel(CNNconfig)
+			else:
+				self.encodedFeatureSize = config.numberOfFeatures * EISANICNNcontinuousVarEncodingNumBits
 		elif useNLPDataset:
 			self.encodedFeatureSize = EISANIpt_EISANImodelNLP.getEncodedFeatureSize()
 

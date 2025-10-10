@@ -58,113 +58,129 @@ EISANICNNarchitectureDensePretrained = False
 if(useTabularDataset):
 	useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
 elif(useImageDataset):
-	debugEISANICNNdynamicallyGenerateLinearInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
-	debugEISANICNNprintKernels = True
-	
-	EISANICNNarchitectureDivergeAllKernelPermutations = False	#orig: True
-	EISANICNNarchitectureDivergeLimitedKernelPermutations = False	#default 1: True
-	EISANICNNarchitectureSparseRandom = True	#default 2: True
-	EISANICNNarchitectureDenseRandom = False
-	EISANICNNarchitectureDensePretrained = False
-	
-	CNNkernelSize = 3
-	CNNstride = 1
-	CNNmaxPool = True
-	encodedFeatureSizeDefault = 12800000*math.ceil(1/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
-	trainNumberOfEpochsHigh = False	#default: False
-	EISANICNNdynamicallyGenerateFFInputFeatures = False
-	if(EISANICNNarchitectureSparseRandom):
-		EISANICNNuseBinaryInput = True
-		EISANICNNrandomlySelectInputBinaryStates = False	#default: False
-		if(EISANICNNrandomlySelectInputBinaryStates):
-			EISANICNNinputChannelThreshold = -1	#no fixed threshold
-			EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
-		else:
-			EISANICNNinputChannelThreshold = 0.5 #default: 0.5
-			EISANICNNnumberOfRandomlySelectedInputBinaryStates = 1
-		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
-		EISANICNNactivationFunction = True	#mandatory
-		EISANICNNpaddingPolicy = 'same'
-		EISANICNNnumberKernels = 64	#default: 16
-		EISANICNNkernelSizeSANI = 64	#default: 32
-		numberOfConvlayers = 4	#rest will be FF	#default: 2, 4, 6
-		EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
-		useDynamicGeneratedCNNConnections = True
-		if(useDynamicGeneratedCNNConnections):
-			useDynamicGeneratedCNNConnectionsVectorised = True	#execute entire batch simultaneously
-			useDynamicGeneratedCNNConnectionsUniquenessChecks = True
-	elif(EISANICNNarchitectureDenseRandom):
-		EISANICNNuseBinaryInput = False
-		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
-		useContinuousVarEncodeMethodAfterCNN = "grayCode"
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 8	#default: 8
-		EISANICNNoutputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
-		EISANICNNactivationFunction = True	#mandatory
-		EISANICNNpaddingPolicy = 'same'
-		numberOfConvlayers = 6	#rest will be FF	#default: 2, 4, 6
-		EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
-	elif(EISANICNNarchitectureDensePretrained):
-		EISANICNNuseBinaryInput = False
-		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
-		useContinuousVarEncodeMethodAfterCNN = "grayCode"
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 8
-		EISANICNNoutputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
-		EISANICNNactivationFunction = True	#mandatory
-		EISANICNNpaddingPolicy = 'same'
-		numberOfConvlayers = 6	#rest will be FF	#default: 2, 4, 6
-		EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
-	elif(EISANICNNarchitectureDivergeAllKernelPermutations):
-		EISANICNNuseBinaryInput = True
-		EISANICNNinputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
-		useContinuousVarEncodeMethod = "grayCode"
-		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
-		EISANICNNdynamicallyGenerateFFInputFeatures = True	#default: True	#input FF layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateFFInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1
-		EISANICNNnumberKernelOrientations = -1		
-		EISANICNNkernelEdgesTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
-		EISANICNNactivationFunction = True	#mandatory
-		EISANICNNpaddingPolicy = 'none'
-		EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
-		EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
-		numberOfConvlayers = 2	#rest will be FF	#default: 2, 4, 6
-		EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
-	elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
-		EISANICNNuseBinaryInput = False
-		EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1	#retain float do not convert to bits
-		useContinuousVarEncodeMethodAfterCNN = "grayCode"
-		EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 1	#orig: 1
-		EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
-		EISANICNNoutputChannelThreshold = 0.5 #default: 0.5
-		EISANICNNactivationFunction = True	#default: True
-		EISANICNNpaddingPolicy = 'same'	#default: same, orig: none
-		EISANICNNpaddingMode = 'reflect'	#default: reflect #or zeros
-		useOrigCNNParam = True
-		if(useOrigCNNParam):
-			EISANICNNkernelEdgesSharp = False
-			EISANICNNkernelEdgesTernary = True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations	#mandatory: currently required for !EISANICNNkernelEdgesSharp
-			EISANICNNkernelEdges = True
-			EISANICNNkernelCorners = False
-			EISANICNNkernelCentroids = False
-		else:
-			EISANICNNkernelEdgesSharp = True
-			EISANICNNkernelEdgesTernary = True	#default: True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
-			EISANICNNkernelEdges = True
-			EISANICNNkernelCorners = True
-			EISANICNNkernelCentroids = True
-		EISANICNNsigma = 0.85	# Gaussian envelope sigma
-		EISANICNNtau = 0.35	# tanh slope (smaller = sharper)
-		EISANICNNkernelZeroBandHalfWidth = 1e-6	 # ternary soft band
-		EISANICNNcentroidSigma = max(0.5, EISANICNNsigma * 0.75)
-		EISANICNNcentroidScaleRatio = 1.6
-		numberOfConvlayers = 4	#rest will be FF	#default: 2, 4, 6
-		if(numberOfConvlayers == 2):
+	EISANICNN = False	#default: True
+	if(EISANICNN):
+		debugEISANICNNdynamicallyGenerateFFInputFeatures = False	#print nextLinearCol - number of linear layer input encoding features used
+		debugEISANICNNprintKernels = True
+
+		EISANICNNarchitectureDivergeAllKernelPermutations = False	#orig: True
+		EISANICNNarchitectureDivergeLimitedKernelPermutations = False	#default 1: True
+		EISANICNNarchitectureSparseRandom = True	#default 2: True
+		EISANICNNarchitectureDenseRandom = False
+		EISANICNNarchitectureDensePretrained = False
+
+		CNNkernelSize = 3
+		CNNstride = 1
+		CNNmaxPool = True
+		trainNumberOfEpochsHigh = False	#default: False
+		EISANICNNdynamicallyGenerateFFInputFeatures = False
+		if(EISANICNNarchitectureSparseRandom):
+			EISANICNNuseBinaryInput = True
+			EISANICNNrandomlySelectInputBinaryStates = False	#default: False
+			if(EISANICNNrandomlySelectInputBinaryStates):
+				EISANICNNinputChannelThreshold = -1	#no fixed threshold
+				EISANICNNnumberOfRandomlySelectedInputBinaryStates = 16	#default: 256	#binary input values are generated based on the probability distribution given by the input float values
+			else:
+				EISANICNNinputChannelThreshold = 0.5 #default: 0.5
+				EISANICNNnumberOfRandomlySelectedInputBinaryStates = 1
+			useContinuousVarEncodeMethod = "grayCode"	#"thermometer"
+			EISANICNNcontinuousVarEncodingNumBits = 8	#default: 1		#number of bits to encode image pixels
+			EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
+			EISANICNNactivationFunction = True	#mandatory
+			EISANICNNpaddingPolicy = 'same'
+			EISANICNNnumberKernels = 1	#default: 16
+			EISANICNNkernelSizeSANI = 1000	#default: 32
+			numberOfConvlayers = 6	#rest will be FF	#default: 6 - Conv-9 specification
+			EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 2 - Conv-9 specification
+			numberOfFFLayers = 2	#default: 2 - Conv-9 specification
+			useDynamicGeneratedCNNConnections = False
+			if(useDynamicGeneratedCNNConnections):
+				useDynamicGeneratedCNNConnectionsVectorised = True	#execute entire batch simultaneously
+				useDynamicGeneratedCNNConnectionsUniquenessChecks = True
+		elif(EISANICNNarchitectureDenseRandom):
+			EISANICNNuseBinaryInput = False
+			EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
+			useContinuousVarEncodeMethodAfterCNN = "grayCode"
+			EISANITABcontinuousVarEncodingNumBitsAfterCNN = 8	#default: 8
+			EISANICNNoutputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
+			EISANICNNactivationFunction = True	#mandatory
+			EISANICNNpaddingPolicy = 'same'
+			numberOfConvlayers = 6	#rest will be FF	#default: 2, 4, 6
+			EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
+			numberOfFFLayers = 3
+		elif(EISANICNNarchitectureDensePretrained):
+			EISANICNNuseBinaryInput = False
+			EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
+			useContinuousVarEncodeMethodAfterCNN = "grayCode"
+			EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 8
+			EISANICNNoutputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
+			EISANICNNactivationFunction = True	#mandatory
+			EISANICNNpaddingPolicy = 'same'
+			numberOfConvlayers = 6	#rest will be FF	#default: 2, 4, 6
+			EISANICNNmaxPoolEveryQLayers = 2	#orig: 1	#default: 1
+			numberOfFFLayers = 3
+		elif(EISANICNNarchitectureDivergeAllKernelPermutations):
+			EISANICNNuseBinaryInput = True
+			EISANICNNinputChannelThreshold = 0.5 #default: 0.5	#if EISANITABcontinuousVarEncodingNumBitsAfterCNN=1
+			useContinuousVarEncodeMethod = "grayCode"
+			EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1		#number of bits to encode image pixels
+			EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#mandatory: 1
+			EISANICNNdynamicallyGenerateFFInputFeatures = True	#default: True	#input FF layer encoded features are dynamically generated from historic active neurons in final CNN layer	#EISANICNNdynamicallyGenerateFFInputFeatures requires EISANICNNoptimisationSparseConv and numberOfConvlayers > 1	
+			EISANICNNnumberKernelOrientations = -1		
+			EISANICNNkernelEdgesTernary = False	#Binary = +1, -1 weights	#too many permutations with ternary weights 
+			EISANICNNactivationFunction = True	#mandatory
+			EISANICNNpaddingPolicy = 'none'
+			EISANICNNoptimisationSparseConv = True	#default: True	#only apply convolution to channels with at least 1 on bit
+			EISANICNNoptimisationAssumeInt8 = False	#default: False	#if True; cnn operations (conv2d/maxpool2d) are not currently implemented on CuDNN, so will still be temporarily converted to float
+			numberOfConvlayers = 2	#rest will be FF	#default: 2, 4, 6
 			EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
+			numberOfFFLayers = 3
+		elif(EISANICNNarchitectureDivergeLimitedKernelPermutations):
+			EISANICNNuseBinaryInput = False
+			EISANICNNcontinuousVarEncodingNumBits = 1	#mandatory: 1	#retain float do not convert to bits
+			useContinuousVarEncodeMethodAfterCNN = "grayCode"
+			EISANITABcontinuousVarEncodingNumBitsAfterCNN = 1	#default: 1	#orig: 1
+			EISANICNNnumberKernelOrientations = 8	#default 8 (45 degree increments)
+			EISANICNNoutputChannelThreshold = 0.5 #default: 0.5
+			EISANICNNactivationFunction = True	#default: True
+			EISANICNNpaddingPolicy = 'same'	#default: same, orig: none
+			EISANICNNpaddingMode = 'reflect'	#default: reflect #or zeros
+			useOrigCNNParam = True
+			if(useOrigCNNParam):
+				EISANICNNkernelEdgesSharp = False
+				EISANICNNkernelEdgesTernary = True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations	#mandatory: currently required for !EISANICNNkernelEdgesSharp
+				EISANICNNkernelEdges = True
+				EISANICNNkernelCorners = False
+				EISANICNNkernelCentroids = False
+			else:
+				EISANICNNkernelEdgesSharp = True
+				EISANICNNkernelEdgesTernary = True	#default: True	#Ternary = +1, 0, -1 weights 	#no effect on number of permutations
+				EISANICNNkernelEdges = True
+				EISANICNNkernelCorners = True
+				EISANICNNkernelCentroids = True
+			EISANICNNsigma = 0.85	# Gaussian envelope sigma
+			EISANICNNtau = 0.35	# tanh slope (smaller = sharper)
+			EISANICNNkernelZeroBandHalfWidth = 1e-6	 # ternary soft band
+			EISANICNNcentroidSigma = max(0.5, EISANICNNsigma * 0.75)
+			EISANICNNcentroidScaleRatio = 1.6
+			numberOfConvlayers = 4	#rest will be FF	#default: 2, 4, 6
+			if(numberOfConvlayers == 2):
+				EISANICNNmaxPoolEveryQLayers = 1	#orig: 1	#default: 1
+			else:
+				EISANICNNmaxPoolEveryQLayers = 2	#default: 2
+			numberOfFFLayers = 3
+		if(EISANICNNdynamicallyGenerateFFInputFeatures):
+			EISANICNNfixedNumFFinputFeatures = True
+			encodedFeatureSizeDefault = 12800000*math.ceil(1/2)	#input linear layer encoded features are dynamically generated from historic active neurons in final CNN layer	#configured for numberOfConvlayers=2
 		else:
-			EISANICNNmaxPoolEveryQLayers = 2	#default: 2
-		
-	numberOfFFLayers = 3
-		
+			EISANICNNfixedNumFFinputFeatures = False
+			#encodedFeatureSize = last layer ch * H * W * EISANITABcontinuousVarEncodingNumBitsAfterCNN 
+	else:
+		useContinuousVarEncodeMethod = "grayCode"	#use graycode to encode continuous vars into binary (else use thermometer encoding)
+		EISANICNNcontinuousVarEncodingNumBits = 8	#default: 1		#number of bits to encode image pixels
+		EISANICNNinputChannelThreshold = 0.5 #default: 0.5
+		numberOfConvlayers = 0
+		numberOfFFLayers = 6
 elif(useNLPDataset):
 	debugOnlyPrintStreamedWikiArticleTitles = False
 
@@ -329,7 +345,7 @@ else:
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
 	if(useStochasticUpdates):
 		if(useImageDataset):
-			hiddenLayerSizeSANImultiplier = 1000	#default: 100
+			hiddenLayerSizeSANImultiplier = 100	#default: 100
 		else:
 			hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
 	else:
@@ -370,14 +386,13 @@ else:
 
 if(useTabularDataset):
 	datasetType = "useTabularDataset"
-	EISANIcontinuousVarEncodingNumBits = EISANITABcontinuousVarEncodingNumBits
+	continuousVarEncodingNumBits = EISANITABcontinuousVarEncodingNumBits
 elif(useImageDataset):
-	if(EISANICNNuseBinaryInput):
-		datasetType = "useImageDataset"
-		EISANIcontinuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
+	datasetType = "useImageDataset"
+	continuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
 elif(useImageDataset):
 	datasetType = "useNLPDataset"
-	EISANIcontinuousVarEncodingNumBits = EISANINLPcontinuousVarEncodingNumBits
+	continuousVarEncodingNumBits = EISANINLPcontinuousVarEncodingNumBits
 
 if(useInitOrigParam):
 	useBinaryOutputConnections = True	#use binary weighted connections from hidden neurons to output neurons
