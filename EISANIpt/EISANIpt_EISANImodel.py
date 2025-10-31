@@ -67,9 +67,9 @@ def generateHiddenLayerSizeSANI(datasetSize, trainNumberOfEpochs, numberOfLayers
 		else:
 			if(useDynamicGeneratedHiddenConnections):
 				datasetSizeRounded = round_up_to_power_of_2(datasetSize)
-				hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs
+				hiddenLayerSizeSANI = hiddenLayerSizeSANIbase*datasetSizeRounded * trainNumberOfEpochs * hiddenLayerSizeSANImultiplier
 			else:
-				hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI
+				hiddenLayerSizeSANI = EISANIpt_EISANI_globalDefs.hiddenLayerSizeSANI * hiddenLayerSizeSANImultiplier
 			if(recursiveLayers):
 				maxNumberRecursionsAcrossHiddenLayer = numberOfHiddenLayers-1	#-1 because first forward propagated layer in a superblock always uses unique weights
 				hiddenLayerSizeSANI = hiddenLayerSizeSANI * maxNumberRecursionsAcrossHiddenLayer

@@ -28,7 +28,8 @@ useAlgorithmSANIOR = False
 useAlgorithmEIANN = False
 useAlgorithmEISANI = True
 useAlgorithmAEANN = False
-useAlgorithmFFANN = False
+useAlgorithmRPIANN = False
+useAlgorithmANN = False
 
 #train/test vars;
 stateTrainDataset = True
@@ -50,13 +51,15 @@ else:
 usePairedDataset = False
 datasetNormalise = False
 datasetRepeat = False
-datasetRepeatEpochModifier = '/'	#default: '/'	#orig: 'None'
+datasetRepeatEpochModifier = 'none'	#default: 'none'
 datasetRepeatSize = 1
 datasetShuffle = False	#automatically performed by generateVICRegANNpairedDatasets
 datasetOrderByClass = False	#automatically performed by generateVICRegANNpairedDatasets
 dataloaderShuffle = True
 dataloaderMaintainBatchSize = True
 dataloaderRepeat = False
+dataloaderNumWorkers = 4
+dataloaderPinMemory = True
 
 optimiserAdam = True
 
@@ -71,6 +74,7 @@ useCPU = False
 debugSmallBatchSize = False	#small batch size for debugging matrix output
 debugSmallDataset = False	#small dataset (no datasetRepeat) for debugging matrix output
 debugDataNormalisation = False
+debugOnlyPrintStreamedWikiArticleTitles = False
 
 trainLocal = False
 trainGreedy = False
@@ -88,7 +92,7 @@ warmupEpochs = 0	#default: 0
 learningRate = 0.005	#0.005	#0.0001
 momentum = 0.0     #default: 0.0
 weightDecay  = 0.0 #default: 0.0
-batchSize = 64	 #default: 64	#debug: 2
+batchSize = 128	 #default: 128	#orig: 64	#debug: 2
 numberOfLayers = 4	#default: 4	#counts hidden and output layers (not input layer)
 hiddenLayerSize = 10	#default: 10
 trainNumberOfEpochs = 10	#default: 10
@@ -102,6 +106,8 @@ dropoutProb = 0.5 	#default: 0.5	#orig: 0.3
 #initialise (dependent vars);
 debugSmallNetwork = False
 trainNumberOfEpochsHigh = False
+hiddenLayerSizeHigh = False
+numberOfLayersLow = False
 inputLayerInList = True
 outputLayerInList = True
 useCNNlayers = False
@@ -174,27 +180,32 @@ elif(useAlgorithmEISANI):
 elif(useAlgorithmAEANN):
 	from AEANNpt_AEANN_globalDefs import *
 	#useTabularDataset/useImageDataset is defined by AEANNpt_AEANN_globalDefs
-elif(useAlgorithmFFANN):
-	from AEANNpt_FFANN_globalDefs import *
-	useTabularDataset = True
+elif(useAlgorithmRPIANN):
+	from RPIANNpt_RPIANN_globalDefs import *
+	#useTabularDataset/useImageDataset is defined by RPIANNpt_RPIANN_globalDefs
+elif(useAlgorithmANN):
+	from ANNpt_ANN_globalDefs import *
+	#useTabularDataset/useImageDataset is defined by ANNpt_ANN_globalDefs
 	
-
+	
 if(useCustomWeightInitialisation):
 	Wmean = 0.0
 	WstdDev = 0.05	#stddev of weight initialisations
 
 if(useTabularDataset):
-	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%	#samples: 58.3k
-	#datasetName = 'blog-feedback'	#expected test accuracy: ~70%	#samples: 52.4k
-	datasetName = 'titanic'	#expected test accuracy: ~90%	#samples: 1.3k
-	#datasetName = 'red-wine'	#expected test accuracy: ~58%	#samples: 1.6k
-	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%	#samples: 569
-	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%	#samples: 81.4k
-	#datasetName = 'banking-marketing'	#expected test accuracy: ~85%	#third party benchmark accuracy: ~79.1%	#samples: 45.2k
-	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%	#samples: 48.8k
-	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%	#samples: 581k
-	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs	#samples: 11m
-	#datasetName = 'new-thyroid'	#expected test accuracy: ~95%	https://archive.ics.uci.edu/dataset/102/thyroid+disease	#samples: 215
+	#datasetName = 'tabular-benchmark'	#expected test accuracy: ~63%
+	#datasetName = 'blog-feedback'	#expected test accuracy: ~70%
+	datasetName = 'titanic'	#expected test accuracy: ~90%
+	#datasetName = 'red-wine'	#expected test accuracy: ~58%
+	#datasetName = 'breast-cancer-wisconsin'	#expected test accuracy: ~91%
+	#datasetName = 'diabetes-readmission'	#expected test accuracy: ~61%
+	#datasetName = 'banking-marketing'	#expected test accuracy: ~85%	#third party benchmark accuracy: ~79.1%
+	#datasetName = 'adult_income_dataset'	#expected test accuracy: ~86% 	#third party benchmark accuracy: ~85.8%
+	#datasetName = 'covertype'	#expected test accuracy: ~%92 (10 epochs) 	#third party benchmark accuracy: ~97.1%
+	#datasetName = 'higgs'	#expected test accuracy: ~70%	#third party benchmark accuracy: 73.8%	#https://archive.ics.uci.edu/dataset/280/higgs
+	#datasetName = 'topquark'	#expected test accuracy: ~85%
+	#datasetName = 'iris'	#expected test accuracy: ~95%
+	#datasetName = 'new-thyroid'	#expected test accuracy: ~95%	https://archive.ics.uci.edu/dataset/102/thyroid+disease
 	if(datasetName == 'tabular-benchmark'):
 		datasetNameFull = 'inria-soda/tabular-benchmark'
 		classFieldName = 'class'
@@ -216,8 +227,8 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 144	#default: 144	#orig: 144	#old 800	#144=288/2 [input features padded / 2]
+		#datasetEqualiseClassSamples = False	#extremely imbalanced classes
 		numberOfSamplesK = 52.4
-		datasetEqualiseClassSamples = False	#extremely imbalanced classes
 	elif(datasetName == 'titanic'):
 		datasetNameFull = 'victor/titanic'
 		classFieldName = '2urvived'
@@ -229,10 +240,10 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100
-		numberOfSamplesK = 1.3
-		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		datasetRepeat = True
 		if(datasetRepeat):
 			datasetRepeatSize = 10
+		numberOfSamplesK = 1.3
 	elif(datasetName == 'red-wine'):
 		datasetNameFull = 'lvwerra/red-wine'
 		classFieldName = 'quality'
@@ -243,10 +254,10 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4	#external benchmark: 4
 		hiddenLayerSize = 128	#default: 128	#orig: 100	#external benchmark; 64/128
-		numberOfSamplesK = 1.6
-		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		datasetRepeat = True
 		if(datasetRepeat):
 			datasetRepeatSize = 10
+		numberOfSamplesK = 1.6
 	elif(datasetName == 'breast-cancer-wisconsin'):
 		datasetNameFull = 'scikit-learn/breast-cancer-wisconsin'
 		classFieldName = 'diagnosis'
@@ -260,10 +271,10 @@ if(useTabularDataset):
 		learningRate = 0.001	#default:  0.001
 		numberOfLayers = 4	#default: 4
 		hiddenLayerSize = 32	#default: 32	#orig: 20	#old: 100
-		numberOfSamplesK = 0.569
-		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
+		datasetRepeat = True
 		if(datasetRepeat):
-			datasetRepeatSize = 10	#required for batchSize ~= 64
+			datasetRepeatSize = 10
+		numberOfSamplesK = 0.569
 	elif(datasetName == 'diabetes-readmission'):
 		datasetNameFull = 'imodels/diabetes-readmission'
 		classFieldName = 'readmitted'
@@ -308,8 +319,6 @@ if(useTabularDataset):
 		learningRate = 0.001
 		numberOfLayers = 6	#default: 6
 		hiddenLayerSize = 512	#default: 512
-		#numberOfLayers = 2
-		#hiddenLayerSize = 512*4
 		numberOfSamplesK = 581
 	elif(datasetName == 'higgs'):
 		datasetLocalFile = True		#manually download higgs.zip:HIGGS.csv from https://archive.ics.uci.edu/dataset/280/higgs
@@ -323,7 +332,6 @@ if(useTabularDataset):
 		numberOfLayers = 4
 		#numberOfLayers = 2
 		hiddenLayerSize = 256	#default: 256
-		batchSize = 64		#4096	#default: 64
 		datasetLocalFileOptimise = False	#default: False
 		numberOfSamplesK = 11000
 	elif(datasetName == 'new-thyroid'):
@@ -340,15 +348,38 @@ if(useTabularDataset):
 		datasetRepeat = True	#enable better sampling by dataloader with high batchSize (required if batchSize ~= datasetSize)
 		if(datasetRepeat):
 			datasetRepeatSize = 10	#required for batchSize ~= 64
-		numberOfSamplesK = 0.215*datasetRepeatSize
-	else:
-		printe("error: datasetName undefined")
+		numberOfSamplesK = 0.215
+	elif(datasetName == 'topquark'):
+		datasetNameFull = 'lewtun/top_quark_tagging'
+		classFieldName = 'is_signal_new'
+		datasetSpecifyDataFiles = False
+		datasetNormalise = True
+		learningRate = 0.001
+		numberOfLayers = 5	#default: 5
+		hiddenLayerSize = 256	#default: 256
+	elif(datasetName == 'iris'):
+		datasetNameFull = 'scikit-learn/iris'
+		classFieldName = 'Species'
+		datasetSpecifyDataFiles = False
+		datasetConvertClassValues = True
+		datasetNormalise = True
+		datasetHasTestSplit = False
+		dataloaderMaintainBatchSize = False
+		learningRate = 0.005	#default: 0.005
+		numberOfLayers = 3	#default: 3
+		hiddenLayerSize = 32	#default: 32
+		datasetRepeat = True
+		if(datasetRepeat):
+			datasetRepeatSize = 10	#required for batchSize ~= 64
+	#elif ...
 
 	if(datasetLocalFileOptimise):
 		datasetShuffle = True	#default: True	#required for high dataloader initialisation efficiency with large datasets
 		dataloaderShuffle = False	#default: False	#required for high dataloader initialisation efficiency with large datasets
 		disableDatasetCache = True	#default: False #requires high CPU ram	#prevents large cache from being created on disk #only suitable with datasetLocalFile
-	
+	else:
+		disableDatasetCache = False
+
 	if(datasetRepeat):
 		if(datasetRepeatEpochModifier == '*'):	#equalise the number of samples between datasets trained
 			trainNumberOfEpochs *= datasetRepeatSize
@@ -356,6 +387,7 @@ if(useTabularDataset):
 			trainNumberOfEpochs //= datasetRepeatSize
 		elif(datasetRepeatEpochModifier == 'None'):
 			pass			
+	
 	if(dataloaderRepeat):
 		dataloaderRepeatSize = 10	#number of repetitions
 		dataloaderRepeatLoop = False	#legacy (depreciate)
@@ -381,22 +413,27 @@ elif(useImageDataset):
 		batchSize = 1	#16	#default: 64	#1024
 		if(not useDefaultNumLayersParam):
 			numberOfFFLayers = numberOfFFLayers*2
+		numberOfLayers = numberOfConvlayers+numberOfFFLayers	#counts hidden and output layers (not input layer)
+	elif(useAlgorithmRPIANN):
+		batchSize = 1024	#128	 #default: 128	#orig: 64
 	else:
 		batchSize = 128	 #default: 128	#orig: 64
 		numberOfConvlayers = 6	#rest will be FF	#orig: 2	#default: 2, 4, 6
 		numberOfFFLayers = 3
-	numberOfLayers = numberOfConvlayers+numberOfFFLayers	#counts hidden and output layers (not input layer)
+		numberOfLayers = numberOfConvlayers+numberOfFFLayers	#counts hidden and output layers (not input layer)
 	numberInputImageChannels = 3	#default: CIFAR-10 channels
 	inputImageHeight = 32	#default: CIFAR-10 image size
 	inputImageWidth = 32	#default: CIFAR-10 image size
-	CNNhiddenLayerSize = numberInputImageChannels*inputImageHeight*inputImageWidth * 4	#default: CIFAR-10 image size = 3*32*32=3072
-	if(numberOfConvlayers >= 4):
-		CNNconvergeEveryEvenLayer = True	#default: True for numberOfConvlayers 4 or 6	#orig: False
-		assert numberOfConvlayers%2 == 0
-	else:
-		CNNconvergeEveryEvenLayer = False
-	hiddenLayerSize = 1024
-	imageDatasetAugment = False
+	CNNinputShape = [numberInputImageChannels, inputImageHeight, inputImageWidth]	#default: CIFAR-10 image size = 3*32*32=3072
+	if(not useAlgorithmRPIANN):
+		hiddenLayerSize = 1024
+		CNNhiddenLayerSize = numberInputImageChannels*inputImageHeight*inputImageWidth * 4	
+		if(numberOfConvlayers >= 4):
+			CNNconvergeEveryEvenLayer = True	#default: True for numberOfConvlayers 4 or 6	#orig: False
+			assert numberOfConvlayers%2 == 0
+		else:
+			CNNconvergeEveryEvenLayer = False
+	imageDatasetAugment = True
 	if(imageDatasetAugment):
 		trainNumberOfEpochs = 100	#default: 100
 	else:
@@ -441,7 +478,11 @@ if(useAlgorithmEISANI):
 			numberOfLayers = numberOfLayers*2
 else:
 	if(trainNumberOfEpochsHigh):
-		trainNumberOfEpochs = trainNumberOfEpochs*4
+		trainNumberOfEpochs = trainNumberOfEpochs*4	#orig*4
+	if(hiddenLayerSizeHigh):
+		hiddenLayerSize = hiddenLayerSize*4
+	if(numberOfLayersLow):
+		numberOfLayers = 1
 		
 if(debugSmallBatchSize):
 	batchSize = 10

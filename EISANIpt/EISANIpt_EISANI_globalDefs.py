@@ -345,14 +345,16 @@ else:
 		#if(EIneuronsMatchComputation): numberNeuronSegmentsGeneratedPerSample *= 2
 	if(useStochasticUpdates):
 		if(useImageDataset):
-			hiddenLayerSizeSANImultiplier = 100	#default: 100
+			hiddenLayerSizeSANImultiplier = 1000	#default: 1000
 		else:
 			hiddenLayerSizeSANImultiplier = 100	#default: 100	#hiddenLayerSizeSANI = hiddenLayerSize*hiddenLayerSizeSANImultiplier
 	else:
 		if(useDynamicGeneratedHiddenConnections):
+			hiddenLayerSizeSANImultiplier = 1
 			hiddenLayerSizeSANIbase = numberNeuronSegmentsGeneratedPerSample	#heuristic: >> hiddenLayerSizeTypical * EISANITABcontinuousVarEncodingNumBits
 			initialiseSANIlayerWeightsUsingCPU = False
 		else:
+			hiddenLayerSizeSANImultiplier = 1
 			hiddenLayerSizeSANI = 5120000	#default: 1280000*100 with batchSize //= numberOfLayers	#large randomly initialised sparse EISANI network width 
 			initialiseSANIlayerWeightsUsingCPU = False 	#optional
 
@@ -390,7 +392,7 @@ if(useTabularDataset):
 elif(useImageDataset):
 	datasetType = "useImageDataset"
 	continuousVarEncodingNumBits = EISANICNNcontinuousVarEncodingNumBits
-elif(useImageDataset):
+elif(useNLPDataset):
 	datasetType = "useNLPDataset"
 	continuousVarEncodingNumBits = EISANINLPcontinuousVarEncodingNumBits
 

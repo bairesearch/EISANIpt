@@ -56,9 +56,11 @@ elif(useAlgorithmEISANI):
 	import EISANIpt_EISANI as ANNpt_algorithm
 elif(useAlgorithmAEANN):
 	import AEANNpt_AEANN as ANNpt_algorithm
-elif(useAlgorithmFFANN):
-	import AEANNpt_FFANN as ANNpt_algorithm
-	
+elif(useAlgorithmRPIANN):
+	import RPIANNpt_RPIANN as ANNpt_algorithm
+elif(useAlgorithmANN):
+	import ANNpt_ANN as ANNpt_algorithm
+		
 if(useSignedWeights):
 	import ANNpt_linearSublayers
 import ANNpt_data
@@ -148,6 +150,7 @@ def processDataset(trainOrTest, dataset, model):
 	totalAccuracyCount = 0
 
 	fieldTypeList = ANNpt_data.createFieldTypeList(dataset)
+	#print("fieldTypeList = ", fieldTypeList)
 		
 	if(useAlgorithmLUOR):
 		ANNpt_algorithm.preprocessLUANNpermutations(dataset, model)

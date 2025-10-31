@@ -17,9 +17,8 @@ ANNpt data
 
 """
 
-
 import torch as pt
-from datasets import load_dataset, Value
+from datasets import load_dataset, Value, Features
 from ANNpt_globalDefs import *
 import ANNpt_globalDefs
 import numpy as np
@@ -36,7 +35,9 @@ elif(useNLPDataset):
 	bert_pad_id = None
 	bert_tokenizer = None
 	import string
-	
+import pyarrow as pa
+import pyarrow.compute as pc
+
 if(disableDatasetCache):
 	import datasets
 	from datasets import disable_caching
@@ -46,6 +47,100 @@ if(disableDatasetCache):
 debugSaveRawDatasetToCSV = False	#output dataset to csv file for manual checks
 debugSaveSplitDatasetToCSV = False	#output dataset to csv file for manual checks
 debugSaveNormalisedDatasetToCSV = False	#output dataset to csv file for manual checks
+
+_cachedFeatureTypeList = None
+_cachedFeatureTypeMap = None
+_cachedClassFieldType = None
+
+
+def _extract_feature_dtype(feature):
+	"""Best-effort extraction of a Hugging Face feature dtype."""
+	dtype = getattr(feature, 'dtype', None)
+	if dtype is None and hasattr(feature, 'feature'):
+		inner_feature = getattr(feature, 'feature')
+		dtype = getattr(inner_feature, 'dtype', None)
+	if dtype is None and hasattr(feature, 'value_type'):
+		inner_feature = getattr(feature, 'value_type')
+		dtype = getattr(inner_feature, 'dtype', None)
+	return dtype
+
+def _get_arrow_table(dataset_split):
+    # Works across HF 2.x releases
+    table = getattr(dataset_split, "data", None)
+    if table is None:
+        table = getattr(dataset_split, "_data", None)
+    if table is None:
+        table = dataset_split.to_table()  # last resort (avoid in tight loops)
+    return table
+
+def _is_binary_arrow_column(column):
+    if isinstance(column, pa.ChunkedArray):
+        column = column.combine_chunks()
+    if len(column) == 0 or column.null_count == len(column):
+        return False
+    non_null = pc.drop_null(column)
+    if len(non_null) == 0:
+        return False
+    col_type = non_null.type
+    if pa.types.is_integer(col_type):
+        limits = pc.min_max(non_null)
+        return limits["min"].as_py() >= 0 and limits["max"].as_py() <= 1
+    if pa.types.is_floating(col_type):
+        allowed = pa.array([0.0, 1.0], type=col_type)
+        mask = pc.is_in(non_null, value_set=allowed)
+        return bool(pc.all(mask).as_py())
+    return False
+
+def _cache_tabular_field_types(dataset_dict):
+    global _cachedFeatureTypeList, _cachedFeatureTypeMap, _cachedClassFieldType
+    _cachedFeatureTypeList = _cachedFeatureTypeMap = None
+    _cachedClassFieldType = None
+
+    if dataset_dict is None:
+        printe("_cache_tabular_field_types error: dataset_dict is None")
+        return
+
+    reference_split = dataset_dict.get(datasetSplitNameTrain)
+    if reference_split is None:
+        printe("_cache_tabular_field_types error: reference_split is None")
+        return
+
+    if 'features' in reference_split.column_names and len(reference_split.column_names) == 2:
+        printe("_cache_tabular_field_types error: 'features' already consolidated")
+        return
+
+    feature_names = [
+        name for name in reference_split.column_names
+        if name not in (classFieldName, 'features')
+    ]
+    if not feature_names:
+        printe("_cache_tabular_field_types error: not feature_names")
+        return
+
+    arrow_table = _get_arrow_table(reference_split)
+
+    _cachedFeatureTypeList = []
+    _cachedFeatureTypeMap = {}
+
+    for feature_name in feature_names:
+        feature_info = reference_split.features[feature_name]
+        dtype = _extract_feature_dtype(feature_info)
+
+        if dtype in {
+            'float16', 'float32', 'float64',
+            'int8', 'int16', 'int32', 'int64',
+            'uint8', 'uint16', 'uint32', 'uint64'
+        }:
+            idx = arrow_table.schema.get_field_index(feature_name)
+            if idx != -1 and _is_binary_arrow_column(arrow_table.column(idx)):
+                dtype = 'bool'
+
+        _cachedFeatureTypeList.append(dtype)
+        _cachedFeatureTypeMap[feature_name] = dtype
+
+    class_info = reference_split.features.get(classFieldName)
+    if class_info is not None:
+        _cachedClassFieldType = _extract_feature_dtype(class_info)
 
 def loadDataset():
 	if(useTabularDataset):
@@ -60,33 +155,29 @@ def saveDatasetToCSV(dataset):
 		output_file = f"{datasetName}_{split}.csv"
 		dataset[split].to_csv(output_file)
 		print(f"Saved {split} split to {output_file}")
-
-
+				
+	
 def countNumberClasses(dataset, printSize=False):
-	numberOfClassSamples = {}
-	datasetSize = getDatasetSize(dataset)
-	if(useTabularDataset):
-		numberOfClasses = 0
-		for i in range(datasetSize):
-			if useTabularDataset:
-				# For Hugging Face datasets, the label is accessed via the classFieldName
-				row = dataset[i]
-				target = int(row[classFieldName])
-			elif useImageDataset:
-				# For PyTorch datasets (e.g., CIFAR10), the label is the second element of the dataset tuple
-				_, target = dataset[i]
-			else:
-				raise AttributeError("Unsupported dataset type: Unable to count classes.")
+	if useTabularDataset:
+		classValues = dataset[classFieldName]
+		#if(useImageDataset): classValues = [dataset[i][1] for i in range(getDatasetSize(dataset))]
 
-			if(target in numberOfClassSamples):
-				numberOfClassSamples[target] = numberOfClassSamples[target] + 1
-			else:
-				numberOfClassSamples[target] = 0
+		if isinstance(classValues, pt.Tensor):
+			if classValues.numel() == 0:
+				return 0, {}
+			classArray = classValues.cpu().numpy()
+		else:
+			if len(classValues) == 0:
+				return 0, {}
+			classArray = np.array(classValues)
+		if np.issubdtype(classArray.dtype, np.floating):
+			classArray = classArray.astype(np.int64)
+		elif np.issubdtype(classArray.dtype, np.bool_):
+			classArray = classArray.astype(np.int64)
 
-			#print("target = ", target)
-			if(target > numberOfClasses):
-				numberOfClasses = target
-		numberOfClasses = numberOfClasses+1
+		uniqueClasses, classCounts = np.unique(classArray, return_counts=True)
+		numberOfClasses = int(uniqueClasses.max()) + 1
+		numberOfClassSamples = {int(classId): int(count) for classId, count in zip(uniqueClasses, classCounts)}
 	elif(useImageDataset):
 		numberOfClasses = ANNpt_globalDefs.numberOfClasses
 		numberOfClassSamples = None	#not used
@@ -95,17 +186,24 @@ def countNumberClasses(dataset, printSize=False):
 		numberOfClassSamples = None	#not used
 
 	#if(printSize):
-	#print("numberOfClasses = ", numberOfClasses)
+	#	print("numberOfClasses = ", numberOfClasses)
+
 	return numberOfClasses, numberOfClassSamples
 
 def countNumberFeatures(dataset, printSize=False):
-	if useTabularDataset:
-		# For tabular datasets, use the features attribute
-		numberOfFeatures = len(dataset.features) - 1  # -1 to ignore class targets
-	elif useImageDataset:
+	if useImageDataset:
 		# For image datasets, infer the number of features from the image shape
 		sample_image, _ = dataset[0]  # Get the first sample (image, label)
 		numberOfFeatures = sample_image.shape[0]*sample_image.shape[1]*sample_image.shape[2]
+	elif useTabularDataset:
+		if('features' in dataset.column_names):
+			sample_features = dataset[0]['features']
+			if isinstance(sample_features, pt.Tensor):
+				numberOfFeatures = sample_features.shape[-1]
+			else:
+				numberOfFeatures = len(sample_features)
+		else:
+			numberOfFeatures = len(dataset.features) - 1  # -1 to ignore class targets	#orig implementation
 	elif useNLPDataset:
 		if(useTokenEmbedding):
 			numberOfFeatures = contextSizeMax * embeddingSize
@@ -113,34 +211,41 @@ def countNumberFeatures(dataset, printSize=False):
 			numberOfFeatures = contextSizeMax
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
-
+	
 	if(printSize):
 		print("numberOfFeatures = ", numberOfFeatures)
 	return numberOfFeatures
-
+	
 def getDatasetSize(dataset, printSize=False):
-	if useTabularDataset:
-		# Otherwise, assume it's a Hugging Face dataset
-		datasetSize = dataset.num_rows
-	elif useImageDataset:
+	if useImageDataset:
 		# Check if the dataset is a PyTorch dataset (e.g., CIFAR10)
 		datasetSize = len(dataset)
+	elif useTabularDataset:
+		# Otherwise, assume it's a Hugging Face dataset
+		datasetSize = dataset.num_rows
 	elif useNLPDataset:
 		datasetSize = datasetSizeRecord
 	else:
 		raise AttributeError("Unsupported dataset type: Unable to determine the number of features.")
-
+	
 	if(printSize):
 		print("datasetSize = ", datasetSize)
 	return datasetSize
 
 def createFieldTypeList(dataset):
 	if(useTabularDataset):
-		fieldTypeList = [fieldType.dtype for fieldType in dataset.features.values() if hasattr(fieldType, 'dtype')]
+		if _cachedFeatureTypeList is not None:
+			fieldTypeList = list(_cachedFeatureTypeList)
+			if _cachedClassFieldType is not None:
+				fieldTypeList.append(_cachedClassFieldType)
+		else:
+			printe("createFieldTypeList requires _cachedFeatureTypeList")
 	else:
 		fieldTypeList = None
 	return fieldTypeList
-	
+
+def createDataLoader(dataset):
+	return createDataLoaderTabular(dataset)
 
 if(useTabularDataset):
 
@@ -170,7 +275,7 @@ if(useTabularDataset):
 
 		if(debugSaveRawDatasetToCSV):
 			saveDatasetToCSV(dataset)
-
+			
 		if(datasetConvertFeatureValues):
 			dataset[datasetSplitNameTrain] = convertFeatureValues(dataset[datasetSplitNameTrain])
 			if(datasetHasTestSplit):
@@ -185,16 +290,23 @@ if(useTabularDataset):
 				if(datasetHasTestSplit):
 					dataset[datasetSplitNameTest] = convertClassTargetColumnFloatToInt(dataset[datasetSplitNameTest])
 
+		if(datasetName == 'topquark'):
+			dataset = removeTopQuarkLeakageColumns(dataset)
+								
 		if(not datasetHasTestSplit):
-			dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize, shuffle=datasetTestSplitShuffle, seed=datasetTestSplitSeed)
+			dataset[datasetSplitNameTrain] = shuffleDataset(dataset[datasetSplitNameTrain])
+			dataset = dataset[datasetSplitNameTrain].train_test_split(test_size=datasetTestSplitSize)
 
 		if(debugSaveSplitDatasetToCSV):
 			saveDatasetToCSV(dataset)
-
+			
 		if(datasetEqualiseClassSamples):
 			dataset[datasetSplitNameTrain] = equaliseClassSamples(dataset[datasetSplitNameTrain])
 			if(datasetHasTestSplit and datasetEqualiseClassSamplesTest):
 				dataset[datasetSplitNameTest] = equaliseClassSamples(dataset[datasetSplitNameTest])
+
+		_cache_tabular_field_types(dataset)
+
 		if(datasetNormalise):
 			dataset[datasetSplitNameTrain] = normaliseDataset(dataset[datasetSplitNameTrain])
 			dataset[datasetSplitNameTest] = normaliseDataset(dataset[datasetSplitNameTest])
@@ -208,14 +320,52 @@ if(useTabularDataset):
 			dataset[datasetSplitNameTrain] = orderDatasetByClass(dataset[datasetSplitNameTrain])
 			dataset[datasetSplitNameTest] = orderDatasetByClass(dataset[datasetSplitNameTest])
 			#dataset = orderDatasetByClass(dataset)
-
+		
 		dataset[datasetSplitNameTrain] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTrain])
 		dataset[datasetSplitNameTest] = repositionClassFieldToLastColumn(dataset[datasetSplitNameTest])
 
 		if(debugSaveNormalisedDatasetToCSV):
 			saveDatasetToCSV(dataset)
+		
+		dataset = consolidateFeatureColumns(dataset)
+		dataset = setDatasetTorchFormat(dataset)
 
 		return dataset
+
+	def repositionClassFieldToLastColumn(dataset):
+		classDataList = dataset[classFieldName]
+		dataset = dataset.remove_columns(classFieldName)
+		dataset = dataset.add_column(classFieldName, classDataList)
+		return dataset
+				
+	def convertClassTargetColumnFloatToInt(dataset):
+		classDataList = dataset[classFieldName]
+		classDataList = [int(value) for value in classDataList]
+		dataset = dataset.remove_columns(classFieldName)
+		dataset = dataset.add_column(classFieldName, classDataList)
+		return dataset
+
+
+	def removeTopQuarkLeakageColumns(datasetDict):
+		leakageSubstrings = ["truth", "is_signal", "label", "target"]
+		leakageExact = {"ttv"}
+
+		for splitName in datasetDict.keys():
+			split = datasetDict[splitName]
+			columnsToRemove = []
+			for columnName in split.column_names:
+				if columnName == classFieldName:
+					continue
+				columnNameLower = columnName.lower()
+				if columnNameLower in leakageExact:
+					columnsToRemove.append(columnName)
+					continue
+				if any(substring in columnNameLower for substring in leakageSubstrings):
+					columnsToRemove.append(columnName)
+			if columnsToRemove:
+				split = split.remove_columns(columnsToRemove)
+				datasetDict[splitName] = split
+		return datasetDict
 
 	def equaliseClassSamples(dataset):
 		#Equalises the number of samples across each class by repeating class samples as necessary.
@@ -260,55 +410,110 @@ if(useTabularDataset):
 
 		return dataset
 
-	def repositionClassFieldToLastColumn(dataset):
-		classDataList = dataset[classFieldName]
-		dataset = dataset.remove_columns(classFieldName)
-		dataset = dataset.add_column(classFieldName, classDataList)
-		return dataset
-
-	def convertClassTargetColumnFloatToInt(dataset):
-		classDataList = dataset[classFieldName]
-		classDataList = [int(value) for value in classDataList]
-		dataset = dataset.remove_columns(classFieldName)
-		dataset = dataset.add_column(classFieldName, classDataList)
-		return dataset
-
 	def normaliseDataset(dataset):
 		print("normaliseDataset:  dataset.num_rows = ",  dataset.num_rows, ", len(dataset.features) = ", len(dataset.features))
-		datasetSize = getDatasetSize(dataset)
-		for featureIndex, featureName in enumerate(list(dataset.features)):
-			#print("featureIndex = ", featureIndex)
-			if(featureName != classFieldName):
-				fieldType = dataset.features[featureName]
-				if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
-					continue #skip normalisation for boolean fields
-				if(datasetCorrectMissingValues):
-					featureDataList = []
-					for i in range(datasetSize):
-						row = dataset[i]
-						featureCell = row[featureName]
-						if(featureCell == None):
-							featureCell = 0
-						featureDataList.append(featureCell)
+
+		featureNames = [featureName for featureName in dataset.column_names if featureName != classFieldName]
+		if not featureNames:
+			return dataset
+
+		# Ensure feature columns are stored as floating point to avoid schema conflicts when returning float values
+		if any(not isinstance(dataset.features[featureName], Value) or dataset.features[featureName].dtype not in ('float32', 'float64') for featureName in featureNames):
+			featuresDict = {}
+			for columnName, featureInfo in dataset.features.items():
+				if columnName in featureNames:
+					featuresDict[columnName] = Value('float64')
 				else:
-					featureDataList = dataset[featureName]
-				featureData = np.array(featureDataList)
-				#print("featureData = ", featureData)
-				if(datasetNormaliseMinMax):
-					featureMin = np.amin(featureData)
-					featureMax = np.amax(featureData)
-					#if(featureMax - featureMin == 0):
-					#	print("warning: (featureMax - featureMin == 0)")
-					featureData = (featureData - featureMin) / (featureMax - featureMin + 1e-8) #featureData/featureMax
-				elif(datasetNormaliseStdAvg):
-					featureMean = np.mean(featureData)
-					featureStd = np.std(featureData)
-					featureData = featureData-featureMean
-					featureData = featureData/featureStd
-				featureDataList = featureData.tolist()
-				dataset = dataset.remove_columns(featureName)
-				dataset = dataset.add_column(featureName, featureDataList)
+					featuresDict[columnName] = featureInfo
+			dataset = dataset.cast(Features(featuresDict))
+
+		normStats = {}
+		for featureName in featureNames:
+			'''
+			TODO (codex):
+			fieldType = dataset.features[featureName]
+			if hasattr(fieldType, 'dtype') and fieldType.dtype == 'bool':
+				continue #skip normalisation for boolean fields
+			'''
+			featureDataList = dataset[featureName]
+			if(datasetCorrectMissingValues):
+				featureDataList = [0 if value is None else value for value in featureDataList]
+			featureData = np.array(featureDataList, dtype=np.float32)
+			if(datasetNormaliseMinMax):
+				featureMin = float(np.amin(featureData))
+				featureMax = float(np.amax(featureData))
+				featureRange = featureMax - featureMin
+				if(featureRange == 0.0):
+					normStats[featureName] = ("minmax", featureMin, 0.0)
+				else:
+					invRange = 1.0 / (featureRange + 1e-8)
+					normStats[featureName] = ("minmax", featureMin, invRange)
+			elif(datasetNormaliseStdAvg):
+				featureMean = float(np.mean(featureData))
+				featureStd = float(np.std(featureData))
+				if(featureStd == 0.0):
+					normStats[featureName] = ("std", featureMean, 0.0)
+				else:
+					invStd = 1.0 / (featureStd + 1e-8)
+					normStats[featureName] = ("std", featureMean, invStd)
+
+		if not normStats:
+			return dataset
+
+		def normaliseBatch(batch):
+			for featureName, (normType, offset, scale) in normStats.items():
+				values = batch[featureName]
+				if(datasetCorrectMissingValues):
+					values = [0 if value is None else value for value in values]
+				valuesArray = np.asarray(values, dtype=np.float32)
+				if(normType == "minmax"):
+					if(scale == 0.0):
+						valuesArray = valuesArray - offset
+					else:
+						valuesArray = (valuesArray - offset) * scale
+				elif(normType == "std"):
+					if(scale == 0.0):
+						valuesArray = valuesArray - offset
+					else:
+						valuesArray = (valuesArray - offset) * scale
+				batch[featureName] = valuesArray.tolist()
+			return batch
+
+		dataset = dataset.map(normaliseBatch, batched=True, batch_size=1024, desc="normaliseDataset", load_from_cache_file=True)
 		return dataset
+
+	def consolidateFeatureColumns(datasetDict):
+		referenceSplit = datasetDict[datasetSplitNameTrain]
+		if('features' in referenceSplit.column_names and len(referenceSplit.column_names) == 2):
+			return datasetDict
+
+		featureNames = [featureName for featureName in referenceSplit.column_names if featureName != classFieldName and featureName != 'features']
+		if not featureNames:
+			return datasetDict
+
+		def packFeatures(batch):
+			featureArrays = [np.asarray(batch[featureName], dtype=np.float32) for featureName in featureNames]
+			featuresStacked = np.stack(featureArrays, axis=-1).astype(np.float32, copy=False)
+			return {"features": featuresStacked}
+
+		for splitName in datasetDict.keys():
+			datasetDict[splitName] = datasetDict[splitName].map(
+				packFeatures,
+				batched=True,
+				batch_size=1024,
+				desc=f"packFeatures:{splitName}",
+				remove_columns=featureNames
+			)
+		return datasetDict
+
+	def setDatasetTorchFormat(datasetDict):
+		for splitName in datasetDict.keys():
+			datasetDict[splitName] = datasetDict[splitName].with_format(
+				type="torch",
+				columns=['features', classFieldName],
+				output_all_columns=False
+			)
+		return datasetDict
 
 	def repeatDataset(dataset):
 		datasetSize = getDatasetSize(dataset)
@@ -321,7 +526,7 @@ if(useTabularDataset):
 		datasetSize = getDatasetSize(dataset)
 		dataset = dataset.shuffle()
 		return dataset
-
+		
 	def orderDatasetByClass(dataset):
 		dataset = dataset.sort(classFieldName)
 		return dataset
@@ -335,11 +540,12 @@ if(useTabularDataset):
 			#elif fieldType.dtype == 'bool':
 			#	dataset = dataset.cast_column(fieldName, Value('float32'))
 		return dataset
-
+	
 	def bool_to_float(example):
 		example[fieldName] = float(example[fieldName])
 		return example
 
+		
 	def convertClassValues(dataset):
 		return convertCategoricalFieldValues(dataset, classFieldName, dataType=int)
 
@@ -400,29 +606,35 @@ if(useTabularDataset):
 			if(dataType==float):
 				target = float(target)
 			fieldNew.append(target)
-
+			
 		dataset = dataset.remove_columns(fieldName)
 		dataset = dataset.add_column(fieldName, fieldNew)
 
 		return dataset
 
-	def createDataLoader(dataset):
-		return createDataLoaderTabular(dataset)
-
 	def createDataLoaderTabular(dataset):
-		dataLoaderDataset = DataloaderDatasetTabular(dataset)	
+		dataLoaderDataset = DataloaderDatasetTabular(dataset)
 		maintainEvenBatchSizes = True
+		dataLoaderKwargs = {
+			"batch_size": batchSize,
+			"drop_last": dataloaderMaintainBatchSize,
+			"num_workers": dataloaderNumWorkers,
+			"pin_memory": dataloaderPinMemory,
+		}
+		if(dataloaderNumWorkers > 0):
+			dataLoaderKwargs["persistent_workers"] = True
+
 		if(dataloaderRepeatSampler):
 			numberOfSamples = getDatasetSize(dataset)*dataloaderRepeatSize
 			if(dataloaderRepeatSamplerCustom):
 				sampler = CustomRandomSampler(dataset, shuffle=True, num_samples=numberOfSamples)
 			else:
 				sampler = pt.utils.data.RandomSampler(dataset, replacement=True, num_samples=numberOfSamples)
-			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, drop_last=dataloaderMaintainBatchSize, sampler=sampler)
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, sampler=sampler, **dataLoaderKwargs)
 		else:
-			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, batch_size=batchSize, shuffle=dataloaderShuffle, drop_last=dataloaderMaintainBatchSize)
+			loader = pt.utils.data.DataLoader(dataset=dataLoaderDataset, shuffle=dataloaderShuffle, **dataLoaderKwargs)
 		return loader
-
+		
 	def createDataLoaderTabularPaired(dataset1, dataset2):
 		dataLoaderDataset = DataloaderDatasetTabularPaired(dataset1, dataset2)	
 		if(dataloaderRepeatSampler):
@@ -440,82 +652,64 @@ if(useTabularDataset):
 		def __init__(self, dataset):
 			self.datasetSize = getDatasetSize(dataset)
 			self.dataset = dataset
-			self.datasetIterator = iter(dataset)
-
+				
 		def __len__(self):
 			return self.datasetSize
 
 		def __getitem__(self, i):
-			if(dataloaderRepeatSampler):
-				#index = i % self.datasetSize
-				#document = self.dataset[index]
-				try:
-					document = next(self.datasetIterator)	#does not support dataloaderShuffle
-				except StopIteration:
-					self.datasetIterator = iter(self.dataset)
-					document = next(self.datasetIterator)	#does not support dataloaderShuffle
-			else:
-				 document = self.dataset[i]	
-				 #document = next(self.datasetIterator) #does not support dataloaderShuffle
-			documentList = list(document.values())
-			if(datasetReplaceNoneValues):
-				documentList = [x if x is not None else 0 for x in documentList]
-			#print("documentList = ", documentList)
-			x = documentList[0:-1]
-			y = documentList[-1]
-			x = pt.Tensor(x).float()
-			batchSample = (x, y)
-			return batchSample
+			document = self.dataset[i]
+			features = document['features']
+			target = document[classFieldName]
 
+			if isinstance(features, pt.Tensor):
+				x = features.float()
+			elif isinstance(features, np.ndarray):
+				x = pt.from_numpy(features).float()
+			else:
+				x = pt.tensor(features, dtype=pt.float32)
+
+			if isinstance(target, pt.Tensor):
+				y = target.long()
+			else:
+				y = pt.tensor(int(target), dtype=pt.long)
+
+			return x, y
+			
 	class DataloaderDatasetTabularPaired(pt.utils.data.Dataset):
 		def __init__(self, dataset1, dataset2):
 			self.datasetSize = getDatasetSize(dataset1)
 			self.dataset1 = dataset1
 			self.dataset2 = dataset2
-			self.datasetIterator1 = iter(dataset1)
-			self.datasetIterator2 = iter(dataset2)
 
 		def __len__(self):
 			return self.datasetSize
 
 		def __getitem__(self, i):
-			if(dataloaderRepeatSampler):
-				#index = i % self.datasetSize
-				#document1 = self.dataset1[index]
-				#document2 = self.dataset2[index]
-				try:
-					document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-					document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
-				except StopIteration:
-					self.datasetIterator1 = iter(self.dataset1)
-					self.datasetIterator2 = iter(self.dataset2)
-					document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-					document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
+			document1 = self.dataset1[i]
+			document2 = self.dataset2[i]
+			x1 = document1['features']
+			x2 = document2['features']
+			if isinstance(x1, pt.Tensor):
+				x1 = x1.float()
 			else:
-				document1 = self.dataset1[i]
-				document2 = self.dataset2[i]	
-				#document1 = next(self.datasetIterator1)	#does not support dataloaderShuffle
-				#document2 = next(self.datasetIterator2)	#does not support dataloaderShuffle
-			documentList1 = list(document1.values())
-			documentList2 = list(document2.values())
-			if(datasetReplaceNoneValues):
-				documentList1 = [x if x is not None else 0 for x in documentList1]
-				documentList2 = [x if x is not None else 0 for x in documentList2]
-			#print("documentList = ", documentList)
-			x1 = documentList1[0:-1]
-			x2 = documentList2[0:-1]
-			x1 = pt.Tensor(x1).float()
-			x2 = pt.Tensor(x2).float()
+				x1 = pt.tensor(x1, dtype=pt.float32)
+			if isinstance(x2, pt.Tensor):
+				x2 = x2.float()
+			else:
+				x2 = pt.tensor(x2, dtype=pt.float32)
 			x1 = pt.unsqueeze(x1, dim=0)
 			x2 = pt.unsqueeze(x2, dim=0)
 			x = pt.concat([x1, x2], dim=0)
-			y1 = documentList1[-1]
-			y2 = documentList2[-1]
+			y1 = document1[classFieldName]
+			y2 = document2[classFieldName]
 			#print("y1 = ", y1, ", y2 = ", y2)	#verify they are equal
-			y = y1
+			if isinstance(y1, pt.Tensor):
+				y = y1.long()
+			else:
+				y = pt.tensor(int(y1), dtype=pt.long)
 			batchSample = (x, y)
 			return batchSample
-
+		
 	class CustomRandomSampler(pt.utils.data.Sampler):
 		def __init__(self, dataset, shuffle, num_samples):
 			self.dataset = dataset
@@ -563,8 +757,7 @@ elif(useImageDataset):
 			dataset[datasetSplitNameTrain] = torchvision.datasets.CIFAR10(root=dataPathName, train=True, download=True, transform=train_transform)
 			dataset[datasetSplitNameTest] = torchvision.datasets.CIFAR10(root=dataPathName, train=False, download=True, transform=test_transform)
 		else:
-			printe("loadDatasetImage currently requires datasetName==CIFAR10")
-
+			printe("loadDatasetImage currently requires datasetName==CIFAR10")		
 		return dataset
 
 	def createDataLoaderImage(dataset):
