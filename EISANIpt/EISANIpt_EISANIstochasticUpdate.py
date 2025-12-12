@@ -26,7 +26,7 @@ import EISANIpt_EISANImodelContinuousVarEncoding
 if useSequentialSANI:
 	import EISANIpt_EISANImodelSequential as _modelSeq
 else:
-	import EISANIpt_EISANImodelSummation as _modelSum
+	import EISANIpt_EISANImodelSegmental as _modelSum
 
 # -------------------------------------------------------------
 # Stochastic update wrapper (trial-and-keep)
@@ -99,7 +99,7 @@ def performStochasticUpdate(model, trainOrTest, x, y, optim=None, l=None, batchI
 		if useSequentialSANI:
 			layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, batchIndex, 0, initActivation)
 		else:
-			layerActivations = _modelSum.summationSANIpassHiddenLayers(model, False, initActivation)
+			layerActivations = _modelSum.segmentalSANIpassHiddenLayers(model, False, initActivation)
 
 		# Build logits and collect per-layer activations for gradient update
 		C = int(model.config.numberOfClasses)
@@ -169,7 +169,7 @@ def _score_batch_cross_entropy(model, x, y) -> float:
 	if useSequentialSANI:
 		layerActivations = _modelSeq.sequentialSANIpassHiddenLayers(model, False, None, 0, initActivation)
 	else:
-		layerActivations = _modelSum.summationSANIpassHiddenLayers(model, False, initActivation)
+		layerActivations = _modelSum.segmentalSANIpassHiddenLayers(model, False, initActivation)
 
 	# Aggregate logits over configured hidden layers
 	C = int(model.config.numberOfClasses)

@@ -13,7 +13,7 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal input (SANI) network model
+EISANIpt excitatory inhibitory (EI) sequentially/segmentally activated neuronal input (SANI) network model
 
 """
 
@@ -24,11 +24,11 @@ import EISANIpt_EISANI_globalDefs
 from ANNpt_globalDefs import *
 import EISANIpt_EISANImodelContinuousVarEncoding
 if(useTabularDataset):
-	import EISANIpt_EISANImodelSummation
+	import EISANIpt_EISANImodelSegmental
 elif(useImageDataset):
 	if(EISANICNN):
 		import EISANIpt_EISANImodelCNN
-	import EISANIpt_EISANImodelSummation
+	import EISANIpt_EISANImodelSegmental
 elif(useNLPDataset):
 	import EISANIpt_EISANImodelNLP
 	import EISANIpt_EISANImodelSequential
@@ -171,7 +171,7 @@ class EISANImodel(nn.Module):
 			prevSize = self.encodedFeatureSize
 			print("self.encodedFeatureSize = ", self.encodedFeatureSize)
 
-			EISANIpt_EISANImodelSummation.init_layers(self, config, prevSize)
+			EISANIpt_EISANImodelSegmental.init_layers(self, config, prevSize)
 
 			if useDynamicGeneratedHiddenConnections:
 				self.neuronSegmentAssignedMask = torch.zeros(self.numberUniqueHiddenLayers, numberOfSegmentsPerNeuron, config.hiddenLayerSize, dtype=torch.bool, device=device) # Ensure device, Added numberOfSegmentsPerNeuron, Modified
@@ -374,7 +374,7 @@ class EISANImodel(nn.Module):
 			if(useSequentialSANI):
 				layerActivations = EISANIpt_EISANImodelSequential.sequentialSANIpassHiddenLayers(self, trainOrTest, batchIndex, slidingWindowIndex, initActivation)
 			else:
-				layerActivations = EISANIpt_EISANImodelSummation.summationSANIpassHiddenLayers(self, trainOrTest, initActivation)
+				layerActivations = EISANIpt_EISANImodelSegmental.segmentalSANIpassHiddenLayers(self, trainOrTest, initActivation)
 
 			# -----------------------------
 			# Output layer

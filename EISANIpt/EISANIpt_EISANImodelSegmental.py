@@ -1,4 +1,4 @@
-"""EISANIpt_EISANImodelSummation.py
+"""EISANIpt_EISANImodelSegmental.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,10 +13,10 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt model Summation (summation activated neuronal input)
+EISANIpt model Segmental (segmentally activated neuronal input)
 
-The EISANI summation activated neuronal input algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways;
-a) tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
+The EISANI segmentally activated neuronal input algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways;
+a) tabular/image datasets use segmentally activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
 b) both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
 The algorithm is equivalent to the original SANI specification otherwise (dynamic network generation etc).
 
@@ -30,7 +30,7 @@ import torch
 from typing import List, Optional, Tuple
 from ANNpt_globalDefs import *
 if(useDynamicGeneratedHiddenConnections):
-	import EISANIpt_EISANImodelSummationDynamic
+	import EISANIpt_EISANImodelSegmentalDynamic
 
 if(useConnectionWeights):
 	# -----------------------------
@@ -144,7 +144,7 @@ if(useConnectionWeights):
 # -----------------------------
 # Hidden layers
 # -----------------------------
-def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
+def segmentalSANIpassHiddenLayers(self, trainOrTest, initActivation):
 	prevActivation = initActivation
 	layerActivations: List[torch.Tensor] = []
 	for layerIdSuperblock in range(recursiveSuperblocksNumber): # Modified
@@ -165,12 +165,12 @@ def summationSANIpassHiddenLayers(self, trainOrTest, initActivation):
 			if (trainOrTest and useDynamicGeneratedHiddenConnections):
 				for _ in range(numberNeuronSegmentsGeneratedPerSample):
 					if(useDynamicGeneratedHiddenConnectionsVectorised):
-						EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
+						EISANIpt_EISANImodelSegmentalDynamic.dynamic_hidden_growth_vectorised(self, uniqueLayerIndex, prevActivation, currentActivation, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
 					else:
 						for s_batch_idx in range(prevActivation.size(0)):                # loop over batch
 							prevAct_b  = prevActivation[s_batch_idx : s_batch_idx + 1]             # keep 2- [1, prevSize]
 							currAct_b  = currentActivation[s_batch_idx : s_batch_idx + 1]          # keep 2- [1, layerSize]
-							EISANIpt_EISANImodelSummationDynamic.dynamic_hidden_growth(self, uniqueLayerIndex, prevAct_b, currAct_b, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
+							EISANIpt_EISANImodelSegmentalDynamic.dynamic_hidden_growth(self, uniqueLayerIndex, prevAct_b, currAct_b, device, segmentIndexToUpdate) # Added segmentIndexToUpdate, Modified
 
 			layerActivations.append(currentActivation)
 			prevActivation = currentActivation
@@ -256,7 +256,7 @@ def segmentActivationFunction(self, z_all_segments):
     return segment_fires
 
 def neuronActivationFunction(self, a_all_segments_list):
-	#for EISANI summation activated neuronal input assume neuron is activated when any segments are activated
+	#for EISANI segmentally activated neuronal input assume neuron is activated when any segments are activated
 	a_all_segments = torch.stack(a_all_segments_list, dim=2)	# [B, numNeurons, numberOfSegmentsPerNeuron] (bool)
 	# Combine segment activations: a neuron is active if any of its segments are active.
 	neuron_fires = torch.any(a_all_segments, dim=2) # [B, numNeurons] (bool)

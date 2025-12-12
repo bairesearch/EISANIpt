@@ -36,7 +36,7 @@ useNLPDataset = False	#aka useSequenceDataset
 
 #architecture selection;
 if(useNLPDataset):
-	useSequentialSANI = True	#mandatory: True	#sequentially activated neuronal input (else use summation activated neuronal input)
+	useSequentialSANI = True	#mandatory: True	#sequentially activated neuronal input (else use segmentally activated neuronal input)
 	useStochasticUpdates = False	#mandatory: False (not currently supported by useSequentialSANI)
 else:
 	useSequentialSANI = False	#mandatory: False

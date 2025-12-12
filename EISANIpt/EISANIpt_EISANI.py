@@ -13,7 +13,7 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt excitatory inhibitory (EI) sequentially/summation activated neuronal input (SANI) network
+EISANIpt excitatory inhibitory (EI) sequentially/segmentally activated neuronal input (SANI) network
 
 """
 

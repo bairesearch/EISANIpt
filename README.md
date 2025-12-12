@@ -6,15 +6,15 @@ Richard Bruce Baxter - Copyright (c) 2025 Baxter AI (baxterai.com)
 
 ### Description
 
-Excitatory Inhibitory Sequentially/Summation Activated Neuronal Input (EISANI) network for PyTorch - experimental
+Excitatory Inhibitory Sequentially/Segmentally Activated Neuronal Input (EISANI) network for PyTorch - experimental
 
-#### EISANI Summation Input Algorithm
+#### EISANI Segmental Input Algorithm
 
 ##### Comparison with SANI Sequential Input Algorithm
 
-The EISANI summation activated neuronal input algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
+The EISANI segmentally activated neuronal input algorithm differs from the original SANI (sequentially activated neuronal input) specification in two ways, but is equivalent otherwise (dynamic network generation etc);
 
-1. tabular/image datasets use summation activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
+1. tabular/image datasets use segmentally activated neuronal input. A sequentially activated neuronal input requirement is not enforced, as this was designed for sequential data such as NLP (text).
 2. both excitatory and inhibitory input are used (either !useEIneurons:excitatory/inihibitory synapses or useEIneurons:excitatory/inhibitory neurons). 
 
 ##### Advantages

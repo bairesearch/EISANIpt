@@ -1,4 +1,4 @@
-"""EISANIpt_EISANImodelSummationDynamic.py
+"""EISANIpt_EISANImodelSegmentalDynamic.py
 
 # Author:
 Richard Bruce Baxter - Copyright (c) 2024-2025 Baxter AI (baxterai.com)
@@ -13,7 +13,7 @@ see ANNpt_main.py
 see ANNpt_main.py
 
 # Description:
-EISANIpt model Summation Dynamic neuron segment connection assignment
+EISANIpt model Segmental Dynamic neuron segment connection assignment
 
 """
 
